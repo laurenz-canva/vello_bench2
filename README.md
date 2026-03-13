@@ -16,7 +16,7 @@ RUSTFLAGS=-Ctarget-feature=+simd128 cargo run -- --package vello_bench2 --releas
 Scalar (non-SIMD) build:
 
 ```
-cargo run -- --package vello_bench2 --release
+cargo run -- --package vello_bench2 -- --release
 ```
 
 This builds the wasm and starts a local dev server automatically.
