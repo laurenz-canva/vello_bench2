@@ -10,13 +10,13 @@ A browser-based benchmark tool for Vello Hybrid's WebGL2 renderer. Two modes:
 Run with SIMD enabled (recommended):
 
 ```
-RUSTFLAGS=-Ctarget-feature=+simd128 cargo run --release
+RUSTFLAGS=-Ctarget-feature=+simd128 cargo run -- --package vello_bench2 --release
 ```
 
 Scalar (non-SIMD) build:
 
 ```
-cargo run --release
+cargo run -- --package vello_bench2 --release
 ```
 
 This builds the wasm and starts a local dev server automatically.
