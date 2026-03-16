@@ -48,16 +48,29 @@ jobs:
             cargo install wasm-bindgen-cli
           fi
 
-      - name: Build wasm (release + SIMD)
+      - name: Build wasm (SIMD)
         run: cargo build --target wasm32-unknown-unknown --release
         env:
           RUSTFLAGS: -Ctarget-feature=+simd128
 
-      - name: Generate JS bindings
+      - name: Generate SIMD bindings
         run: |
           wasm-bindgen \
             --target web \
-            --out-dir dist \
+            --out-dir dist/simd \
+            --no-typescript \
+            target/wasm32-unknown-unknown/release/vello_bench2.wasm
+
+      - name: Build wasm (no SIMD)
+        run: cargo build --target wasm32-unknown-unknown --release
+        env:
+          RUSTFLAGS: ""
+
+      - name: Generate no-SIMD bindings
+        run: |
+          wasm-bindgen \
+            --target web \
+            --out-dir dist/nosimd \
             --no-typescript \
             target/wasm32-unknown-unknown/release/vello_bench2.wasm
 

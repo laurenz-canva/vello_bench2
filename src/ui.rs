@@ -899,6 +899,51 @@ fn build_top_bar(document: &Document) -> (HtmlElement, HtmlElement, HtmlElement)
     top_bar.append_child(&tab_benchmark).unwrap();
     top_bar.append_child(&tab_interactive).unwrap();
 
+    let has_toggle = js_sys::Reflect::get(&js_sys::global(), &"__vello_toggle_simd".into())
+        .ok()
+        .map_or(false, |v| v.is_function());
+    if has_toggle {
+        let spacer = div(document);
+        set(&spacer, &[("flex", "1")]);
+        top_bar.append_child(&spacer).unwrap();
+
+        let simd_on = js_sys::Reflect::get(&js_sys::global(), &"__vello_simd".into())
+            .ok()
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let simd_btn = div(document);
+        simd_btn.set_text_content(Some(if simd_on { "SIMD: ON" } else { "SIMD: OFF" }));
+        set(
+            &simd_btn,
+            &[
+                ("color", if simd_on { "#a6e3a1" } else { "#f38ba8" }),
+                ("font-size", "12px"),
+                ("font-weight", "600"),
+                ("cursor", "pointer"),
+                ("padding", "4px 10px"),
+                ("border-radius", "4px"),
+                ("border", if simd_on { "1px solid #a6e3a1" } else { "1px solid #f38ba8" }),
+                ("user-select", "none"),
+            ],
+        );
+        {
+            let cb = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
+                if let Ok(f) =
+                    js_sys::Reflect::get(&js_sys::global(), &"__vello_toggle_simd".into())
+                {
+                    if let Some(f) = f.dyn_ref::<js_sys::Function>() {
+                        let _ = f.call0(&wasm_bindgen::JsValue::NULL);
+                    }
+                }
+            }) as Box<dyn FnMut()>);
+            simd_btn
+                .add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+                .unwrap();
+            cb.forget();
+        }
+        top_bar.append_child(&simd_btn).unwrap();
+    }
+
     (top_bar, tab_interactive, tab_benchmark)
 }
 

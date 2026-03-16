@@ -12,10 +12,21 @@
 
 <body>
   <script type="module">
-    import init from "./vello_bench2.js";
-    window.addEventListener("load", () => {
+    const simd = localStorage.getItem("vello_bench_simd") !== "0";
+    const mod_path = simd ? "./simd/vello_bench2.js" : "./nosimd/vello_bench2.js";
+
+    window.__vello_simd = simd;
+    window.__vello_toggle_simd = () => {
+      localStorage.setItem("vello_bench_simd", simd ? "0" : "1");
+      location.reload();
+    };
+
+    const { default: init } = await import(mod_path);
+    if (document.readyState === "complete") {
       init();
-    });
+    } else {
+      window.addEventListener("load", () => init());
+    }
   </script>
 
 </body>

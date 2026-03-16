@@ -9,6 +9,8 @@ A browser-based benchmark tool for Vello Hybrid's WebGL2 renderer. Two modes:
 
 ## Running
 
+### Quick (single build)
+
 Run with SIMD enabled (recommended):
 
 ```
@@ -18,7 +20,15 @@ RUSTFLAGS=-Ctarget-feature=+simd128 cargo run -- --package vello_bench2 --releas
 Scalar (non-SIMD) build:
 
 ```
-cargo run -- --package vello_bench2 -- --release
+cargo run -- --package vello_bench2 --release
 ```
 
-This builds the wasm and starts a local dev server automatically.
+### Full local server (SIMD toggle)
+
+Builds both SIMD and non-SIMD variants and serves them with a toggle button in the top bar:
+
+```
+./serve.sh
+```
+
+Then open http://localhost:8080. Requires `wasm-bindgen-cli` (`cargo install wasm-bindgen-cli`).
