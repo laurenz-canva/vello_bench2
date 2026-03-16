@@ -109,6 +109,9 @@ impl AppState {
         let (w, h) = (self.width, self.height);
         let view = Affine::translate((self.pan_x, self.pan_y)) * Affine::scale(self.zoom);
         self.scenes[idx].render(&mut self.scene, &mut self.renderer, w, h, now, view);
+
+        let encode_ms = perf.now() - t0;
+
         let rs = vello_hybrid::RenderSize {
             width: w,
             height: h,
@@ -116,9 +119,9 @@ impl AppState {
         self.renderer.render(&self.scene, &rs).unwrap();
         gpu_sync(&self.renderer);
 
-        let render_ms = perf.now() - t0;
+        let total_ms = perf.now() - t0;
         let (fps, frame_time) = self.fps_tracker.frame(now);
-        self.ui.update_timing(fps, frame_time, render_ms);
+        self.ui.update_timing(fps, frame_time, encode_ms, total_ms);
     }
 
     fn is_view_default(&self) -> bool {

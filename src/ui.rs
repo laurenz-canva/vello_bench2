@@ -108,6 +108,7 @@ pub struct Ui {
     toggle_btn: HtmlElement,
     sidebar_collapsed: bool,
     fps_label: HtmlElement,
+    encode_label: HtmlElement,
     render_label: HtmlElement,
     viewport_label: HtmlElement,
     /// Scene selector.
@@ -242,6 +243,7 @@ impl Ui {
             toggle_btn: iv.toggle_btn,
             sidebar_collapsed: false,
             fps_label: iv.fps_label,
+            encode_label: iv.encode_label,
             render_label: iv.render_label,
             viewport_label: iv.viewport_label,
             scene_select: iv.scene_select,
@@ -345,11 +347,13 @@ impl Ui {
     // ── Interactive displays ─────────────────────────────────────────────
 
     /// Update FPS/render displays.
-    pub fn update_timing(&self, fps: f64, frame_time: f64, render_time: f64) {
+    pub fn update_timing(&self, fps: f64, frame_time: f64, encode_ms: f64, total_ms: f64) {
         self.fps_label
             .set_text_content(Some(&format!("FPS: {fps:.1}  ({frame_time:.1}ms)")));
+        self.encode_label
+            .set_text_content(Some(&format!("Encode: {encode_ms:.2}ms")));
         self.render_label
-            .set_text_content(Some(&format!("Render: {render_time:.2}ms")));
+            .set_text_content(Some(&format!("Frame: {total_ms:.2}ms")));
     }
 
     /// Update viewport display.
@@ -827,6 +831,7 @@ struct InteractiveViewParts {
     sidebar: HtmlElement,
     toggle_btn: HtmlElement,
     fps_label: HtmlElement,
+    encode_label: HtmlElement,
     render_label: HtmlElement,
     viewport_label: HtmlElement,
     scene_select: HtmlSelectElement,
@@ -1033,8 +1038,16 @@ fn build_interactive_view(
     );
     sidebar.append_child(&fps_label).unwrap();
 
+    let encode_label = div(document);
+    encode_label.set_text_content(Some("Encode: --"));
+    set(
+        &encode_label,
+        &[("color", "#9399b2"), ("margin-bottom", "2px")],
+    );
+    sidebar.append_child(&encode_label).unwrap();
+
     let render_label = div(document);
-    render_label.set_text_content(Some("Render: --"));
+    render_label.set_text_content(Some("Frame: --"));
     set(
         &render_label,
         &[("color", "#9399b2"), ("margin-bottom", "2px")],
@@ -1123,6 +1136,7 @@ fn build_interactive_view(
         sidebar,
         toggle_btn,
         fps_label,
+        encode_label,
         render_label,
         viewport_label,
         scene_select,
