@@ -86,11 +86,8 @@ pub(crate) fn bounce(pos: &mut f64, vel: &mut f64, max: f64) {
 /// On the first call (`last_time == 0`), returns a synthetic kick of 0.5s
 /// to spread elements on screen. Updates `last_time` in place.
 pub(crate) fn delta_time(last_time: &mut f64, time: f64, speed: f64) -> f64 {
-    let dt = if *last_time > 0.0 {
-        ((time - *last_time) / 1000.0) * speed
-    } else {
-        0.5
-    };
+    // Cap raw dt to 100ms to avoid huge jumps after tab switches / pauses.
+    let dt = ((time - *last_time) / 1000.0).clamp(0.0, 0.1) * speed;
     *last_time = time;
     dt
 }
