@@ -597,6 +597,8 @@ fn wire_touch(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
             if let Some(target) = e.target() {
                 if let Ok(node) = target.dyn_into::<web_sys::Node>() {
                     if sidebar.contains(Some(&node)) {
+                        // Let the browser handle sidebar touches normally.
+                        st.touch_count = 0;
                         return;
                     }
                 }
