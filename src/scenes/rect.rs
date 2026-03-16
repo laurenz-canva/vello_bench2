@@ -10,7 +10,7 @@ use crate::backend::{Backend, Pixmap};
 use crate::rng::Rng;
 use smallvec::smallvec;
 use vello_common::kurbo::{Affine, Point, Rect};
-use vello_common::paint::{Image, ImageId, ImageSource};
+use vello_common::paint::{Image, ImageSource};
 use vello_common::peniko::{
     Color, ColorStop, ColorStops, Extend, Gradient, ImageQuality, ImageSampler,
     LinearGradientPosition, RadialGradientPosition, SweepGradientPosition, color::DynamicColor,
@@ -158,8 +158,8 @@ pub struct RectScene {
     rng: Rng,
     last_time: f64,
     frame: u64,
-    /// Uploaded image IDs (populated on first render).
-    image_ids: Vec<ImageId>,
+    /// Uploaded images (populated on first render).
+    image_sources: Vec<ImageSource>,
     /// Tracks what opacity mode images were generated with.
     images_were_opaque: bool,
 }
@@ -182,7 +182,7 @@ impl RectScene {
             rng: Rng::new(0xDEAD_BEEF),
             last_time: 0.0,
             frame: 0,
-            image_ids: Vec::new(),
+            image_sources: Vec::new(),
             images_were_opaque: false,
         }
     }
@@ -206,10 +206,10 @@ impl RectScene {
     /// color palette — cheap to compute but produces visible moiré when scaled,
     /// making the difference between nearest-neighbor and bilinear obvious.
     fn ensure_images(&mut self, backend: &mut Backend) {
-        if !self.image_ids.is_empty() && self.images_were_opaque == self.image_opaque {
+        if !self.image_sources.is_empty() && self.images_were_opaque == self.image_opaque {
             return;
         }
-        self.image_ids.clear();
+        self.image_sources.clear();
         self.images_were_opaque = self.image_opaque;
         let mut rng = Rng::new(0xCAFE_BABE);
         let s = IMAGE_SIZE as f64;
@@ -270,8 +270,8 @@ impl RectScene {
 
             let pixmap =
                 Pixmap::from_parts_with_opacity(pixels, IMAGE_SIZE, IMAGE_SIZE, !self.image_opaque);
-            let id = backend.upload_image(pixmap);
-            self.image_ids.push(id);
+            let source = backend.upload_image(pixmap);
+            self.image_sources.push(source);
         }
     }
 }
@@ -519,8 +519,7 @@ impl BenchScene for RectScene {
                 _ if self.use_draw_image => {
                     // draw_image expects the rect in image-native coordinates;
                     // the scene transform handles positioning and scaling.
-                    let id = self.image_ids[r.image_idx];
-                    let source = ImageSource::opaque_id_with_opacity_hint(id, !self.image_opaque);
+                    let source = self.image_sources[r.image_idx].clone();
                     let bilinear = self.image_filter != 0;
                     let scale = size / IMAGE_SIZE as f64;
                     let img_rect = Rect::new(0.0, 0.0, IMAGE_SIZE as f64, IMAGE_SIZE as f64);
@@ -543,9 +542,8 @@ impl BenchScene for RectScene {
                 }
                 _ => {
                     // Image paint mode.
-                    let id = self.image_ids[r.image_idx];
                     let image = Image {
-                        image: ImageSource::opaque_id_with_opacity_hint(id, !self.image_opaque),
+                        image: self.image_sources[r.image_idx].clone(),
                         sampler: ImageSampler {
                             x_extend: Extend::Repeat,
                             y_extend: Extend::Repeat,

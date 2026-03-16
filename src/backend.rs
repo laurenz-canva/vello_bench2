@@ -5,7 +5,7 @@
 //! operations (render, sync, image upload) live on `Backend` directly.
 
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
-use vello_common::paint::{ImageId, ImageSource, PaintType};
+use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::{Fill, FontData};
 use web_sys::HtmlCanvasElement;
 
@@ -14,7 +14,7 @@ use web_sys::HtmlCanvasElement;
 #[cfg(feature = "cpu")]
 mod inner {
     use alloc::sync::Arc;
-    use vello_common::paint::ImageId;
+    use vello_common::paint::ImageSource;
     pub use vello_cpu::Pixmap;
     use wasm_bindgen::JsCast;
     use web_sys::{HtmlCanvasElement, WebGl2RenderingContext as GL, WebGlProgram, WebGlTexture};
@@ -138,8 +138,8 @@ mod inner {
             self.height = h as u16;
         }
 
-        pub fn upload_image(&mut self, ctx: &mut DrawContext, pixmap: Pixmap) -> ImageId {
-            ctx.register_image(Arc::new(pixmap))
+        pub fn upload_image(&mut self, _ctx: &mut DrawContext, pixmap: Pixmap) -> ImageSource {
+            ImageSource::Pixmap(Arc::new(pixmap))
         }
 
         pub fn sync(&self) {}
@@ -150,7 +150,7 @@ mod inner {
 
 #[cfg(not(feature = "cpu"))]
 mod inner {
-    use vello_common::paint::ImageId;
+    use vello_common::paint::ImageSource;
     pub use vello_hybrid::Pixmap;
     use web_sys::HtmlCanvasElement;
 
@@ -187,8 +187,9 @@ mod inner {
 
         pub fn resize(&mut self, _w: u32, _h: u32) {}
 
-        pub fn upload_image(&mut self, _ctx: &mut DrawContext, pixmap: Pixmap) -> ImageId {
-            self.renderer.upload_image(&pixmap)
+        pub fn upload_image(&mut self, _ctx: &mut DrawContext, pixmap: Pixmap) -> ImageSource {
+            let id = self.renderer.upload_image(&pixmap);
+            ImageSource::opaque_id_with_opacity_hint(id, pixmap.may_have_opacities())
         }
 
         pub fn sync(&self) {
@@ -256,7 +257,7 @@ impl Backend {
     }
 
     /// Upload an image and return its ID.
-    pub fn upload_image(&mut self, pixmap: Pixmap) -> ImageId {
+    pub fn upload_image(&mut self, pixmap: Pixmap) -> ImageSource {
         self.inner.upload_image(&mut self.ctx, pixmap)
     }
 
