@@ -5,7 +5,7 @@
 //! operations (render, sync, image upload) live on `Backend` directly.
 
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
-use vello_common::paint::{ImageId, PaintType};
+use vello_common::paint::{ImageId, ImageSource, PaintType};
 use vello_common::peniko::{Fill, FontData};
 use web_sys::HtmlCanvasElement;
 
@@ -303,5 +303,40 @@ impl Backend {
         font: &FontData,
     ) -> vello_common::glyph::GlyphRunBuilder<'_, DrawContext> {
         self.ctx.glyph_run(font)
+    }
+
+    /// Draw an image into a rect.
+    ///
+    /// On the hybrid backend this uses the GPU fast path (`Scene::draw_image`).
+    /// On the CPU backend this falls back to image paint with Pad extend.
+    pub fn draw_image(&mut self, image: ImageSource, rect: &Rect, bilinear: bool) {
+        #[cfg(not(feature = "cpu"))]
+        {
+            self.ctx.draw_image(image, rect, bilinear);
+        }
+        #[cfg(feature = "cpu")]
+        {
+            use vello_common::paint::Image;
+            use vello_common::peniko::{Extend, ImageQuality, ImageSampler};
+            let old_paint_transform = *self.ctx.paint_transform();
+            let old_paint = self.ctx.paint().clone();
+            self.ctx.set_paint_transform(Affine::IDENTITY);
+            self.ctx.set_paint(Image {
+                image,
+                sampler: ImageSampler {
+                    x_extend: Extend::Pad,
+                    y_extend: Extend::Pad,
+                    quality: if bilinear {
+                        ImageQuality::Medium
+                    } else {
+                        ImageQuality::Low
+                    },
+                    alpha: 1.0,
+                },
+            });
+            self.ctx.fill_rect(rect);
+            self.ctx.set_paint_transform(old_paint_transform);
+            self.ctx.set_paint(old_paint);
+        }
     }
 }

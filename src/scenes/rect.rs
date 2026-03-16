@@ -148,6 +148,8 @@ pub struct RectScene {
     image_filter: u32,
     /// Whether images are fully opaque (no alpha fade).
     image_opaque: bool,
+    /// Use `draw_image` API instead of image paint (hybrid GPU fast path).
+    use_draw_image: bool,
     /// When true, gradient colors and positions animate every frame.
     dynamic_gradient: bool,
     /// 0 = linear, 1 = radial, 2 = sweep
@@ -173,6 +175,7 @@ impl RectScene {
             rotated: false,
             image_filter: 0,
             image_opaque: false,
+            use_draw_image: false,
             dynamic_gradient: false,
             gradient_shape: 0,
             rects: Vec::new(),
@@ -350,6 +353,12 @@ impl BenchScene for RectScene {
                 kind: ParamKind::Select(vec![("No", 0.0), ("Yes", 1.0)]),
                 value: if self.image_opaque { 1.0 } else { 0.0 },
             },
+            Param {
+                name: "use_draw_image",
+                label: "Use draw_image",
+                kind: ParamKind::Select(vec![("No", 0.0), ("Yes", 1.0)]),
+                value: if self.use_draw_image { 1.0 } else { 0.0 },
+            },
         ]
     }
 
@@ -363,6 +372,7 @@ impl BenchScene for RectScene {
             "dynamic_gradient" => self.dynamic_gradient = value >= 0.5,
             "image_filter" => self.image_filter = value as u32,
             "image_opaque" => self.image_opaque = value >= 0.5,
+            "use_draw_image" => self.use_draw_image = value >= 0.5,
             _ => {}
         }
     }
@@ -506,6 +516,31 @@ impl BenchScene for RectScene {
                     };
                     backend.set_paint(gradient);
                 }
+                _ if self.use_draw_image => {
+                    // draw_image expects the rect in image-native coordinates;
+                    // the scene transform handles positioning and scaling.
+                    let id = self.image_ids[r.image_idx];
+                    let source = ImageSource::opaque_id_with_opacity_hint(id, !self.image_opaque);
+                    let bilinear = self.image_filter != 0;
+                    let scale = size / IMAGE_SIZE as f64;
+                    let img_rect = Rect::new(0.0, 0.0, IMAGE_SIZE as f64, IMAGE_SIZE as f64);
+                    if self.rotated {
+                        // Rotation transform already positions at origin.
+                        backend.set_transform(
+                            view * Affine::translate((r.x + half, r.y + half))
+                                * Affine::rotate(r.angle)
+                                * Affine::translate((-half, -half))
+                                * Affine::scale(scale),
+                        );
+                    } else {
+                        backend.set_transform(
+                            view * Affine::translate((r.x, r.y)) * Affine::scale(scale),
+                        );
+                    }
+                    backend.draw_image(source, &img_rect, bilinear);
+                    backend.set_transform(view);
+                    continue;
+                }
                 _ => {
                     // Image paint mode.
                     let id = self.image_ids[r.image_idx];
@@ -522,7 +557,6 @@ impl BenchScene for RectScene {
                             alpha: 1.0,
                         },
                     };
-                    // Scale image to fill the rect.
                     let scale = size / IMAGE_SIZE as f64;
                     if self.rotated {
                         backend.set_paint_transform(Affine::scale(scale));
