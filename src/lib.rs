@@ -56,6 +56,12 @@ struct AppState {
     dragging: bool,
     drag_last_x: f64,
     drag_last_y: f64,
+    // Touch state for mobile pan/zoom.
+    touch_count: u32,
+    touch_last_x: f64,
+    touch_last_y: f64,
+    /// Distance between two fingers for pinch zoom.
+    pinch_dist: f64,
 }
 
 impl std::fmt::Debug for AppState {
@@ -275,6 +281,10 @@ pub async fn run() {
         dragging: false,
         drag_last_x: 0.0,
         drag_last_y: 0.0,
+        touch_count: 0,
+        touch_last_x: 0.0,
+        touch_last_y: 0.0,
+        pinch_dist: 0.0,
     }));
 
     {
@@ -452,6 +462,7 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
     }
 
     wire_pan_zoom(state, window);
+    wire_touch(state, window);
     wire_animation_loop(state);
     wire_resize(state);
 }
@@ -541,6 +552,157 @@ fn wire_pan_zoom(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         )
         .unwrap();
     cb.forget();
+}
+
+/// Helper: compute distance between two touches.
+fn touch_distance(t: &web_sys::TouchList) -> f64 {
+    if t.length() < 2 {
+        return 0.0;
+    }
+    let a = t.get(0).unwrap();
+    let b = t.get(1).unwrap();
+    let dx = (a.client_x() - b.client_x()) as f64;
+    let dy = (a.client_y() - b.client_y()) as f64;
+    (dx * dx + dy * dy).sqrt()
+}
+
+/// Helper: compute midpoint of two touches (in client coords).
+fn touch_midpoint(t: &web_sys::TouchList) -> (f64, f64) {
+    if t.length() < 2 {
+        let a = t.get(0).unwrap();
+        return (a.client_x() as f64, a.client_y() as f64);
+    }
+    let a = t.get(0).unwrap();
+    let b = t.get(1).unwrap();
+    (
+        (a.client_x() + b.client_x()) as f64 * 0.5,
+        (a.client_y() + b.client_y()) as f64 * 0.5,
+    )
+}
+
+/// Wire touch events for mobile pan (1 finger) and pinch-to-zoom (2 fingers).
+fn wire_touch(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
+    let opts = web_sys::AddEventListenerOptions::new();
+    opts.set_passive(false);
+
+    // touchstart
+    {
+        let s = state.clone();
+        let sidebar = state.borrow().ui.sidebar().clone();
+        let cb = Closure::wrap(Box::new(move |e: web_sys::TouchEvent| {
+            let mut st = s.borrow_mut();
+            if st.ui.mode != AppMode::Interactive {
+                return;
+            }
+            if let Some(target) = e.target() {
+                if let Ok(node) = target.dyn_into::<web_sys::Node>() {
+                    if sidebar.contains(Some(&node)) {
+                        return;
+                    }
+                }
+            }
+            e.prevent_default();
+            let touches = e.touches();
+            st.touch_count = touches.length();
+            if touches.length() == 1 {
+                let t = touches.get(0).unwrap();
+                st.touch_last_x = t.client_x() as f64;
+                st.touch_last_y = t.client_y() as f64;
+            } else if touches.length() >= 2 {
+                st.pinch_dist = touch_distance(&touches);
+                let (mx, my) = touch_midpoint(&touches);
+                st.touch_last_x = mx;
+                st.touch_last_y = my;
+            }
+        }) as Box<dyn FnMut(_)>);
+        window
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                "touchstart",
+                cb.as_ref().unchecked_ref(),
+                &opts,
+            )
+            .unwrap();
+        cb.forget();
+    }
+
+    // touchmove
+    {
+        let s = state.clone();
+        let cb = Closure::wrap(Box::new(move |e: web_sys::TouchEvent| {
+            let mut st = s.borrow_mut();
+            if st.ui.mode != AppMode::Interactive || st.touch_count == 0 {
+                return;
+            }
+            e.prevent_default();
+            let dpr = web_sys::window().unwrap().device_pixel_ratio();
+            let touches = e.touches();
+
+            if touches.length() == 1 && st.touch_count == 1 {
+                // Single finger pan.
+                let t = touches.get(0).unwrap();
+                let x = t.client_x() as f64;
+                let y = t.client_y() as f64;
+                st.pan_x += (x - st.touch_last_x) * dpr;
+                st.pan_y += (y - st.touch_last_y) * dpr;
+                st.touch_last_x = x;
+                st.touch_last_y = y;
+                st.update_reset_btn();
+            } else if touches.length() >= 2 {
+                // Pinch zoom + two-finger pan.
+                let new_dist = touch_distance(&touches);
+                let (mx, my) = touch_midpoint(&touches);
+
+                if st.pinch_dist > 0.0 {
+                    let factor = new_dist / st.pinch_dist;
+                    let cx = mx * dpr;
+                    let cy = (my - 40.0) * dpr;
+                    st.zoom_at(cx, cy, factor);
+                }
+                // Pan by midpoint delta.
+                st.pan_x += (mx - st.touch_last_x) * dpr;
+                st.pan_y += (my - st.touch_last_y) * dpr;
+
+                st.pinch_dist = new_dist;
+                st.touch_last_x = mx;
+                st.touch_last_y = my;
+                st.touch_count = touches.length();
+            }
+        }) as Box<dyn FnMut(_)>);
+        window
+            .add_event_listener_with_callback_and_add_event_listener_options(
+                "touchmove",
+                cb.as_ref().unchecked_ref(),
+                &opts,
+            )
+            .unwrap();
+        cb.forget();
+    }
+
+    // touchend / touchcancel
+    {
+        let s = state.clone();
+        let cb = Closure::wrap(Box::new(move |e: web_sys::TouchEvent| {
+            let mut st = s.borrow_mut();
+            let touches = e.touches();
+            st.touch_count = touches.length();
+            if touches.length() == 1 {
+                // Went from 2→1 finger: reset single-finger tracking.
+                let t = touches.get(0).unwrap();
+                st.touch_last_x = t.client_x() as f64;
+                st.touch_last_y = t.client_y() as f64;
+            }
+            if touches.length() == 0 {
+                st.pinch_dist = 0.0;
+            }
+        }) as Box<dyn FnMut(_)>);
+        window
+            .add_event_listener_with_callback("touchend", cb.as_ref().unchecked_ref())
+            .unwrap();
+        window
+            .add_event_listener_with_callback("touchcancel", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
 }
 
 /// Start the requestAnimationFrame loop.
