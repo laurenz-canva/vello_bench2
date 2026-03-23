@@ -545,8 +545,8 @@ impl BenchScene for RectScene {
                     let image = Image {
                         image: self.image_sources[r.image_idx].clone(),
                         sampler: ImageSampler {
-                            x_extend: Extend::Repeat,
-                            y_extend: Extend::Repeat,
+                            x_extend: Extend::Pad,
+                            y_extend: Extend::Pad,
                             quality: if self.image_filter == 0 {
                                 ImageQuality::Low
                             } else {
