@@ -171,7 +171,7 @@ impl RectScene {
             num_rects: 500,
             speed: 5.0,
             paint_mode: 0,
-            rect_size: 50.0,
+            rect_size: 100.0,
             rotated: false,
             image_filter: 0,
             image_opaque: false,
