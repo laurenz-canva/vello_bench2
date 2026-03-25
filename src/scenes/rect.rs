@@ -300,11 +300,7 @@ impl BenchScene for RectScene {
             Param {
                 name: "num_rects",
                 label: "Rectangles",
-                kind: ParamKind::Slider {
-                    min: 1.0,
-                    max: 1000.0,
-                    step: 1.0,
-                },
+                kind: ParamKind::Select(vec![("100", 100.0), ("500", 500.0), ("1000", 1000.0)]),
                 value: self.num_rects as f64,
             },
             Param {
@@ -316,11 +312,7 @@ impl BenchScene for RectScene {
             Param {
                 name: "rect_size",
                 label: "Rect Size",
-                kind: ParamKind::Slider {
-                    min: 5.0,
-                    max: 500.0,
-                    step: 1.0,
-                },
+                kind: ParamKind::Select(vec![("50", 50.0), ("100", 100.0), ("200", 200.0)]),
                 value: self.rect_size,
             },
             Param {

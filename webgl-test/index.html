@@ -16,16 +16,26 @@
     z-index: 1; font: 14px monospace; color: #ccc;
   }
   #top-bar label { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
-  #top-bar input[type="range"] { width: 100px; }
   #top-bar select { font: 12px monospace; background: #333; color: #fff; border: 1px solid #666; padding: 2px 4px; }
+  .btn-group { display: flex; gap: 2px; }
+  .btn-group button { font: 12px monospace; padding: 2px 8px; background: #333; color: #ccc; border: 1px solid #666; cursor: pointer; }
+  .btn-group button.active { background: #58a; color: #fff; border-color: #58a; }
   #hud { color: #0f0; font: 14px monospace; white-space: nowrap; }
 </style>
 </head>
 <body>
 <div id="top-bar">
   <span id="hud">FPS: -- | Frame: 0</span>
-  <label>Quads: <input type="range" id="slider-count" min="1" max="1000" value="500"> <span id="val-count">1000</span></label>
-  <label>Size: <input type="range" id="slider-size" min="5" max="100" value="100"> <span id="val-size">100</span></label>
+  <label>Quads: <span class="btn-group" id="bg-count">
+    <button data-val="100">100</button>
+    <button data-val="500" class="active">500</button>
+    <button data-val="1000">1000</button>
+  </span></label>
+  <label>Size: <span class="btn-group" id="bg-size">
+    <button data-val="50">50</button>
+    <button data-val="100" class="active">100</button>
+    <button data-val="200">200</button>
+  </span></label>
   <label>Paint:
     <select id="sel-paint">
       <option value="solid">Solid Color</option>
@@ -270,22 +280,21 @@ function ensureQuads() {
 ensureQuads();
 
 // --- Controls ---
-const sliderCount = document.getElementById('slider-count');
-const valCount = document.getElementById('val-count');
-const sliderSize = document.getElementById('slider-size');
-const valSize = document.getElementById('val-size');
 const selPaint = document.getElementById('sel-paint');
 const selFilter = document.getElementById('sel-filter');
 
-sliderCount.addEventListener('input', () => {
-  quadCount = parseInt(sliderCount.value);
-  valCount.textContent = quadCount;
-  ensureQuads();
-});
-sliderSize.addEventListener('input', () => {
-  quadSizePx = parseInt(sliderSize.value);
-  valSize.textContent = quadSizePx;
-});
+function setupBtnGroup(id, onChange) {
+  const group = document.getElementById(id);
+  for (const btn of group.querySelectorAll('button')) {
+    btn.addEventListener('click', () => {
+      group.querySelector('.active').classList.remove('active');
+      btn.classList.add('active');
+      onChange(parseInt(btn.dataset.val));
+    });
+  }
+}
+setupBtnGroup('bg-count', (v) => { quadCount = v; ensureQuads(); });
+setupBtnGroup('bg-size', (v) => { quadSizePx = v; });
 selPaint.addEventListener('change', () => { paintMode = selPaint.value; });
 selFilter.addEventListener('change', () => {
   const f = selFilter.value === 'bilinear' ? gl.LINEAR : gl.NEAREST;
