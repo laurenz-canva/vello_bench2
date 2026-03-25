@@ -213,7 +213,8 @@ impl std::fmt::Debug for Backend {
 impl Backend {
     pub fn new(canvas: &HtmlCanvasElement, w: u32, h: u32) -> Self {
         let inner = BackendInner::new(canvas);
-        let ctx = DrawContext::new(w as u16, h as u16);
+        let mut ctx = DrawContext::new(w as u16, h as u16);
+        Self::apply_root_transform(&mut ctx, h);
         Self { ctx, inner }
     }
 
@@ -225,7 +226,17 @@ impl Backend {
     /// Create a fresh draw context (e.g. for benchmark isolation).
     pub fn reset_with_size(&mut self, w: u32, h: u32) {
         self.ctx = DrawContext::new(w as u16, h as u16);
+        Self::apply_root_transform(&mut self.ctx, h);
     }
+
+    /// Apply a Y-flip root transform for WebGL coordinate system.
+    #[cfg(not(feature = "cpu"))]
+    fn apply_root_transform(ctx: &mut DrawContext, h: u32) {
+        ctx.set_root_transform(Affine::new([1.0, 0.0, 0.0, -1.0, 0.0, h as f64]));
+    }
+
+    #[cfg(feature = "cpu")]
+    fn apply_root_transform(_ctx: &mut DrawContext, _h: u32) {}
 
     /// Render offscreen (CPU: render_to_pixmap, Hybrid: full GPU render).
     pub fn render_offscreen(&mut self) {
