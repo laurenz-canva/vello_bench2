@@ -302,7 +302,7 @@ impl BenchScene for RectScene {
                 label: "Rectangles",
                 kind: ParamKind::Slider {
                     min: 1.0,
-                    max: 200_000.0,
+                    max: 1000.0,
                     step: 1.0,
                 },
                 value: self.num_rects as f64,

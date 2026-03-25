@@ -1,2 +1,4 @@
 /target
 /dist
+**/target
+webgl-test-rs/pkg/

@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebGL Quad Test</title>
+<style>
+  * { margin: 0; padding: 0; }
+  body { overflow: hidden; background: #000; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #hud {
+    position: fixed; top: 10px; left: 10px;
+    color: #0f0; font: 16px monospace;
+    background: rgba(0,0,0,0.6); padding: 6px 10px;
+    pointer-events: none; z-index: 1;
+  }
+  #controls {
+    position: fixed; top: 10px; right: 10px; z-index: 1;
+    display: flex; gap: 8px;
+  }
+  #controls button {
+    font: bold 20px monospace; padding: 8px 16px;
+    background: #333; color: #fff; border: 1px solid #666;
+    cursor: pointer; touch-action: manipulation;
+  }
+  #controls span {
+    font: 16px monospace; color: #0f0;
+    background: rgba(0,0,0,0.6); padding: 8px 12px;
+    display: flex; align-items: center;
+  }
+</style>
+</head>
+<body>
+<div id="hud">FPS: -- | Frame: 0</div>
+<div id="controls">
+  <button id="btn-sub">-30</button>
+  <span id="count-label">1</span>
+  <button id="btn-add">+30</button>
+</div>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const hud = document.getElementById('hud');
+const gl = canvas.getContext('webgl2', { antialias: false });
+if (!gl) { hud.textContent = 'WebGL 2 not supported'; throw new Error('no webgl2'); }
+
+function resize() {
+  canvas.width = window.innerWidth * devicePixelRatio;
+  canvas.height = window.innerHeight * devicePixelRatio;
+  gl.viewport(0, 0, canvas.width, canvas.height);
+}
+resize();
+window.addEventListener('resize', resize);
+
+// --- Shaders (pass-through, positions updated on CPU) ---
+const vs = `#version 300 es
+layout(location=0) in vec2 a_pos;
+layout(location=1) in vec4 a_color;
+out vec4 v_color;
+void main() {
+  gl_Position = vec4(a_pos, 0.0, 1.0);
+  v_color = a_color;
+}`;
+
+const fs = `#version 300 es
+precision mediump float;
+in vec4 v_color;
+out vec4 fragColor;
+void main() {
+  fragColor = v_color;
+}`;
+
+function compile(type, src) {
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS))
+    throw new Error(gl.getShaderInfoLog(sh));
+  return sh;
+}
+
+const prog = gl.createProgram();
+gl.attachShader(prog, compile(gl.VERTEX_SHADER, vs));
+gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fs));
+gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS))
+  throw new Error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+// --- Quad data ---
+// Each quad has: hw, hh (half-sizes), cx, cy (center), vx, vy (velocity), 4x color (r,g,b,a per vert)
+const quads = [];
+
+function makeQuad() {
+  const hw = 100 / canvas.width;  // 100px half-width in clip space
+  const hh = 100 / canvas.height;
+  const cx = -1 + hw + Math.random() * (2 - 2 * hw);
+  const cy = -1 + hh + Math.random() * (2 - 2 * hh);
+  const speed = 0.3 + Math.random() * 1.2;
+  const angle = Math.random() * Math.PI * 2;
+  const vx = Math.cos(angle) * speed;
+  const vy = Math.sin(angle) * speed;
+  const alpha = 0.3 + Math.random() * 0.5;
+  const color = [Math.random(), Math.random(), Math.random(), alpha];
+  return { hw, hh, cx, cy, vx, vy, color };
+}
+
+let quadCount = 1000;
+function ensureQuads() {
+  while (quads.length < quadCount) quads.push(makeQuad());
+  quads.length = quadCount;
+  rebuildIndices();
+  document.getElementById('count-label').textContent = quadCount;
+}
+
+// --- GPU buffers ---
+// Per vertex: x, y, r, g, b, a  (6 floats)
+const FLOATS_PER_VERT = 6;
+const VERTS_PER_QUAD = 4;
+
+const vao = gl.createVertexArray();
+gl.bindVertexArray(vao);
+
+const vbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+
+const stride = FLOATS_PER_VERT * 4;
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, stride, 0);
+gl.enableVertexAttribArray(1);
+gl.vertexAttribPointer(1, 4, gl.FLOAT, false, stride, 2 * 4);
+
+const ebo = gl.createBuffer();
+
+function rebuildIndices() {
+  const indices = [];
+  for (let i = 0; i < quadCount; i++) {
+    const base = i * 4;
+    indices.push(base, base + 1, base + 2, base + 3);
+    if (i < quadCount - 1) indices.push(0xFFFF);
+  }
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+}
+
+gl.enable(gl.PRIMITIVE_RESTART_FIXED_INDEX);
+ensureQuads();
+
+// --- Controls ---
+document.getElementById('btn-add').addEventListener('click', () => {
+  quadCount += 30;
+  ensureQuads();
+});
+document.getElementById('btn-sub').addEventListener('click', () => {
+  quadCount = Math.max(1, quadCount - 30);
+  ensureQuads();
+});
+
+// --- Simulation + render ---
+let frame = 0;
+let lastTime = performance.now();
+let windowStart = lastTime;
+let windowFrames = 0;
+let avgFps = 0;
+let avgFrameTime = 0;
+
+function tick(now) {
+  frame++;
+  const dt = now - lastTime;
+  lastTime = now;
+  const dtSec = dt * 0.001;
+
+  windowFrames++;
+  const elapsed = now - windowStart;
+  if (elapsed >= 1000) {
+    avgFrameTime = elapsed / windowFrames;
+    avgFps = windowFrames * 1000 / elapsed;
+    windowStart = now;
+    windowFrames = 0;
+  }
+  hud.textContent = `FPS: ${avgFps.toFixed(1)} (${avgFrameTime.toFixed(1)}ms) | Frame: ${frame} | Quads: ${quadCount} | ${canvas.width}x${canvas.height}`;
+
+  // Update positions (bounce off edges)
+  for (let i = 0; i < quadCount; i++) {
+    const q = quads[i];
+    q.cx += q.vx * dtSec;
+    q.cy += q.vy * dtSec;
+
+    if (q.cx - q.hw < -1) { q.cx = -1 + q.hw; q.vx = Math.abs(q.vx); }
+    if (q.cx + q.hw >  1) { q.cx =  1 - q.hw; q.vx = -Math.abs(q.vx); }
+    if (q.cy - q.hh < -1) { q.cy = -1 + q.hh; q.vy = Math.abs(q.vy); }
+    if (q.cy + q.hh >  1) { q.cy =  1 - q.hh; q.vy = -Math.abs(q.vy); }
+  }
+
+  // Build vertex data
+  const data = new Float32Array(quadCount * VERTS_PER_QUAD * FLOATS_PER_VERT);
+  for (let i = 0; i < quadCount; i++) {
+    const q = quads[i];
+    const o = i * VERTS_PER_QUAD * FLOATS_PER_VERT;
+    // Triangle strip: TL, BL, TR, BR
+    const corners = [
+      q.cx - q.hw, q.cy + q.hh,
+      q.cx - q.hw, q.cy - q.hh,
+      q.cx + q.hw, q.cy + q.hh,
+      q.cx + q.hw, q.cy - q.hh,
+    ];
+    for (let v = 0; v < 4; v++) {
+      const vo = o + v * FLOATS_PER_VERT;
+      data[vo    ] = corners[v * 2];
+      data[vo + 1] = corners[v * 2 + 1];
+      data[vo + 2] = q.color[0];
+      data[vo + 3] = q.color[1];
+      data[vo + 4] = q.color[2];
+      data[vo + 5] = q.color[3];
+    }
+  }
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+
+  gl.clearColor(0.1, 0.1, 0.1, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  const indexCount = quadCount * 4 + Math.max(0, quadCount - 1);
+  gl.drawElements(gl.TRIANGLE_STRIP, indexCount, gl.UNSIGNED_SHORT, 0);
+
+  requestAnimationFrame(tick);
+}
+
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
