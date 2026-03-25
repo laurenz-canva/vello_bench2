@@ -148,7 +148,7 @@ impl BenchHarness {
 
                 let now = perf.now();
                 render_one(scene, be, width, height, now);
-                be.sync();
+
                 events.push(HarnessEvent::ScreenshotReady);
 
                 let start = perf.now();
@@ -156,7 +156,7 @@ impl BenchHarness {
                 loop {
                     let t = perf.now();
                     render_one(scene, be, width, height, t);
-                    be.sync();
+    
                     count += 1;
                     if perf.now() - start >= self.warmup_ms {
                         break;
@@ -182,7 +182,7 @@ impl BenchHarness {
                 for _ in 0..target_iters {
                     let t = perf.now();
                     render_one(scene, be, width, height, t);
-                    be.sync();
+    
                 }
                 let total_ms = perf.now() - start;
 

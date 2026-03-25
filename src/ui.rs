@@ -102,6 +102,7 @@ pub struct Ui {
     // Top bar
     tab_interactive: HtmlElement,
     tab_benchmark: HtmlElement,
+    topbar_fps: HtmlElement,
 
     // Interactive: sidebar
     sidebar: HtmlElement,
@@ -109,9 +110,6 @@ pub struct Ui {
     sidebar_collapsed: bool,
     fps_label: HtmlElement,
     encode_label: HtmlElement,
-    render_label: HtmlElement,
-    blit_label: HtmlElement,
-    total_label: HtmlElement,
     viewport_label: HtmlElement,
     /// Scene selector.
     pub scene_select: HtmlSelectElement,
@@ -191,7 +189,7 @@ impl Ui {
 
         let dirty = Rc::new(Cell::new(false));
 
-        let (top_bar, tab_interactive, tab_benchmark) = build_top_bar(document);
+        let (top_bar, tab_interactive, tab_benchmark, topbar_fps) = build_top_bar(document);
         body.append_child(&top_bar).unwrap();
 
         let iv = build_interactive_view(document, scenes, current_scene, vp_w, vp_h, &dirty);
@@ -241,14 +239,12 @@ impl Ui {
             benchmark_view,
             tab_interactive,
             tab_benchmark,
+            topbar_fps,
             sidebar: iv.sidebar,
             toggle_btn: iv.toggle_btn,
-            sidebar_collapsed: false,
+            sidebar_collapsed: true,
             fps_label: iv.fps_label,
             encode_label: iv.encode_label,
-            render_label: iv.render_label,
-            blit_label: iv.blit_label,
-            total_label: iv.total_label,
             viewport_label: iv.viewport_label,
             scene_select: iv.scene_select,
             controls: iv.controls,
@@ -351,37 +347,12 @@ impl Ui {
     // ── Interactive displays ─────────────────────────────────────────────
 
     /// Update FPS/render displays.
-    pub fn update_timing(
-        &self,
-        fps: f64,
-        frame_time: f64,
-        encode_ms: f64,
-        render_ms: f64,
-        blit_ms: f64,
-        total_ms: f64,
-        is_cpu: bool,
-    ) {
-        self.fps_label
-            .set_text_content(Some(&format!("FPS: {fps:.1}  ({frame_time:.1}ms)")));
+    pub fn update_timing(&self, fps: f64, frame_time: f64, encode_ms: f64, _is_cpu: bool) {
+        let fps_text = format!("FPS: {fps:.1}  ({frame_time:.1}ms)");
+        self.fps_label.set_text_content(Some(&fps_text));
+        self.topbar_fps.set_text_content(Some(&fps_text));
         self.encode_label
             .set_text_content(Some(&format!("Encode: {encode_ms:.2}ms")));
-        self.render_label
-            .set_text_content(Some(&format!("Render: {render_ms:.2}ms")));
-        if is_cpu {
-            self.blit_label
-                .set_text_content(Some(&format!("Blit: {blit_ms:.2}ms")));
-            self.blit_label
-                .style()
-                .set_property("display", "block")
-                .unwrap();
-        } else {
-            self.blit_label
-                .style()
-                .set_property("display", "none")
-                .unwrap();
-        }
-        self.total_label
-            .set_text_content(Some(&format!("Total: {total_ms:.2}ms")));
     }
 
     /// Update viewport display.
@@ -860,9 +831,6 @@ struct InteractiveViewParts {
     toggle_btn: HtmlElement,
     fps_label: HtmlElement,
     encode_label: HtmlElement,
-    render_label: HtmlElement,
-    blit_label: HtmlElement,
-    total_label: HtmlElement,
     viewport_label: HtmlElement,
     scene_select: HtmlSelectElement,
     controls: Vec<(ParamCtrl, HtmlElement, &'static str)>,
@@ -890,7 +858,7 @@ struct BenchRowsParts {
 
 // ── Sub-builders ─────────────────────────────────────────────────────────────
 
-fn build_top_bar(document: &Document) -> (HtmlElement, HtmlElement, HtmlElement) {
+fn build_top_bar(document: &Document) -> (HtmlElement, HtmlElement, HtmlElement, HtmlElement) {
     let top_bar = div(document);
     set(
         &top_bar,
@@ -932,6 +900,22 @@ fn build_top_bar(document: &Document) -> (HtmlElement, HtmlElement, HtmlElement)
 
     top_bar.append_child(&tab_benchmark).unwrap();
     top_bar.append_child(&tab_interactive).unwrap();
+
+    // FPS label in top bar
+    let topbar_fps = div(document);
+    topbar_fps.set_text_content(Some("FPS: --"));
+    set(
+        &topbar_fps,
+        &[
+            ("color", "#a6e3a1"),
+            ("font-size", "12px"),
+            ("font-weight", "600"),
+            ("margin-left", "auto"),
+            ("margin-right", "12px"),
+            ("white-space", "nowrap"),
+        ],
+    );
+    top_bar.append_child(&topbar_fps).unwrap();
 
     let has_toggle = js_sys::Reflect::get(&js_sys::global(), &"__vello_toggle_simd".into())
         .ok()
@@ -1024,7 +1008,7 @@ fn build_top_bar(document: &Document) -> (HtmlElement, HtmlElement, HtmlElement)
         top_bar.append_child(&renderer_btn).unwrap();
     }
 
-    (top_bar, tab_interactive, tab_benchmark)
+    (top_bar, tab_interactive, tab_benchmark, topbar_fps)
 }
 
 fn build_interactive_view(
@@ -1065,6 +1049,7 @@ fn build_interactive_view(
             ("z-index", "10"),
             ("pointer-events", "auto"),
             ("transition", "transform 0.2s ease"),
+            ("transform", "translateX(-100%)"),
             ("border-right", "1px solid #313244"),
             ("display", "flex"),
             ("flex-direction", "column"),
@@ -1077,7 +1062,7 @@ fn build_interactive_view(
         &[
             ("position", "absolute"),
             ("top", "8px"),
-            ("left", "284px"),
+            ("left", "0"),
             ("width", "24px"),
             ("height", "24px"),
             ("background", "#1e1e2e"),
@@ -1096,7 +1081,7 @@ fn build_interactive_view(
             ("border-left", "none"),
         ],
     );
-    toggle_btn.set_inner_html("&#x25C0;");
+    toggle_btn.set_inner_html("&#x25B6;");
     view.append_child(&toggle_btn).unwrap();
 
     let fps_label = div(document);
@@ -1119,34 +1104,6 @@ fn build_interactive_view(
         &[("color", "#9399b2"), ("margin-bottom", "2px")],
     );
     sidebar.append_child(&encode_label).unwrap();
-
-    let render_label = div(document);
-    render_label.set_text_content(Some("Render: --"));
-    set(
-        &render_label,
-        &[("color", "#9399b2"), ("margin-bottom", "2px")],
-    );
-    sidebar.append_child(&render_label).unwrap();
-
-    let blit_label = div(document);
-    blit_label.set_text_content(Some("Blit: --"));
-    set(
-        &blit_label,
-        &[
-            ("color", "#9399b2"),
-            ("margin-bottom", "2px"),
-            ("display", "none"),
-        ],
-    );
-    sidebar.append_child(&blit_label).unwrap();
-
-    let total_label = div(document);
-    total_label.set_text_content(Some("Total: --"));
-    set(
-        &total_label,
-        &[("color", "#9399b2"), ("margin-bottom", "2px")],
-    );
-    sidebar.append_child(&total_label).unwrap();
 
     let viewport_label = div(document);
     viewport_label.set_text_content(Some(&format!("Viewport: {vp_w} x {vp_h}")));
@@ -1231,9 +1188,6 @@ fn build_interactive_view(
         toggle_btn,
         fps_label,
         encode_label,
-        render_label,
-        blit_label,
-        total_label,
         viewport_label,
         scene_select,
         controls,

@@ -142,7 +142,6 @@ mod inner {
             ImageSource::Pixmap(Arc::new(pixmap))
         }
 
-        pub fn sync(&self) {}
     }
 }
 
@@ -192,9 +191,6 @@ mod inner {
             ImageSource::opaque_id_with_opacity_hint(id, pixmap.may_have_opacities())
         }
 
-        pub fn sync(&self) {
-            crate::gpu_sync(&self.renderer);
-        }
     }
 }
 
@@ -243,11 +239,6 @@ impl Backend {
 
     pub fn is_cpu(&self) -> bool {
         cfg!(feature = "cpu")
-    }
-
-    /// Synchronize (wait for GPU on hybrid, no-op on CPU).
-    pub fn sync(&self) {
-        self.inner.sync();
     }
 
     /// Notify the backend of a canvas resize.

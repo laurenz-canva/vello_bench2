@@ -1,45 +1,14 @@
-//! Frame timing with rolling averages for both wall-clock frame time and CPU render time.
+//! Frame timing averaged over 1 second.
 
-const RING_SIZE: usize = 60;
-
-/// Rolling average over a ring buffer of `f64` samples.
-#[derive(Debug)]
-struct RollingAvg {
-    samples: [f64; RING_SIZE],
-    index: usize,
-    count: usize,
-}
-
-impl RollingAvg {
-    fn new() -> Self {
-        Self {
-            samples: [0.0; RING_SIZE],
-            index: 0,
-            count: 0,
-        }
-    }
-
-    fn push(&mut self, value: f64) {
-        self.samples[self.index] = value;
-        self.index = (self.index + 1) % RING_SIZE;
-        if self.count < RING_SIZE {
-            self.count += 1;
-        }
-    }
-
-    fn avg(&self) -> f64 {
-        if self.count == 0 {
-            return 0.0;
-        }
-        self.samples[..self.count].iter().sum::<f64>() / self.count as f64
-    }
-}
-
-/// Tracks wall-clock frame time (vsync-limited, rolling average) and instantaneous CPU render time.
+/// Tracks wall-clock frame time, reporting averages over 1-second windows.
 #[derive(Debug)]
 pub(crate) struct FpsTracker {
     last_time: f64,
-    frame_times: RollingAvg,
+    window_start: f64,
+    frame_count: u32,
+    /// Cached results from the last completed 1-second window.
+    avg_fps: f64,
+    avg_frame_time: f64,
 }
 
 impl FpsTracker {
@@ -47,25 +16,28 @@ impl FpsTracker {
     pub(crate) fn new(now: f64) -> Self {
         Self {
             last_time: now,
-            frame_times: RollingAvg::new(),
+            window_start: now,
+            frame_count: 0,
+            avg_fps: 0.0,
+            avg_frame_time: 0.0,
         }
     }
 
     /// Record a frame. `now` is the current `performance.now()` timestamp.
     ///
-    /// Returns `(fps, avg_frame_time_ms)`.
+    /// Returns `(fps, avg_frame_time_ms)` averaged over 1-second windows.
     pub(crate) fn frame(&mut self, now: f64) -> (f64, f64) {
-        let dt = now - self.last_time;
         self.last_time = now;
+        self.frame_count += 1;
 
-        self.frame_times.push(dt);
+        let elapsed = now - self.window_start;
+        if elapsed >= 1000.0 {
+            self.avg_frame_time = elapsed / self.frame_count as f64;
+            self.avg_fps = self.frame_count as f64 * 1000.0 / elapsed;
+            self.window_start = now;
+            self.frame_count = 0;
+        }
 
-        let avg_frame = self.frame_times.avg();
-        let fps = if avg_frame > 0.0 {
-            1000.0 / avg_frame
-        } else {
-            0.0
-        };
-        (fps, avg_frame)
+        (self.avg_fps, self.avg_frame_time)
     }
 }
