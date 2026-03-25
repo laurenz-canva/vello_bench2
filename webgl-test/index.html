@@ -18,17 +18,14 @@
   #top-bar label { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
   #top-bar input[type="range"] { width: 100px; }
   #top-bar select { font: 12px monospace; background: #333; color: #fff; border: 1px solid #666; padding: 2px 4px; }
-  #hud {
-    color: #0f0; font: 14px monospace;
-    white-space: nowrap;
-  }
+  #hud { color: #0f0; font: 14px monospace; white-space: nowrap; }
 </style>
 </head>
 <body>
 <div id="top-bar">
   <span id="hud">FPS: -- | Frame: 0</span>
-  <label>Quads: <input type="range" id="slider-count" min="1" max="2000" value="1000"> <span id="val-count">1000</span></label>
-  <label>Size: <input type="range" id="slider-size" min="5" max="500" value="100"> <span id="val-size">100</span></label>
+  <label>Quads: <input type="range" id="slider-count" min="1" max="1000" value="500"> <span id="val-count">1000</span></label>
+  <label>Size: <input type="range" id="slider-size" min="5" max="100" value="100"> <span id="val-size">100</span></label>
   <label>Paint:
     <select id="sel-paint">
       <option value="solid">Solid Color</option>
@@ -44,6 +41,7 @@
 </div>
 <canvas id="c"></canvas>
 <script>
+"use strict";
 const canvas = document.getElementById('c');
 const hud = document.getElementById('hud');
 const gl = canvas.getContext('webgl2', { antialias: false });
@@ -57,15 +55,18 @@ function resize() {
 resize();
 window.addEventListener('resize', resize);
 
-// --- Shaders ---
+// --- Shaders (instanced: a_corner is static unit quad, rest per-instance) ---
 const vsSolid = `#version 300 es
-layout(location=0) in vec2 a_pos;
-layout(location=1) in vec4 a_color;
+layout(location=0) in vec2 a_corner;
+layout(location=1) in vec2 a_center;
+layout(location=2) in vec4 a_color;
+uniform vec2 u_halfSize;
 uniform float u_zoom;
 uniform vec2 u_pan;
 out vec4 v_color;
 void main() {
-  gl_Position = vec4((a_pos - u_pan) * u_zoom, 0.0, 1.0);
+  vec2 world = a_center + a_corner * u_halfSize;
+  gl_Position = vec4((world - u_pan) * u_zoom, 0.0, 1.0);
   v_color = a_color;
 }`;
 
@@ -73,33 +74,31 @@ const fsSolid = `#version 300 es
 precision mediump float;
 in vec4 v_color;
 out vec4 fragColor;
-void main() {
-  fragColor = v_color;
-}`;
+void main() { fragColor = v_color; }`;
 
-const vsTexAtlas =`#version 300 es
-layout(location=0) in vec2 a_pos;
-layout(location=1) in vec2 a_uv;
+const vsTex = `#version 300 es
+layout(location=0) in vec2 a_corner;
+layout(location=1) in vec2 a_center;
 layout(location=2) in float a_layer;
+uniform vec2 u_halfSize;
 uniform float u_zoom;
 uniform vec2 u_pan;
 out vec2 v_uv;
 flat out float v_layer;
 void main() {
-  gl_Position = vec4((a_pos - u_pan) * u_zoom, 0.0, 1.0);
-  v_uv = a_uv;
+  vec2 world = a_center + a_corner * u_halfSize;
+  gl_Position = vec4((world - u_pan) * u_zoom, 0.0, 1.0);
+  v_uv = a_corner * 0.5 + 0.5;
   v_layer = a_layer;
 }`;
 
-const fsTexAtlas = `#version 300 es
+const fsTex = `#version 300 es
 precision mediump float;
 uniform mediump sampler2DArray u_tex;
 in vec2 v_uv;
 flat in float v_layer;
 out vec4 fragColor;
-void main() {
-  fragColor = texture(u_tex, vec3(v_uv, v_layer));
-}`;
+void main() { fragColor = texture(u_tex, vec3(v_uv, v_layer)); }`;
 
 function compile(type, src) {
   const sh = gl.createShader(type);
@@ -121,11 +120,13 @@ function linkProgram(vsSrc, fsSrc) {
 }
 
 const progSolid = linkProgram(vsSolid, fsSolid);
-const progTex = linkProgram(vsTexAtlas, fsTexAtlas);
+const progTex = linkProgram(vsTex, fsTex);
 
 // Cache uniform locations
+const uSolidHalfSize = gl.getUniformLocation(progSolid, 'u_halfSize');
 const uSolidZoom = gl.getUniformLocation(progSolid, 'u_zoom');
 const uSolidPan = gl.getUniformLocation(progSolid, 'u_pan');
+const uTexHalfSize = gl.getUniformLocation(progTex, 'u_halfSize');
 const uTexZoom = gl.getUniformLocation(progTex, 'u_zoom');
 const uTexPan = gl.getUniformLocation(progTex, 'u_pan');
 const uTexSampler = gl.getUniformLocation(progTex, 'u_tex');
@@ -137,7 +138,6 @@ gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 const NUM_IMAGES = 50;
 const IMAGE_SIZE = 64;
 
-// Simple seeded RNG (matching vello_bench2's Rng)
 function makeRng(seed) {
   let s = seed >>> 0;
   return {
@@ -146,12 +146,8 @@ function makeRng(seed) {
       s = s >>> 0;
       return s;
     },
-    f64() {
-      return this.next() / 0x100000000;
-    },
-    color() {
-      return [this.f64(), this.f64(), this.f64()];
-    }
+    f64() { return this.next() / 0x100000000; },
+    color() { return [this.f64(), this.f64(), this.f64()]; }
   };
 }
 
@@ -191,62 +187,71 @@ function generateImages() {
 
 const generatedImages = generateImages();
 
-// Upload as 2D texture array
 const texArray = gl.createTexture();
 gl.bindTexture(gl.TEXTURE_2D_ARRAY, texArray);
 gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8, IMAGE_SIZE, IMAGE_SIZE, NUM_IMAGES);
 for (let i = 0; i < NUM_IMAGES; i++) {
-  gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, i, IMAGE_SIZE, IMAGE_SIZE, 1, gl.RGBA, gl.UNSIGNED_BYTE, generatedImages[i]);
+  gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, i,
+    IMAGE_SIZE, IMAGE_SIZE, 1, gl.RGBA, gl.UNSIGNED_BYTE, generatedImages[i]);
 }
 gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
+// --- Static unit quad (uploaded once) ---
+const cornerVBO = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, cornerVBO);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, -1,1, 1,-1, 1,1]), gl.STATIC_DRAW);
+
+const quadEBO = gl.createBuffer();
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, quadEBO);
+gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([0,1,2, 2,1,3]), gl.STATIC_DRAW);
+
+// --- Per-instance VBOs ---
+const solidVBO = gl.createBuffer();  // [cx,cy, r,g,b,a] per instance
+const texVBO = gl.createBuffer();    // [cx,cy, layer] per instance
+
 // --- VAOs ---
-// Solid VAO: position (2f) + color (4f) = 6 floats/vert
-const FLOATS_PER_VERT_SOLID = 6;
 const vaoSolid = gl.createVertexArray();
 gl.bindVertexArray(vaoSolid);
-const vboSolid = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, vboSolid);
-const strideSolid = FLOATS_PER_VERT_SOLID * 4;
-gl.enableVertexAttribArray(0);
-gl.vertexAttribPointer(0, 2, gl.FLOAT, false, strideSolid, 0);
-gl.enableVertexAttribArray(1);
-gl.vertexAttribPointer(1, 4, gl.FLOAT, false, strideSolid, 2 * 4);
-const eboSolid = gl.createBuffer();
-gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboSolid);
+  gl.bindBuffer(gl.ARRAY_BUFFER, cornerVBO);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, solidVBO);
+  gl.enableVertexAttribArray(1);
+  gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 24, 0);
+  gl.vertexAttribDivisor(1, 1);
+  gl.enableVertexAttribArray(2);
+  gl.vertexAttribPointer(2, 4, gl.FLOAT, false, 24, 8);
+  gl.vertexAttribDivisor(2, 1);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, quadEBO);
+gl.bindVertexArray(null);
 
-// Textured VAO: position (2f) + uv (2f) + layer (1f) = 5 floats/vert
-const FLOATS_PER_VERT_TEX = 5;
 const vaoTex = gl.createVertexArray();
 gl.bindVertexArray(vaoTex);
-const vboTex = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, vboTex);
-const strideTex = FLOATS_PER_VERT_TEX * 4;
-gl.enableVertexAttribArray(0);
-gl.vertexAttribPointer(0, 2, gl.FLOAT, false, strideTex, 0);
-gl.enableVertexAttribArray(1);
-gl.vertexAttribPointer(1, 2, gl.FLOAT, false, strideTex, 2 * 4);
-gl.enableVertexAttribArray(2);
-gl.vertexAttribPointer(2, 1, gl.FLOAT, false, strideTex, 4 * 4);
-const eboTex = gl.createBuffer();
-gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboTex);
-
+  gl.bindBuffer(gl.ARRAY_BUFFER, cornerVBO);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindBuffer(gl.ARRAY_BUFFER, texVBO);
+  gl.enableVertexAttribArray(1);
+  gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 12, 0);
+  gl.vertexAttribDivisor(1, 1);
+  gl.enableVertexAttribArray(2);
+  gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 12, 8);
+  gl.vertexAttribDivisor(2, 1);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, quadEBO);
 gl.bindVertexArray(null);
 
 // --- Quad data ---
 const quads = [];
-let quadCount = 1000;
+let quadCount = 500;
 let quadSizePx = 100;
 let paintMode = 'solid';
 
 function makeQuad() {
-  const hw = quadSizePx / canvas.width;
-  const hh = quadSizePx / canvas.height;
-  const cx = -1 + hw + Math.random() * (2 - 2 * hw);
-  const cy = -1 + hh + Math.random() * (2 - 2 * hh);
+  const cx = -1 + Math.random() * 2;
+  const cy = -1 + Math.random() * 2;
   const speed = 0.3 + Math.random() * 1.2;
   const angle = Math.random() * Math.PI * 2;
   const vx = Math.cos(angle) * speed;
@@ -254,31 +259,14 @@ function makeQuad() {
   const alpha = 0.3 + Math.random() * 0.5;
   const color = [Math.random(), Math.random(), Math.random(), alpha];
   const imageIdx = Math.floor(Math.random() * NUM_IMAGES);
-  return { hw, hh, cx, cy, vx, vy, color, imageIdx };
+  return { cx, cy, vx, vy, color, imageIdx };
 }
 
 function ensureQuads() {
   while (quads.length < quadCount) quads.push(makeQuad());
   quads.length = quadCount;
-  rebuildIndices();
 }
 
-function rebuildIndices() {
-  const indices = [];
-  for (let i = 0; i < quadCount; i++) {
-    const base = i * 4;
-    indices.push(base, base + 1, base + 2, base + 3);
-    if (i < quadCount - 1) indices.push(0xFFFF);
-  }
-  const idxData = new Uint16Array(indices);
-  // Update both EBOs
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboSolid);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idxData, gl.STATIC_DRAW);
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboTex);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idxData, gl.STATIC_DRAW);
-}
-
-gl.enable(gl.PRIMITIVE_RESTART_FIXED_INDEX);
 ensureQuads();
 
 // --- Controls ---
@@ -298,25 +286,20 @@ sliderSize.addEventListener('input', () => {
   quadSizePx = parseInt(sliderSize.value);
   valSize.textContent = quadSizePx;
 });
-selPaint.addEventListener('change', () => {
-  paintMode = selPaint.value;
-});
+selPaint.addEventListener('change', () => { paintMode = selPaint.value; });
 selFilter.addEventListener('change', () => {
-  const filter = selFilter.value === 'bilinear' ? gl.LINEAR : gl.NEAREST;
+  const f = selFilter.value === 'bilinear' ? gl.LINEAR : gl.NEAREST;
   gl.bindTexture(gl.TEXTURE_2D_ARRAY, texArray);
-  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, filter);
-  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, f);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, f);
 });
 
 // --- Zoom & Pan ---
-// View transform: clip_out = (world_pos - pan) * zoom
-// pan is in world (clip) space, zoom is scalar (1 = default)
 let zoom = 1;
 let panX = 0, panY = 0;
 let dragging = false;
 let dragLastX = 0, dragLastY = 0;
 
-// Convert screen pixel coords to clip space
 function screenToClip(sx, sy) {
   return [
     (sx / canvas.clientWidth) * 2 - 1,
@@ -327,13 +310,9 @@ function screenToClip(sx, sy) {
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
   const [cx, cy] = screenToClip(e.clientX, e.clientY);
-  // World point under cursor before zoom
   const wx = cx / zoom + panX;
   const wy = cy / zoom + panY;
-  // Apply zoom
-  const factor = e.deltaY > 0 ? 0.9 : 1.1;
-  zoom *= factor;
-  // Adjust pan so world point stays under cursor
+  zoom *= e.deltaY > 0 ? 0.9 : 1.1;
   panX = wx - cx / zoom;
   panY = wy - cy / zoom;
 }, { passive: false });
@@ -352,10 +331,7 @@ window.addEventListener('mousemove', (e) => {
   dragLastY = e.clientY;
 });
 
-// Touch support for mobile
-let touchStart = null;
-let touchStartDist = 0;
-let touchStartZoom = 1;
+let touchStartDist = 0, touchStartZoom = 1;
 canvas.addEventListener('touchstart', (e) => {
   if (e.touches.length === 1) {
     dragging = true;
@@ -381,8 +357,7 @@ canvas.addEventListener('touchmove', (e) => {
   } else if (e.touches.length === 2) {
     const dx = e.touches[1].clientX - e.touches[0].clientX;
     const dy = e.touches[1].clientY - e.touches[0].clientY;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    zoom = touchStartZoom * (dist / touchStartDist);
+    zoom = touchStartZoom * Math.sqrt(dx * dx + dy * dy) / touchStartDist;
   }
 }, { passive: false });
 canvas.addEventListener('touchend', () => { dragging = false; });
@@ -411,92 +386,60 @@ function tick(now) {
   }
   hud.textContent = `FPS: ${avgFps.toFixed(1)} (${avgFrameTime.toFixed(1)}ms) | Frame: ${frame} | Quads: ${quadCount} | ${canvas.width}x${canvas.height}`;
 
-  // Recompute half-sizes in case of resize
   const hw = quadSizePx / canvas.width;
   const hh = quadSizePx / canvas.height;
 
   // Update positions (bounce off edges)
   for (let i = 0; i < quadCount; i++) {
     const q = quads[i];
-    q.hw = hw;
-    q.hh = hh;
     q.cx += q.vx * dtSec;
     q.cy += q.vy * dtSec;
 
-    if (q.cx - q.hw < -1) { q.cx = -1 + q.hw; q.vx = Math.abs(q.vx); }
-    if (q.cx + q.hw >  1) { q.cx =  1 - q.hw; q.vx = -Math.abs(q.vx); }
-    if (q.cy - q.hh < -1) { q.cy = -1 + q.hh; q.vy = Math.abs(q.vy); }
-    if (q.cy + q.hh >  1) { q.cy =  1 - q.hh; q.vy = -Math.abs(q.vy); }
+    if (q.cx - hw < -1) { q.cx = -1 + hw; q.vx = Math.abs(q.vx); }
+    if (q.cx + hw >  1) { q.cx =  1 - hw; q.vx = -Math.abs(q.vx); }
+    if (q.cy - hh < -1) { q.cy = -1 + hh; q.vy = Math.abs(q.vy); }
+    if (q.cy + hh >  1) { q.cy =  1 - hh; q.vy = -Math.abs(q.vy); }
   }
 
   gl.clearColor(0.1, 0.1, 0.1, 1);
   gl.clear(gl.COLOR_BUFFER_BIT);
 
-  const indexCount = quadCount * 4 + Math.max(0, quadCount - 1);
-
   if (paintMode === 'solid') {
-    // Build solid vertex data
-    const data = new Float32Array(quadCount * 4 * FLOATS_PER_VERT_SOLID);
+    const data = new Float32Array(quadCount * 6);
     for (let i = 0; i < quadCount; i++) {
       const q = quads[i];
-      const o = i * 4 * FLOATS_PER_VERT_SOLID;
-      const corners = [
-        q.cx - q.hw, q.cy + q.hh,
-        q.cx - q.hw, q.cy - q.hh,
-        q.cx + q.hw, q.cy + q.hh,
-        q.cx + q.hw, q.cy - q.hh,
-      ];
-      for (let v = 0; v < 4; v++) {
-        const vo = o + v * FLOATS_PER_VERT_SOLID;
-        data[vo    ] = corners[v * 2];
-        data[vo + 1] = corners[v * 2 + 1];
-        data[vo + 2] = q.color[0];
-        data[vo + 3] = q.color[1];
-        data[vo + 4] = q.color[2];
-        data[vo + 5] = q.color[3];
-      }
+      const o = i * 6;
+      data[o    ] = q.cx; data[o + 1] = q.cy;
+      data[o + 2] = q.color[0]; data[o + 3] = q.color[1];
+      data[o + 4] = q.color[2]; data[o + 5] = q.color[3];
     }
-
     gl.useProgram(progSolid);
+    gl.uniform2f(uSolidHalfSize, hw, hh);
     gl.uniform1f(uSolidZoom, zoom);
     gl.uniform2f(uSolidPan, panX, panY);
     gl.bindVertexArray(vaoSolid);
-    gl.bindBuffer(gl.ARRAY_BUFFER, vboSolid);
+    gl.bindBuffer(gl.ARRAY_BUFFER, solidVBO);
     gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
-    gl.drawElements(gl.TRIANGLE_STRIP, indexCount, gl.UNSIGNED_SHORT, 0);
+    gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, quadCount);
   } else {
-    // Build textured vertex data
-    const data = new Float32Array(quadCount * 4 * FLOATS_PER_VERT_TEX);
-    const uvs = [0, 1, 0, 0, 1, 1, 1, 0]; // TL, BL, TR, BR
+    const data = new Float32Array(quadCount * 3);
     for (let i = 0; i < quadCount; i++) {
       const q = quads[i];
-      const o = i * 4 * FLOATS_PER_VERT_TEX;
-      const corners = [
-        q.cx - q.hw, q.cy + q.hh,
-        q.cx - q.hw, q.cy - q.hh,
-        q.cx + q.hw, q.cy + q.hh,
-        q.cx + q.hw, q.cy - q.hh,
-      ];
-      for (let v = 0; v < 4; v++) {
-        const vo = o + v * FLOATS_PER_VERT_TEX;
-        data[vo    ] = corners[v * 2];
-        data[vo + 1] = corners[v * 2 + 1];
-        data[vo + 2] = uvs[v * 2];
-        data[vo + 3] = uvs[v * 2 + 1];
-        data[vo + 4] = q.imageIdx;
-      }
+      const o = i * 3;
+      data[o    ] = q.cx; data[o + 1] = q.cy;
+      data[o + 2] = q.imageIdx;
     }
-
     gl.useProgram(progTex);
+    gl.uniform2f(uTexHalfSize, hw, hh);
     gl.uniform1f(uTexZoom, zoom);
     gl.uniform2f(uTexPan, panX, panY);
     gl.uniform1i(uTexSampler, 0);
-    gl.bindVertexArray(vaoTex);
-    gl.bindBuffer(gl.ARRAY_BUFFER, vboTex);
-    gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, texArray);
-    gl.drawElements(gl.TRIANGLE_STRIP, indexCount, gl.UNSIGNED_SHORT, 0);
+    gl.bindVertexArray(vaoTex);
+    gl.bindBuffer(gl.ARRAY_BUFFER, texVBO);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+    gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0, quadCount);
   }
 
   requestAnimationFrame(tick);
