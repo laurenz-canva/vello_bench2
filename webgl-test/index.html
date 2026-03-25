@@ -5,37 +5,42 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WebGL Quad Test</title>
 <style>
-  * { margin: 0; padding: 0; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
   body { overflow: hidden; background: #000; }
   canvas { display: block; width: 100vw; height: 100vh; }
+  #top-bar {
+    position: fixed; top: 0; left: 0; right: 0;
+    background: #1a1a1a;
+    padding: 8px 12px;
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    z-index: 1; font: 14px monospace; color: #ccc;
+  }
+  #top-bar label { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+  #top-bar input[type="range"] { width: 100px; }
+  #top-bar select { font: 12px monospace; background: #333; color: #fff; border: 1px solid #666; padding: 2px 4px; }
   #hud {
-    position: fixed; top: 10px; left: 10px;
-    color: #0f0; font: 16px monospace;
-    background: rgba(0,0,0,0.6); padding: 6px 10px;
-    pointer-events: none; z-index: 1;
-  }
-  #controls {
-    position: fixed; top: 10px; right: 10px; z-index: 1;
-    display: flex; gap: 8px;
-  }
-  #controls button {
-    font: bold 20px monospace; padding: 8px 16px;
-    background: #333; color: #fff; border: 1px solid #666;
-    cursor: pointer; touch-action: manipulation;
-  }
-  #controls span {
-    font: 16px monospace; color: #0f0;
-    background: rgba(0,0,0,0.6); padding: 8px 12px;
-    display: flex; align-items: center;
+    color: #0f0; font: 14px monospace;
+    white-space: nowrap;
   }
 </style>
 </head>
 <body>
-<div id="hud">FPS: -- | Frame: 0</div>
-<div id="controls">
-  <button id="btn-sub">-30</button>
-  <span id="count-label">1</span>
-  <button id="btn-add">+30</button>
+<div id="top-bar">
+  <span id="hud">FPS: -- | Frame: 0</span>
+  <label>Quads: <input type="range" id="slider-count" min="1" max="2000" value="1000"> <span id="val-count">1000</span></label>
+  <label>Size: <input type="range" id="slider-size" min="5" max="500" value="100"> <span id="val-size">100</span></label>
+  <label>Paint:
+    <select id="sel-paint">
+      <option value="solid">Solid Color</option>
+      <option value="image">Image</option>
+    </select>
+  </label>
+  <label>Filter:
+    <select id="sel-filter">
+      <option value="nearest">Nearest</option>
+      <option value="bilinear">Bilinear</option>
+    </select>
+  </label>
 </div>
 <canvas id="c"></canvas>
 <script>
@@ -52,8 +57,8 @@ function resize() {
 resize();
 window.addEventListener('resize', resize);
 
-// --- Shaders (pass-through, positions updated on CPU) ---
-const vs = `#version 300 es
+// --- Shaders ---
+const vsSolid = `#version 300 es
 layout(location=0) in vec2 a_pos;
 layout(location=1) in vec4 a_color;
 out vec4 v_color;
@@ -62,12 +67,34 @@ void main() {
   v_color = a_color;
 }`;
 
-const fs = `#version 300 es
+const fsSolid = `#version 300 es
 precision mediump float;
 in vec4 v_color;
 out vec4 fragColor;
 void main() {
   fragColor = v_color;
+}`;
+
+const vsTexAtlas =`#version 300 es
+layout(location=0) in vec2 a_pos;
+layout(location=1) in vec2 a_uv;
+layout(location=2) in float a_layer;
+out vec2 v_uv;
+flat out float v_layer;
+void main() {
+  gl_Position = vec4(a_pos, 0.0, 1.0);
+  v_uv = a_uv;
+  v_layer = a_layer;
+}`;
+
+const fsTexAtlas = `#version 300 es
+precision mediump float;
+uniform mediump sampler2DArray u_tex;
+in vec2 v_uv;
+flat in float v_layer;
+out vec4 fragColor;
+void main() {
+  fragColor = texture(u_tex, vec3(v_uv, v_layer));
 }`;
 
 function compile(type, src) {
@@ -79,24 +106,134 @@ function compile(type, src) {
   return sh;
 }
 
-const prog = gl.createProgram();
-gl.attachShader(prog, compile(gl.VERTEX_SHADER, vs));
-gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fs));
-gl.linkProgram(prog);
-if (!gl.getProgramParameter(prog, gl.LINK_STATUS))
-  throw new Error(gl.getProgramInfoLog(prog));
-gl.useProgram(prog);
+function linkProgram(vsSrc, fsSrc) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, vsSrc));
+  gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fsSrc));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS))
+    throw new Error(gl.getProgramInfoLog(p));
+  return p;
+}
+
+const progSolid = linkProgram(vsSolid, fsSolid);
+const progTex = linkProgram(vsTexAtlas, fsTexAtlas);
 
 gl.enable(gl.BLEND);
 gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
+// --- Procedural image generation (matching vello_bench2) ---
+const NUM_IMAGES = 50;
+const IMAGE_SIZE = 64;
+
+// Simple seeded RNG (matching vello_bench2's Rng)
+function makeRng(seed) {
+  let s = seed >>> 0;
+  return {
+    next() {
+      s ^= s << 13; s ^= s >>> 17; s ^= s << 5;
+      s = s >>> 0;
+      return s;
+    },
+    f64() {
+      return this.next() / 0x100000000;
+    },
+    color() {
+      return [this.f64(), this.f64(), this.f64()];
+    }
+  };
+}
+
+function generateImages() {
+  const rng = makeRng(0xCAFEBABE);
+  const images = [];
+  for (let i = 0; i < NUM_IMAGES; i++) {
+    const c1 = rng.color();
+    const c2 = rng.color();
+    const freq = rng.f64() * 5.0 + 3.0;
+    const cx = IMAGE_SIZE / 2;
+    const cy = IMAGE_SIZE / 2;
+    const maxDist = Math.sqrt(cx * cx + cy * cy);
+
+    const pixels = new Uint8Array(IMAGE_SIZE * IMAGE_SIZE * 4);
+    for (let y = 0; y < IMAGE_SIZE; y++) {
+      for (let x = 0; x < IMAGE_SIZE; x++) {
+        const dx = x - cx;
+        const dy = y - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const tSin = Math.sin(dist * freq * Math.PI * 2 / IMAGE_SIZE);
+        const t = tSin * tSin;
+        const alpha = 1.0 - 0.7 * (dist / maxDist);
+        const a = Math.round(alpha * 255);
+        const lerp = (a, b) => Math.round((a + (b - a) * t) * alpha * 255);
+        const idx = (y * IMAGE_SIZE + x) * 4;
+        pixels[idx    ] = lerp(c1[0], c2[0]);
+        pixels[idx + 1] = lerp(c1[1], c2[1]);
+        pixels[idx + 2] = lerp(c1[2], c2[2]);
+        pixels[idx + 3] = a;
+      }
+    }
+    images.push(pixels);
+  }
+  return images;
+}
+
+const generatedImages = generateImages();
+
+// Upload as 2D texture array
+const texArray = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D_ARRAY, texArray);
+gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8, IMAGE_SIZE, IMAGE_SIZE, NUM_IMAGES);
+for (let i = 0; i < NUM_IMAGES; i++) {
+  gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, i, IMAGE_SIZE, IMAGE_SIZE, 1, gl.RGBA, gl.UNSIGNED_BYTE, generatedImages[i]);
+}
+gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+// --- VAOs ---
+// Solid VAO: position (2f) + color (4f) = 6 floats/vert
+const FLOATS_PER_VERT_SOLID = 6;
+const vaoSolid = gl.createVertexArray();
+gl.bindVertexArray(vaoSolid);
+const vboSolid = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vboSolid);
+const strideSolid = FLOATS_PER_VERT_SOLID * 4;
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, strideSolid, 0);
+gl.enableVertexAttribArray(1);
+gl.vertexAttribPointer(1, 4, gl.FLOAT, false, strideSolid, 2 * 4);
+const eboSolid = gl.createBuffer();
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboSolid);
+
+// Textured VAO: position (2f) + uv (2f) + layer (1f) = 5 floats/vert
+const FLOATS_PER_VERT_TEX = 5;
+const vaoTex = gl.createVertexArray();
+gl.bindVertexArray(vaoTex);
+const vboTex = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vboTex);
+const strideTex = FLOATS_PER_VERT_TEX * 4;
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, strideTex, 0);
+gl.enableVertexAttribArray(1);
+gl.vertexAttribPointer(1, 2, gl.FLOAT, false, strideTex, 2 * 4);
+gl.enableVertexAttribArray(2);
+gl.vertexAttribPointer(2, 1, gl.FLOAT, false, strideTex, 4 * 4);
+const eboTex = gl.createBuffer();
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboTex);
+
+gl.bindVertexArray(null);
+
 // --- Quad data ---
-// Each quad has: hw, hh (half-sizes), cx, cy (center), vx, vy (velocity), 4x color (r,g,b,a per vert)
 const quads = [];
+let quadCount = 1000;
+let quadSizePx = 100;
+let paintMode = 'solid';
 
 function makeQuad() {
-  const hw = 100 / canvas.width;  // 100px half-width in clip space
-  const hh = 100 / canvas.height;
+  const hw = quadSizePx / canvas.width;
+  const hh = quadSizePx / canvas.height;
   const cx = -1 + hw + Math.random() * (2 - 2 * hw);
   const cy = -1 + hh + Math.random() * (2 - 2 * hh);
   const speed = 0.3 + Math.random() * 1.2;
@@ -105,35 +242,15 @@ function makeQuad() {
   const vy = Math.sin(angle) * speed;
   const alpha = 0.3 + Math.random() * 0.5;
   const color = [Math.random(), Math.random(), Math.random(), alpha];
-  return { hw, hh, cx, cy, vx, vy, color };
+  const imageIdx = Math.floor(Math.random() * NUM_IMAGES);
+  return { hw, hh, cx, cy, vx, vy, color, imageIdx };
 }
 
-let quadCount = 1000;
 function ensureQuads() {
   while (quads.length < quadCount) quads.push(makeQuad());
   quads.length = quadCount;
   rebuildIndices();
-  document.getElementById('count-label').textContent = quadCount;
 }
-
-// --- GPU buffers ---
-// Per vertex: x, y, r, g, b, a  (6 floats)
-const FLOATS_PER_VERT = 6;
-const VERTS_PER_QUAD = 4;
-
-const vao = gl.createVertexArray();
-gl.bindVertexArray(vao);
-
-const vbo = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-
-const stride = FLOATS_PER_VERT * 4;
-gl.enableVertexAttribArray(0);
-gl.vertexAttribPointer(0, 2, gl.FLOAT, false, stride, 0);
-gl.enableVertexAttribArray(1);
-gl.vertexAttribPointer(1, 4, gl.FLOAT, false, stride, 2 * 4);
-
-const ebo = gl.createBuffer();
 
 function rebuildIndices() {
   const indices = [];
@@ -142,21 +259,42 @@ function rebuildIndices() {
     indices.push(base, base + 1, base + 2, base + 3);
     if (i < quadCount - 1) indices.push(0xFFFF);
   }
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+  const idxData = new Uint16Array(indices);
+  // Update both EBOs
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboSolid);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idxData, gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, eboTex);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idxData, gl.STATIC_DRAW);
 }
 
 gl.enable(gl.PRIMITIVE_RESTART_FIXED_INDEX);
 ensureQuads();
 
 // --- Controls ---
-document.getElementById('btn-add').addEventListener('click', () => {
-  quadCount += 30;
+const sliderCount = document.getElementById('slider-count');
+const valCount = document.getElementById('val-count');
+const sliderSize = document.getElementById('slider-size');
+const valSize = document.getElementById('val-size');
+const selPaint = document.getElementById('sel-paint');
+const selFilter = document.getElementById('sel-filter');
+
+sliderCount.addEventListener('input', () => {
+  quadCount = parseInt(sliderCount.value);
+  valCount.textContent = quadCount;
   ensureQuads();
 });
-document.getElementById('btn-sub').addEventListener('click', () => {
-  quadCount = Math.max(1, quadCount - 30);
-  ensureQuads();
+sliderSize.addEventListener('input', () => {
+  quadSizePx = parseInt(sliderSize.value);
+  valSize.textContent = quadSizePx;
+});
+selPaint.addEventListener('change', () => {
+  paintMode = selPaint.value;
+});
+selFilter.addEventListener('change', () => {
+  const filter = selFilter.value === 'bilinear' ? gl.LINEAR : gl.NEAREST;
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, texArray);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, filter);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, filter);
 });
 
 // --- Simulation + render ---
@@ -183,9 +321,15 @@ function tick(now) {
   }
   hud.textContent = `FPS: ${avgFps.toFixed(1)} (${avgFrameTime.toFixed(1)}ms) | Frame: ${frame} | Quads: ${quadCount} | ${canvas.width}x${canvas.height}`;
 
+  // Recompute half-sizes in case of resize
+  const hw = quadSizePx / canvas.width;
+  const hh = quadSizePx / canvas.height;
+
   // Update positions (bounce off edges)
   for (let i = 0; i < quadCount; i++) {
     const q = quads[i];
+    q.hw = hw;
+    q.hh = hh;
     q.cx += q.vx * dtSec;
     q.cy += q.vy * dtSec;
 
@@ -195,37 +339,71 @@ function tick(now) {
     if (q.cy + q.hh >  1) { q.cy =  1 - q.hh; q.vy = -Math.abs(q.vy); }
   }
 
-  // Build vertex data
-  const data = new Float32Array(quadCount * VERTS_PER_QUAD * FLOATS_PER_VERT);
-  for (let i = 0; i < quadCount; i++) {
-    const q = quads[i];
-    const o = i * VERTS_PER_QUAD * FLOATS_PER_VERT;
-    // Triangle strip: TL, BL, TR, BR
-    const corners = [
-      q.cx - q.hw, q.cy + q.hh,
-      q.cx - q.hw, q.cy - q.hh,
-      q.cx + q.hw, q.cy + q.hh,
-      q.cx + q.hw, q.cy - q.hh,
-    ];
-    for (let v = 0; v < 4; v++) {
-      const vo = o + v * FLOATS_PER_VERT;
-      data[vo    ] = corners[v * 2];
-      data[vo + 1] = corners[v * 2 + 1];
-      data[vo + 2] = q.color[0];
-      data[vo + 3] = q.color[1];
-      data[vo + 4] = q.color[2];
-      data[vo + 5] = q.color[3];
-    }
-  }
-
-  gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-  gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
-
   gl.clearColor(0.1, 0.1, 0.1, 1);
   gl.clear(gl.COLOR_BUFFER_BIT);
 
   const indexCount = quadCount * 4 + Math.max(0, quadCount - 1);
-  gl.drawElements(gl.TRIANGLE_STRIP, indexCount, gl.UNSIGNED_SHORT, 0);
+
+  if (paintMode === 'solid') {
+    // Build solid vertex data
+    const data = new Float32Array(quadCount * 4 * FLOATS_PER_VERT_SOLID);
+    for (let i = 0; i < quadCount; i++) {
+      const q = quads[i];
+      const o = i * 4 * FLOATS_PER_VERT_SOLID;
+      const corners = [
+        q.cx - q.hw, q.cy + q.hh,
+        q.cx - q.hw, q.cy - q.hh,
+        q.cx + q.hw, q.cy + q.hh,
+        q.cx + q.hw, q.cy - q.hh,
+      ];
+      for (let v = 0; v < 4; v++) {
+        const vo = o + v * FLOATS_PER_VERT_SOLID;
+        data[vo    ] = corners[v * 2];
+        data[vo + 1] = corners[v * 2 + 1];
+        data[vo + 2] = q.color[0];
+        data[vo + 3] = q.color[1];
+        data[vo + 4] = q.color[2];
+        data[vo + 5] = q.color[3];
+      }
+    }
+
+    gl.useProgram(progSolid);
+    gl.bindVertexArray(vaoSolid);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vboSolid);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+    gl.drawElements(gl.TRIANGLE_STRIP, indexCount, gl.UNSIGNED_SHORT, 0);
+  } else {
+    // Build textured vertex data
+    const data = new Float32Array(quadCount * 4 * FLOATS_PER_VERT_TEX);
+    const uvs = [0, 1, 0, 0, 1, 1, 1, 0]; // TL, BL, TR, BR
+    for (let i = 0; i < quadCount; i++) {
+      const q = quads[i];
+      const o = i * 4 * FLOATS_PER_VERT_TEX;
+      const corners = [
+        q.cx - q.hw, q.cy + q.hh,
+        q.cx - q.hw, q.cy - q.hh,
+        q.cx + q.hw, q.cy + q.hh,
+        q.cx + q.hw, q.cy - q.hh,
+      ];
+      for (let v = 0; v < 4; v++) {
+        const vo = o + v * FLOATS_PER_VERT_TEX;
+        data[vo    ] = corners[v * 2];
+        data[vo + 1] = corners[v * 2 + 1];
+        data[vo + 2] = uvs[v * 2];
+        data[vo + 3] = uvs[v * 2 + 1];
+        data[vo + 4] = q.imageIdx;
+      }
+    }
+
+    gl.useProgram(progTex);
+    gl.bindVertexArray(vaoTex);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vboTex);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, texArray);
+    gl.uniform1i(gl.getUniformLocation(progTex, 'u_tex'), 0);
+    gl.drawElements(gl.TRIANGLE_STRIP, indexCount, gl.UNSIGNED_SHORT, 0);
+  }
 
   requestAnimationFrame(tick);
 }
