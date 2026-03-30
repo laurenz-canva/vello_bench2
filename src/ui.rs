@@ -177,6 +177,7 @@ pub struct Ui {
     // Top bar
     tab_interactive: HtmlElement,
     tab_benchmark: HtmlElement,
+    top_timing_label: HtmlElement,
 
     // Interactive: sidebar
     sidebar: HtmlElement,
@@ -268,7 +269,7 @@ impl Ui {
 
         let dirty = Rc::new(Cell::new(false));
 
-        let (top_bar, tab_interactive, tab_benchmark) = build_top_bar(document);
+        let (top_bar, tab_interactive, tab_benchmark, top_timing_label) = build_top_bar(document);
         body.append_child(&top_bar).unwrap();
 
         let iv = build_interactive_view(document, scenes, current_scene, vp_w, vp_h, &dirty);
@@ -318,6 +319,7 @@ impl Ui {
             benchmark_view,
             tab_interactive,
             tab_benchmark,
+            top_timing_label,
             sidebar: iv.sidebar,
             toggle_btn: iv.toggle_btn,
             sidebar_collapsed: false,
@@ -371,6 +373,10 @@ impl Ui {
                     .unwrap();
                 style_tab(&self.tab_interactive, true);
                 style_tab(&self.tab_benchmark, false);
+                self.top_timing_label
+                    .style()
+                    .set_property("display", "block")
+                    .unwrap();
             }
             AppMode::Benchmark => {
                 self.interactive_view
@@ -383,6 +389,10 @@ impl Ui {
                     .unwrap();
                 style_tab(&self.tab_interactive, false);
                 style_tab(&self.tab_benchmark, true);
+                self.top_timing_label
+                    .style()
+                    .set_property("display", "none")
+                    .unwrap();
             }
         }
     }
@@ -442,6 +452,8 @@ impl Ui {
     ) {
         self.fps_label
             .set_text_content(Some(&format!("FPS: {fps:.1}  ({frame_time:.1}ms)")));
+        self.top_timing_label
+            .set_text_content(Some(&format!("{fps:.1} FPS  {frame_time:.1} ms/f")));
         self.encode_label
             .set_text_content(Some(&format!("Encode: {encode_ms:.2}ms")));
         if is_cpu {
@@ -1069,7 +1081,7 @@ struct BenchRowsParts {
 
 // ── Sub-builders ─────────────────────────────────────────────────────────────
 
-fn build_top_bar(document: &Document) -> (HtmlElement, HtmlElement, HtmlElement) {
+fn build_top_bar(document: &Document) -> (HtmlElement, HtmlElement, HtmlElement, HtmlElement) {
     let top_bar = div(document);
     set(
         &top_bar,
@@ -1112,14 +1124,29 @@ fn build_top_bar(document: &Document) -> (HtmlElement, HtmlElement, HtmlElement)
     top_bar.append_child(&tab_benchmark).unwrap();
     top_bar.append_child(&tab_interactive).unwrap();
 
+    let spacer = div(document);
+    set(&spacer, &[("flex", "1")]);
+    top_bar.append_child(&spacer).unwrap();
+
+    let top_timing_label = div(document);
+    top_timing_label.set_text_content(Some("-- FPS  -- ms/f"));
+    set(
+        &top_timing_label,
+        &[
+            ("color", "#a6e3a1"),
+            ("font-size", "12px"),
+            ("font-weight", "700"),
+            ("margin-left", "16px"),
+            ("margin-right", "16px"),
+            ("white-space", "nowrap"),
+        ],
+    );
+    top_bar.append_child(&top_timing_label).unwrap();
+
     let has_toggle = js_sys::Reflect::get(&js_sys::global(), &"__vello_toggle_simd".into())
         .ok()
         .map_or(false, |v| v.is_function());
     if has_toggle {
-        let spacer = div(document);
-        set(&spacer, &[("flex", "1")]);
-        top_bar.append_child(&spacer).unwrap();
-
         let simd_on = js_sys::Reflect::get(&js_sys::global(), &"__vello_simd".into())
             .ok()
             .and_then(|v| v.as_bool())
@@ -1203,7 +1230,7 @@ fn build_top_bar(document: &Document) -> (HtmlElement, HtmlElement, HtmlElement)
         top_bar.append_child(&renderer_btn).unwrap();
     }
 
-    (top_bar, tab_interactive, tab_benchmark)
+    (top_bar, tab_interactive, tab_benchmark, top_timing_label)
 }
 
 fn build_interactive_view(
