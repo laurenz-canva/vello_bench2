@@ -444,23 +444,39 @@ impl Ui {
             .set_text_content(Some(&format!("FPS: {fps:.1}  ({frame_time:.1}ms)")));
         self.encode_label
             .set_text_content(Some(&format!("Encode: {encode_ms:.2}ms")));
-        self.render_label
-            .set_text_content(Some(&format!("Render: {render_ms:.2}ms")));
         if is_cpu {
+            self.render_label
+                .set_text_content(Some(&format!("Render: {render_ms:.2}ms")));
+            self.render_label
+                .style()
+                .set_property("display", "block")
+                .unwrap();
             self.blit_label
                 .set_text_content(Some(&format!("Blit: {blit_ms:.2}ms")));
             self.blit_label
                 .style()
                 .set_property("display", "block")
                 .unwrap();
+            self.total_label
+                .set_text_content(Some(&format!("Total: {total_ms:.2}ms")));
+            self.total_label
+                .style()
+                .set_property("display", "block")
+                .unwrap();
         } else {
+            self.render_label
+                .style()
+                .set_property("display", "none")
+                .unwrap();
             self.blit_label
                 .style()
                 .set_property("display", "none")
                 .unwrap();
+            self.total_label
+                .style()
+                .set_property("display", "none")
+                .unwrap();
         }
-        self.total_label
-            .set_text_content(Some(&format!("Total: {total_ms:.2}ms")));
     }
 
     /// Update viewport display.

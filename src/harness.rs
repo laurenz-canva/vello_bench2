@@ -147,8 +147,9 @@ impl BenchHarness {
     /// Drive one step. Returns events for the caller to act on.
     pub(crate) fn tick(&mut self, defs: &[BenchDef], width: u32, height: u32) -> Vec<HarnessEvent> {
         let mut events = Vec::new();
+        let perf = web_sys::window().unwrap().performance().unwrap();
 
-        match self.phase {
+        match std::mem::replace(&mut self.phase, Phase::Idle) {
             Phase::Idle | Phase::Complete => {}
             Phase::PendingWarmup(idx) => {
                 let def = &defs[idx];
@@ -161,28 +162,20 @@ impl BenchHarness {
                 let canvas = self.bench_canvas.as_ref().unwrap();
                 self.bench_backend = Some(Backend::new(canvas, width, height));
                 let be = self.bench_backend.as_mut().unwrap();
-                let perf = web_sys::window().unwrap().performance().unwrap();
-
-                let now = perf.now();
-                render_one(scene, be, width, height, now);
+                render_one(scene, be, width, height, perf.now());
                 be.sync();
                 events.push(HarnessEvent::ScreenshotReady);
 
-                let start = perf.now();
-                let mut count = 0_usize;
-                loop {
-                    let t = perf.now();
-                    render_one(scene, be, width, height, t);
+                let t0 = perf.now();
+                let mut frames = 0_usize;
+                while perf.now() - t0 < self.warmup_ms {
+                    render_one(scene, be, width, height, perf.now());
                     be.sync();
-                    count += 1;
-                    if perf.now() - start >= self.warmup_ms {
-                        break;
-                    }
+                    frames += 1;
                 }
-                let elapsed = perf.now() - start;
-                let rate = count as f64 / elapsed;
+                let elapsed = (perf.now() - t0).max(0.001);
+                let rate = frames as f64 / elapsed;
                 let target = (rate * self.run_ms).max(1.0) as usize;
-
                 self.phase = Phase::PendingRun {
                     idx,
                     target_iters: target,
@@ -192,16 +185,12 @@ impl BenchHarness {
                 let def = &defs[idx];
                 let scene = self.bench_scene.as_mut().unwrap().as_mut();
                 let be = self.bench_backend.as_mut().unwrap();
-
-                let perf = web_sys::window().unwrap().performance().unwrap();
-                let start = perf.now();
+                let t0 = perf.now();
                 for _ in 0..target_iters {
-                    let t = perf.now();
-                    render_one(scene, be, width, height, t);
+                    render_one(scene, be, width, height, perf.now());
                     be.sync();
                 }
-                let total_ms = perf.now() - start;
-
+                let total_ms = (perf.now() - t0).max(0.0);
                 let result = BenchResult {
                     name: def.name,
                     ms_per_frame: total_ms / target_iters as f64,

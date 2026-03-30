@@ -112,7 +112,6 @@ impl AppState {
         let encode_ms = perf.now() - t0;
 
         self.backend.render_offscreen();
-        self.backend.sync();
         let render_ms = perf.now() - t0 - encode_ms;
 
         self.backend.blit();

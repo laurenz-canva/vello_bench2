@@ -31,4 +31,4 @@ Builds both SIMD and non-SIMD variants and serves them with a toggle button in t
 ./serve.sh
 ```
 
-Then open http://localhost:8080. Requires `wasm-bindgen-cli` (`cargo install wasm-bindgen-cli`).
+Then open http://localhost:8080. Requires `wasm-bindgen-cli` (`cargo install wasm-bindgen-cli --version 0.2.114`).
