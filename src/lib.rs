@@ -89,6 +89,7 @@ impl AppState {
             self.current_scene = selected;
             self.backend = Backend::new(&self.canvas, self.width, self.height);
             self.scenes = scenes::all_scenes();
+            self.fps_tracker.reset(now);
             self.reset_view();
             let params = self.scenes[self.current_scene].params();
             self.ui.rebuild_params(&params);

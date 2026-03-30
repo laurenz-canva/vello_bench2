@@ -1,6 +1,6 @@
 //! Frame timing with rolling averages for both wall-clock frame time and CPU render time.
 
-const RING_SIZE: usize = 60;
+const RING_SIZE: usize = 5;
 
 /// Rolling average over a ring buffer of `f64` samples.
 #[derive(Debug)]
@@ -49,6 +49,12 @@ impl FpsTracker {
             last_time: now,
             frame_times: RollingAvg::new(),
         }
+    }
+
+    /// Reset the tracker when the scene or renderer changes so old frames do not bleed over.
+    pub(crate) fn reset(&mut self, now: f64) {
+        self.last_time = now;
+        self.frame_times = RollingAvg::new();
     }
 
     /// Record a frame. `now` is the current `performance.now()` timestamp.
