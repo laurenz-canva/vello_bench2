@@ -57,6 +57,70 @@ fn format_val(v: f64, step: f64) -> String {
     }
 }
 
+fn range_step(value: f64, base_step: f64) -> f64 {
+    if base_step < 1.0 {
+        return base_step;
+    }
+    if value.abs() < 10.0 {
+        1.0
+    } else {
+        10f64.powf(value.abs().log10().floor())
+    }
+}
+
+fn snap_to_step(value: f64, min: f64, max: f64, base_step: f64) -> f64 {
+    let clamped = value.clamp(min, max);
+    if base_step < 1.0 {
+        let offset = ((clamped - min) / base_step).round();
+        return (min + offset * base_step).clamp(min, max);
+    }
+    let step = range_step(clamped, base_step);
+    ((clamped / step).round() * step).clamp(min, max)
+}
+
+fn stepper_delta(value: f64, base_step: f64) -> f64 {
+    range_step(value, base_step)
+}
+
+fn stepper_decrement(value: f64, base_step: f64) -> f64 {
+    let step = range_step(value, base_step);
+    if step > base_step && value.abs() >= 10.0 && (value.abs() - step).abs() < f64::EPSILON {
+        (step / 10.0).max(base_step)
+    } else {
+        step
+    }
+}
+
+fn set_stepper_value(
+    input: &HtmlInputElement,
+    label: &HtmlElement,
+    value: f64,
+    min: f64,
+    max: f64,
+    step: f64,
+) {
+    let snapped = snap_to_step(value, min, max, step);
+    input.set_value(&snapped.to_string());
+    label.set_text_content(Some(&format_val(snapped, step)));
+}
+
+fn sanitized_stepper_value(
+    input: &HtmlInputElement,
+    label: &HtmlElement,
+    min: f64,
+    max: f64,
+    step: f64,
+) -> f64 {
+    let value = input.value().parse().unwrap_or(min);
+    let snapped = snap_to_step(value, min, max, step);
+    if (snapped - value).abs() > f64::EPSILON {
+        set_stepper_value(input, label, snapped, min, max, step);
+    } else {
+        label.set_text_content(Some(&format_val(snapped, step)));
+    }
+    snapped
+}
+
 // ── Mode ─────────────────────────────────────────────────────────────────────
 
 /// App mode.
@@ -71,8 +135,17 @@ pub enum AppMode {
 // ── Param control ────────────────────────────────────────────────────────────
 
 enum ParamCtrl {
-    Slider(HtmlInputElement),
-    Select(HtmlSelectElement),
+    Stepper {
+        root: HtmlElement,
+        input: HtmlInputElement,
+        step: f64,
+        min: f64,
+        max: f64,
+    },
+    Select {
+        root: HtmlElement,
+        select: HtmlSelectElement,
+    },
 }
 
 // ── Bench row ────────────────────────────────────────────────────────────────
@@ -394,10 +467,16 @@ impl Ui {
     pub fn read_params(&self) -> Vec<(&'static str, f64)> {
         self.controls
             .iter()
-            .map(|(ctrl, _, name)| {
+            .map(|(ctrl, val_span, name)| {
                 let v: f64 = match ctrl {
-                    ParamCtrl::Slider(i) => i.value().parse().unwrap_or(0.0),
-                    ParamCtrl::Select(s) => s.value().parse().unwrap_or(0.0),
+                    ParamCtrl::Stepper {
+                        input,
+                        step,
+                        min,
+                        max,
+                        ..
+                    } => sanitized_stepper_value(input, val_span, *min, *max, *step),
+                    ParamCtrl::Select { select, .. } => select.value().parse().unwrap_or(0.0),
                 };
                 (*name, v)
             })
@@ -407,12 +486,9 @@ impl Ui {
     /// Rebuild interactive params.
     pub fn rebuild_params(&mut self, params: &[Param]) {
         for (ctrl, _, _) in self.controls.drain(..) {
-            let el: &Element = match &ctrl {
-                ParamCtrl::Slider(i) => i,
-                ParamCtrl::Select(s) => s,
-            };
-            if let Some(row) = el.parent_element() {
-                row.remove();
+            match ctrl {
+                ParamCtrl::Stepper { root, .. } => root.remove(),
+                ParamCtrl::Select { root, .. } => root.remove(),
             }
         }
         let document = doc();
@@ -762,10 +838,16 @@ impl Ui {
         let params: Vec<(String, f64)> = self
             .controls
             .iter()
-            .map(|(ctrl, _, name)| {
+            .map(|(ctrl, val_span, name)| {
                 let v: f64 = match ctrl {
-                    ParamCtrl::Slider(i) => i.value().parse().unwrap_or(0.0),
-                    ParamCtrl::Select(s) => s.value().parse().unwrap_or(0.0),
+                    ParamCtrl::Stepper {
+                        input,
+                        step,
+                        min,
+                        max,
+                        ..
+                    } => sanitized_stepper_value(input, val_span, *min, *max, *step),
+                    ParamCtrl::Select { select, .. } => select.value().parse().unwrap_or(0.0),
                 };
                 (name.to_string(), v)
             })
@@ -801,13 +883,17 @@ impl Ui {
         for (ctrl, val_span, name) in &self.controls {
             if let Some((_, v)) = saved.params.iter().find(|(k, _)| k == name) {
                 match ctrl {
-                    ParamCtrl::Slider(input) => {
-                        input.set_value(&v.to_string());
-                        let step: f64 = input.step().parse().unwrap_or(1.0);
-                        val_span.set_text_content(Some(&format_val(*v, step)));
+                    ParamCtrl::Stepper {
+                        input,
+                        step,
+                        min,
+                        max,
+                        ..
+                    } => {
+                        set_stepper_value(input, val_span, *v, *min, *max, *step);
                     }
-                    ParamCtrl::Select(sel) => {
-                        sel.set_value(&v.to_string());
+                    ParamCtrl::Select { select, .. } => {
+                        select.set_value(&v.to_string());
                     }
                 }
             }
@@ -2117,36 +2203,124 @@ fn build_controls(
                     .unwrap()
                     .dyn_into()
                     .unwrap();
-                input.set_type("range");
-                input.set_min(&min.to_string());
-                input.set_max(&max.to_string());
-                input.set_step(&step.to_string());
+                input.set_type("hidden");
                 input.set_value(&p.value.to_string());
-                set_prop(&input, "width", "160px");
-                set_prop(&input, "vertical-align", "middle");
-                set_prop(&input, "accent-color", "#89b4fa");
                 row.append_child(&input).unwrap();
 
-                val_span.set_text_content(Some(&format_val(p.value, *step)));
-                row.append_child(&val_span).unwrap();
+                let stepper = div(document);
+                set(
+                    &stepper,
+                    &[
+                        ("display", "flex"),
+                        ("align-items", "center"),
+                        ("gap", "8px"),
+                    ],
+                );
 
-                let vc = val_span.clone();
-                let ic = input.clone();
-                let st = *step;
-                let dirty = dirty.cloned();
-                let cb = Closure::wrap(Box::new(move || {
-                    let v: f64 = ic.value().parse().unwrap_or(0.0);
-                    vc.set_text_content(Some(&format_val(v, st)));
-                    if let Some(ref d) = dirty {
+                let button_style = [
+                    ("width", "32px"),
+                    ("height", "28px"),
+                    ("display", "flex"),
+                    ("align-items", "center"),
+                    ("justify-content", "center"),
+                    ("border", "1px solid #45475a"),
+                    ("border-radius", "6px"),
+                    ("background", "#1e1e2e"),
+                    ("color", "#cdd6f4"),
+                    ("cursor", "pointer"),
+                    ("user-select", "none"),
+                    ("font-size", "16px"),
+                    ("line-height", "1"),
+                    ("flex-shrink", "0"),
+                ];
+
+                let minus = div(document);
+                minus.set_text_content(Some("-"));
+                set(&minus, &button_style);
+                stepper.append_child(&minus).unwrap();
+
+                set(
+                    &val_span,
+                    &[
+                        ("display", "flex"),
+                        ("flex", "1"),
+                        ("align-items", "center"),
+                        ("justify-content", "center"),
+                        ("min-height", "28px"),
+                        ("margin-left", "0"),
+                        ("padding", "0 8px"),
+                        ("border", "1px solid #313244"),
+                        ("border-radius", "6px"),
+                        ("background", "#181825"),
+                        ("color", "#cdd6f4"),
+                        ("font-family", "'JetBrains Mono', monospace"),
+                        ("font-size", "12px"),
+                    ],
+                );
+                set_stepper_value(&input, &val_span, p.value, *min, *max, *step);
+                stepper.append_child(&val_span).unwrap();
+
+                let plus = div(document);
+                plus.set_text_content(Some("+"));
+                set(&plus, &button_style);
+                stepper.append_child(&plus).unwrap();
+                row.append_child(&stepper).unwrap();
+
+                let minus_input = input.clone();
+                let minus_label = val_span.clone();
+                let minus_dirty = dirty.cloned();
+                let min_value = *min;
+                let max_value = *max;
+                let base_step = *step;
+                let minus_cb = Closure::wrap(Box::new(move || {
+                    let current = minus_input.value().parse().unwrap_or(min_value);
+                    let next = current - stepper_decrement(current, base_step);
+                    set_stepper_value(
+                        &minus_input,
+                        &minus_label,
+                        next,
+                        min_value,
+                        max_value,
+                        base_step,
+                    );
+                    if let Some(ref d) = minus_dirty {
                         d.set(true);
                     }
                 }) as Box<dyn FnMut()>);
-                input
-                    .add_event_listener_with_callback("input", cb.as_ref().unchecked_ref())
+                minus
+                    .add_event_listener_with_callback("click", minus_cb.as_ref().unchecked_ref())
                     .unwrap();
-                cb.forget();
+                minus_cb.forget();
 
-                ParamCtrl::Slider(input)
+                let plus_input = input.clone();
+                let plus_label = val_span.clone();
+                let plus_dirty = dirty.cloned();
+                let plus_cb = Closure::wrap(Box::new(move || {
+                    let current = plus_input.value().parse().unwrap_or(min_value);
+                    let next = current + stepper_delta(current, base_step);
+                    set_stepper_value(
+                        &plus_input,
+                        &plus_label,
+                        next,
+                        min_value,
+                        max_value,
+                        base_step,
+                    );
+                    if let Some(ref d) = plus_dirty {
+                        d.set(true);
+                    }
+                }) as Box<dyn FnMut()>);
+                plus.add_event_listener_with_callback("click", plus_cb.as_ref().unchecked_ref())
+                    .unwrap();
+                plus_cb.forget();
+
+                ParamCtrl::Stepper {
+                    root: row.clone(),
+                    input,
+                    step: *step,
+                    min: *min,
+                    max: *max,
+                }
             }
             ParamKind::Select(options) => {
                 let sel: HtmlSelectElement = document
@@ -2177,7 +2351,10 @@ fn build_controls(
                     cb.forget();
                 }
 
-                ParamCtrl::Select(sel)
+                ParamCtrl::Select {
+                    root: row.clone(),
+                    select: sel,
+                }
             }
         };
 

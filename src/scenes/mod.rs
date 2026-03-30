@@ -23,13 +23,13 @@ pub struct Param {
     pub name: &'static str,
     /// Human-readable label for UI.
     pub label: &'static str,
-    /// The kind of control: slider range or dropdown select.
+    /// The kind of control: numeric range or dropdown select.
     pub kind: ParamKind,
     /// Current value.
     pub value: f64,
 }
 
-/// Whether a parameter is a numeric slider or a dropdown select.
+/// Whether a parameter is a numeric range control or a dropdown select.
 #[derive(Debug, Clone)]
 pub enum ParamKind {
     /// A range slider with min, max, and step.
