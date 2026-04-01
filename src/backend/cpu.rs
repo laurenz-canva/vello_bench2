@@ -1,0 +1,225 @@
+use alloc::sync::Arc;
+
+use vello_common::filter_effects::Filter;
+use vello_common::glyph::Glyph;
+use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
+use vello_common::paint::{ImageSource, PaintType};
+use vello_common::peniko::{Fill, FontData};
+use wasm_bindgen::JsCast;
+use web_sys::{HtmlCanvasElement, WebGl2RenderingContext as GL, WebGlProgram, WebGlTexture};
+
+use crate::scenes::{ParamId, SceneId};
+
+extern crate alloc;
+
+const VS: &str = "\
+    attribute vec2 p;\
+    varying vec2 uv;\
+    void main(){uv=p*0.5+0.5;uv.y=1.0-uv.y;gl_Position=vec4(p,0,1);}";
+const FS: &str = "\
+    precision mediump float;\
+    varying vec2 uv;\
+    uniform sampler2D t;\
+    void main(){gl_FragColor=texture2D(t,uv);}";
+
+pub use vello_cpu::Pixmap;
+
+pub fn supports_scene(_scene_id: SceneId) -> bool {
+    true
+}
+
+pub fn supports_param(scene_id: SceneId, param: ParamId) -> bool {
+    !(scene_id == SceneId::Rect && param == ParamId::UseDrawImage)
+}
+
+pub struct BackendImpl {
+    ctx: vello_cpu::RenderContext,
+    width: u16,
+    height: u16,
+    gl: GL,
+    #[allow(dead_code)]
+    program: WebGlProgram,
+    texture: WebGlTexture,
+    target: Option<Pixmap>,
+}
+
+impl std::fmt::Debug for BackendImpl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Backend(cpu)").finish()
+    }
+}
+
+impl BackendImpl {
+    pub fn new(canvas: &HtmlCanvasElement, w: u32, h: u32) -> Self {
+        let gl: GL = canvas
+            .get_context("webgl2")
+            .unwrap()
+            .unwrap()
+            .dyn_into()
+            .unwrap();
+
+        let vs = gl.create_shader(GL::VERTEX_SHADER).unwrap();
+        gl.shader_source(&vs, VS);
+        gl.compile_shader(&vs);
+        let fs = gl.create_shader(GL::FRAGMENT_SHADER).unwrap();
+        gl.shader_source(&fs, FS);
+        gl.compile_shader(&fs);
+        let program = gl.create_program().unwrap();
+        gl.attach_shader(&program, &vs);
+        gl.attach_shader(&program, &fs);
+        gl.link_program(&program);
+        gl.delete_shader(Some(&vs));
+        gl.delete_shader(Some(&fs));
+
+        let verts: [f32; 8] = [-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0];
+        let buf = gl.create_buffer().unwrap();
+        gl.bind_buffer(GL::ARRAY_BUFFER, Some(&buf));
+        let view = js_sys::Float32Array::new_with_length(8);
+        view.copy_from(&verts);
+        gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &view, GL::STATIC_DRAW);
+        let loc = gl.get_attrib_location(&program, "p") as u32;
+        gl.enable_vertex_attrib_array(loc);
+        gl.vertex_attrib_pointer_with_i32(loc, 2, GL::FLOAT, false, 0, 0);
+
+        let texture = gl.create_texture().unwrap();
+        gl.bind_texture(GL::TEXTURE_2D, Some(&texture));
+        gl.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MIN_FILTER, GL::NEAREST as i32);
+        gl.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MAG_FILTER, GL::NEAREST as i32);
+
+        gl.use_program(Some(&program));
+        gl.disable(GL::BLEND);
+
+        Self {
+            ctx: vello_cpu::RenderContext::new(w as u16, h as u16),
+            width: w as u16,
+            height: h as u16,
+            gl,
+            program,
+            texture,
+            target: None,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.ctx.reset();
+    }
+
+    pub fn reset_with_size(&mut self, w: u32, h: u32) {
+        self.ctx = vello_cpu::RenderContext::new(w as u16, h as u16);
+    }
+
+    pub fn render_offscreen(&mut self) {
+        self.ctx.flush();
+        self.target = Some(Pixmap::new(self.width, self.height));
+        self.ctx.render_to_pixmap(self.target.as_mut().unwrap());
+    }
+
+    pub fn blit(&mut self) {
+        let target = self.target.take().expect("render_offscreen not called");
+        let bytes: &[u8] = bytemuck::cast_slice(target.data());
+
+        self.gl.bind_texture(GL::TEXTURE_2D, Some(&self.texture));
+        self.gl
+            .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+                GL::TEXTURE_2D,
+                0,
+                GL::RGBA as i32,
+                self.width as i32,
+                self.height as i32,
+                0,
+                GL::RGBA,
+                GL::UNSIGNED_BYTE,
+                Some(bytes),
+            )
+            .unwrap();
+
+        self.gl.viewport(0, 0, self.width as i32, self.height as i32);
+        self.gl.draw_arrays(GL::TRIANGLE_STRIP, 0, 4);
+    }
+
+    pub fn is_cpu(&self) -> bool {
+        true
+    }
+
+    pub fn sync(&self) {}
+
+    pub fn resize(&mut self, w: u32, h: u32) {
+        self.width = w as u16;
+        self.height = h as u16;
+        self.ctx = vello_cpu::RenderContext::new(w as u16, h as u16);
+    }
+
+    pub fn upload_image(&mut self, pixmap: Pixmap) -> ImageSource {
+        ImageSource::Pixmap(Arc::new(pixmap))
+    }
+
+    pub fn set_paint(&mut self, paint: PaintType) {
+        self.ctx.set_paint(paint);
+    }
+
+    pub fn set_transform(&mut self, transform: Affine) {
+        self.ctx.set_transform(transform);
+    }
+
+    pub fn reset_transform(&mut self) {
+        self.ctx.reset_transform();
+    }
+
+    pub fn set_stroke(&mut self, stroke: Stroke) {
+        self.ctx.set_stroke(stroke);
+    }
+
+    pub fn set_paint_transform(&mut self, transform: Affine) {
+        self.ctx.set_paint_transform(transform);
+    }
+
+    pub fn reset_paint_transform(&mut self) {
+        self.ctx.reset_paint_transform();
+    }
+
+    pub fn set_fill_rule(&mut self, fill: Fill) {
+        self.ctx.set_fill_rule(fill);
+    }
+
+    pub fn fill_rect(&mut self, rect: &Rect) {
+        self.ctx.fill_rect(rect);
+    }
+
+    pub fn fill_path(&mut self, path: &BezPath) {
+        self.ctx.fill_path(path);
+    }
+
+    pub fn stroke_path(&mut self, path: &BezPath) {
+        self.ctx.stroke_path(path);
+    }
+
+    pub fn push_clip_path(&mut self, path: &BezPath) {
+        self.ctx.push_clip_path(path);
+    }
+
+    pub fn push_clip_layer(&mut self, path: &BezPath) {
+        self.ctx.push_clip_layer(path);
+    }
+
+    pub fn push_filter_layer(&mut self, filter: Filter) {
+        self.ctx.push_filter_layer(filter);
+    }
+
+    pub fn pop_clip_path(&mut self) {
+        self.ctx.pop_clip_path();
+    }
+
+    pub fn pop_layer(&mut self) {
+        self.ctx.pop_layer();
+    }
+
+    pub fn fill_glyphs(&mut self, font: &FontData, font_size: f32, hint: bool, glyphs: &[Glyph]) {
+        self.ctx
+            .glyph_run(font)
+            .font_size(font_size)
+            .hint(hint)
+            .fill_glyphs(glyphs.iter().copied());
+    }
+
+    pub fn draw_image(&mut self, _image: ImageSource, _rect: &Rect, _bilinear: bool) {}
+}
