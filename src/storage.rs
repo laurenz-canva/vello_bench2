@@ -69,6 +69,7 @@ pub(crate) fn delete_report(idx: usize) {
 // ── UI state persistence ─────────────────────────────────────────────────────
 
 const UI_STATE_KEY: &str = "vello_bench_ui_state";
+const BACKEND_KEY: &str = "vello_bench_renderer";
 
 /// Persisted UI state across page reloads.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -104,5 +105,15 @@ pub(crate) fn save_ui_state(state: &UiState) {
         && let Ok(json) = serde_json::to_string(state)
     {
         let _ = storage.set_item(UI_STATE_KEY, &json);
+    }
+}
+
+pub(crate) fn load_backend_name() -> Option<String> {
+    local_storage()?.get_item(BACKEND_KEY).ok().flatten()
+}
+
+pub(crate) fn save_backend_name(name: &str) {
+    if let Some(storage) = local_storage() {
+        let _ = storage.set_item(BACKEND_KEY, name);
     }
 }

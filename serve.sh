@@ -5,16 +5,11 @@ DIST=dist
 TARGET=wasm32-unknown-unknown
 
 build_variant() {
-  local features=$1
-  local rustflags=$2
-  local out_dir=$3
+  local rustflags=$1
+  local out_dir=$2
 
   echo "==> Building $out_dir..."
-  if [[ -n "$features" ]]; then
-    RUSTFLAGS="$rustflags" cargo build --target $TARGET --profile instrument --no-default-features --features "$features"
-  else
-    RUSTFLAGS="$rustflags" cargo build --target $TARGET --profile instrument --no-default-features
-  fi
+  RUSTFLAGS="$rustflags" cargo build --target $TARGET --profile instrument
 
   echo "==> Running wasm-bindgen ($out_dir)..."
   mkdir -p "$DIST/$out_dir"
@@ -44,13 +39,8 @@ should_build() {
   return 1
 }
 
-should_build hybrid-simd   && build_variant hybrid "-Ctarget-feature=+simd128" hybrid-simd
-should_build hybrid-nosimd && build_variant hybrid ""                          hybrid-nosimd
-should_build cpu-simd      && build_variant cpu    "-Ctarget-feature=+simd128" cpu-simd
-should_build cpu-nosimd    && build_variant cpu    ""                          cpu-nosimd
-should_build pathfinder-simd   && build_variant pathfinder "-Ctarget-feature=+simd128" pathfinder-simd
-should_build pathfinder-nosimd && build_variant pathfinder ""                          pathfinder-nosimd
-should_build canvas2d-simd     && build_variant "" "-Ctarget-feature=+simd128" canvas2d-simd
+should_build simd   && build_variant "-Ctarget-feature=+simd128" simd
+should_build nosimd && build_variant ""                          nosimd
 
 cp web/index.html "$DIST/index.html"
 

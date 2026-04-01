@@ -10,6 +10,7 @@ use pathfinder_renderer::gpu::renderer::Renderer as PathfinderRenderer;
 use pathfinder_renderer::options::BuildOptions;
 use pathfinder_resources::embedded::EmbeddedResourceLoader;
 use pathfinder_webgl::WebGlDevice;
+use vello_common::pixmap::Pixmap;
 use vello_common::filter_effects::Filter;
 use vello_common::glyph::Glyph;
 use vello_common::kurbo::{Affine, BezPath, PathEl, Rect, Stroke};
@@ -19,19 +20,6 @@ use wasm_bindgen::JsCast;
 use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
 
 use crate::scenes::{ParamId, SceneId};
-
-pub struct Pixmap;
-
-impl Pixmap {
-    pub fn from_parts_with_opacity<T>(
-        _pixels: Vec<T>,
-        _width: u16,
-        _height: u16,
-        _may_have_opacities: bool,
-    ) -> Self {
-        Self
-    }
-}
 
 pub fn supports_scene(scene_id: SceneId) -> bool {
     matches!(

@@ -1,6 +1,7 @@
 use vello_common::filter::PreparedFilter;
 use js_sys::{Function, Reflect};
 use vello_common::filter_effects::Filter;
+use vello_common::pixmap::Pixmap;
 use vello_common::glyph::Glyph;
 use vello_common::kurbo::{Affine, BezPath, PathEl, Rect, Stroke};
 use vello_common::paint::{ImageSource, PaintType};
@@ -13,19 +14,6 @@ use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{CanvasGradient, CanvasRenderingContext2d, CanvasWindingRule, HtmlCanvasElement};
 
 use crate::scenes::{ParamId, SceneId};
-
-pub struct Pixmap;
-
-impl Pixmap {
-    pub fn from_parts_with_opacity<T>(
-        _pixels: Vec<T>,
-        _width: u16,
-        _height: u16,
-        _may_have_opacities: bool,
-    ) -> Self {
-        Self
-    }
-}
 
 pub fn supports_scene(scene_id: SceneId) -> bool {
     matches!(

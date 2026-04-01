@@ -8,7 +8,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use crate::backend::BackendCapabilities;
+use crate::backend::{BackendCapabilities, BackendKind};
 use crate::harness::{BenchDef, BenchResult, BenchScale};
 use crate::scenes::{BenchScene, Param, ParamId, ParamKind};
 use crate::storage::{BenchReport, UiState};
@@ -210,6 +210,7 @@ pub struct Ui {
     tab_interactive: HtmlElement,
     tab_benchmark: HtmlElement,
     top_timing_label: HtmlElement,
+    renderer_select: HtmlSelectElement,
 
     // Interactive: sidebar
     sidebar: HtmlElement,
@@ -302,7 +303,8 @@ impl Ui {
 
         let dirty = Rc::new(Cell::new(false));
 
-        let (top_bar, tab_interactive, tab_benchmark, top_timing_label) = build_top_bar(document);
+        let (top_bar, tab_interactive, tab_benchmark, top_timing_label, renderer_select) =
+            build_top_bar(document, crate::backend::current_backend_kind());
         body.append_child(&top_bar).unwrap();
 
         let iv = build_interactive_view(
@@ -368,6 +370,7 @@ impl Ui {
             tab_interactive,
             tab_benchmark,
             top_timing_label,
+            renderer_select,
             sidebar: iv.sidebar,
             toggle_btn: iv.toggle_btn,
             sidebar_collapsed: false,
@@ -448,6 +451,14 @@ impl Ui {
     /// Tab elements for event binding.
     pub fn tab_elements(&self) -> (&HtmlElement, &HtmlElement) {
         (&self.tab_interactive, &self.tab_benchmark)
+    }
+
+    pub fn renderer_select(&self) -> &HtmlSelectElement {
+        &self.renderer_select
+    }
+
+    pub fn set_renderer(&self, kind: BackendKind) {
+        self.renderer_select.set_value(kind.as_str());
     }
 
     // ── Sidebar toggle ───────────────────────────────────────────────────
@@ -594,6 +605,29 @@ impl Ui {
             Some(&self.reset_view_btn),
             Some(&self.dirty),
         );
+    }
+
+    pub fn rebuild_scene_options(
+        &self,
+        scenes: &[Box<dyn BenchScene>],
+        capabilities: BackendCapabilities,
+        current_scene: usize,
+    ) {
+        while let Some(child) = self.scene_select.first_child() {
+            self.scene_select.remove_child(&child).unwrap();
+        }
+        let document = doc();
+        for (i, s) in scenes.iter().enumerate() {
+            let opt = document.create_element("option").unwrap();
+            opt.set_text_content(Some(s.name()));
+            opt.set_attribute("value", &i.to_string()).unwrap();
+            if !capabilities.supports_scene(s.scene_id()) {
+                opt.set_attribute("hidden", "true").unwrap();
+                opt.set_attribute("disabled", "true").unwrap();
+            }
+            self.scene_select.append_child(&opt).unwrap();
+        }
+        self.scene_select.set_value(&current_scene.to_string());
     }
 
     /// Selected interactive scene index.
@@ -770,6 +804,29 @@ impl Ui {
             .set_property("pointer-events", "auto")
             .unwrap();
         self.show_deltas();
+    }
+
+    pub(crate) fn update_bench_support(
+        &self,
+        bench_defs: &[BenchDef],
+        scenes: &[Box<dyn BenchScene>],
+        capabilities: BackendCapabilities,
+    ) {
+        for (i, row) in self.bench_rows.iter().enumerate() {
+            let supported = bench_defs
+                .get(i)
+                .is_some_and(|def| bench_def_supported(def, scenes, capabilities));
+            row.supported.set(supported);
+            row.row
+                .style()
+                .set_property("display", if supported { "flex" } else { "none" })
+                .unwrap();
+            if !supported {
+                row.checkbox.set_checked(false);
+            }
+            row.checkbox.set_disabled(!supported);
+            row.row.style().set_property("opacity", "1").unwrap();
+        }
     }
 
     // ── Save / Load / Compare ─────────────────────────────────────────
@@ -1149,7 +1206,16 @@ struct BenchRowsParts {
 
 // ── Sub-builders ─────────────────────────────────────────────────────────────
 
-fn build_top_bar(document: &Document) -> (HtmlElement, HtmlElement, HtmlElement, HtmlElement) {
+fn build_top_bar(
+    document: &Document,
+    current_backend: BackendKind,
+) -> (
+    HtmlElement,
+    HtmlElement,
+    HtmlElement,
+    HtmlElement,
+    HtmlSelectElement,
+) {
     let top_bar = div(document);
     set(
         &top_bar,
@@ -1259,50 +1325,40 @@ fn build_top_bar(document: &Document) -> (HtmlElement, HtmlElement, HtmlElement,
         top_bar.append_child(&simd_btn).unwrap();
     }
 
-    // Renderer toggle (hybrid / cpu / pathfinder / canvas2d).
-    let renderer_name = js_sys::Reflect::get(&js_sys::global(), &"__vello_renderer".into())
-        .ok()
-        .and_then(|v| v.as_string())
-        .unwrap_or_else(|| "hybrid".to_string());
-    let renderer_btn = div(document);
-    let renderer_label = match renderer_name.as_str() {
-        "cpu" => "CPU",
-        "pathfinder" => "Pathfinder",
-        "canvas2d" => "Canvas 2D",
-        _ => "Hybrid",
-    };
-    renderer_btn.set_text_content(Some(renderer_label));
-    set(
-        &renderer_btn,
-        &[
-            ("color", "#cdd6f4"),
-            ("font-size", "12px"),
-            ("font-weight", "600"),
-            ("cursor", "pointer"),
-            ("padding", "4px 10px"),
-            ("border-radius", "4px"),
-            ("border", "1px solid #585b70"),
-            ("margin-left", "8px"),
-            ("user-select", "none"),
-        ],
-    );
-    {
-        let cb = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
-            if let Ok(f) = js_sys::Reflect::get(&js_sys::global(), &"__vello_toggle_renderer".into())
-            {
-                if let Some(f) = f.dyn_ref::<js_sys::Function>() {
-                    let _ = f.call0(&wasm_bindgen::JsValue::NULL);
-                }
-            }
-        }) as Box<dyn FnMut()>);
-        renderer_btn
-            .add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
-            .unwrap();
-        cb.forget();
+    let renderer_select: HtmlSelectElement = document
+        .create_element("select")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    select_style(&renderer_select);
+    renderer_select
+        .style()
+        .set_property("width", "auto")
+        .unwrap();
+    renderer_select
+        .style()
+        .set_property("margin-left", "8px")
+        .unwrap();
+    renderer_select
+        .style()
+        .set_property("padding", "4px 10px")
+        .unwrap();
+    for kind in BackendKind::ALL {
+        let opt = document.create_element("option").unwrap();
+        opt.set_text_content(Some(kind.label()));
+        opt.set_attribute("value", kind.as_str()).unwrap();
+        renderer_select.append_child(&opt).unwrap();
     }
-    top_bar.append_child(&renderer_btn).unwrap();
+    renderer_select.set_value(current_backend.as_str());
+    top_bar.append_child(&renderer_select).unwrap();
 
-    (top_bar, tab_interactive, tab_benchmark, top_timing_label)
+    (
+        top_bar,
+        tab_interactive,
+        tab_benchmark,
+        top_timing_label,
+        renderer_select,
+    )
 }
 
 fn build_interactive_view(

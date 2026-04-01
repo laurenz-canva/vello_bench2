@@ -21,7 +21,7 @@ pub mod ui;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use backend::{Backend, BackendCapabilities, current_backend_capabilities};
+use backend::{Backend, BackendCapabilities, BackendKind, current_backend_capabilities, current_backend_kind};
 use fps::FpsTracker;
 use harness::{BenchDef, BenchHarness, HarnessEvent, bench_defs};
 use scenes::{BenchScene, scene_index};
@@ -81,8 +81,90 @@ impl AppState {
         scene
             .params()
             .into_iter()
-            .filter(|param| self.backend_caps.supports_param(scene.scene_id(), param.id))
+            .filter_map(|mut param| {
+                if !self.backend_caps.supports_param(scene.scene_id(), param.id) {
+                    return None;
+                }
+                if let scenes::ParamKind::Select(options) = &mut param.kind {
+                    options.retain(|(_, value)| {
+                        self.backend_caps
+                            .supports_param_value(scene.scene_id(), param.id, *value)
+                    });
+                    if options.is_empty() {
+                        return None;
+                    }
+                    if !options
+                        .iter()
+                        .any(|(_, value)| (*value - param.value).abs() < f64::EPSILON)
+                    {
+                        param.value = options[0].1;
+                    }
+                }
+                Some(param)
+            })
             .collect()
+    }
+
+    fn switch_backend(&mut self, kind: BackendKind, now: f64) -> bool {
+        if self.backend.kind() == kind {
+            return false;
+        }
+
+        crate::storage::save_backend_name(kind.as_str());
+
+        let old_params = if self.ui.mode == AppMode::Interactive {
+            self.ui.read_params()
+        } else {
+            Vec::new()
+        };
+
+        self.backend_caps = current_backend_capabilities(kind);
+        let replaced_canvas = if backend_uses_webgl(self.backend.kind()) != backend_uses_webgl(kind)
+        {
+            self.canvas = replace_canvas_element(&self.canvas, self.width, self.height, self.ui.mode);
+            true
+        } else {
+            false
+        };
+        self.backend = Backend::new(&self.canvas, self.width, self.height, kind);
+        self.scenes = scenes::all_scenes();
+
+        let next_scene = if self
+            .scenes
+            .get(self.current_scene)
+            .is_some_and(|scene| self.backend_caps.supports_scene(scene.scene_id()))
+        {
+            self.current_scene
+        } else {
+            scene_index(scenes::SceneId::Rect)
+        };
+
+        self.current_scene = next_scene;
+        let scene_id = self.scenes[next_scene].scene_id();
+        for (param_id, value) in old_params {
+            if self.backend_caps.supports_param(scene_id, param_id)
+                && self
+                    .backend_caps
+                    .supports_param_value(scene_id, param_id, value)
+            {
+                self.scenes[next_scene].set_param(param_id, value);
+            }
+        }
+
+        self.ui.set_renderer(kind);
+        self.ui
+            .rebuild_scene_options(&self.scenes, self.backend_caps, self.current_scene);
+        self.ui.update_bench_support(
+            &self.bench_defs,
+            &self.scenes,
+            self.backend_caps,
+        );
+        let params = self.scene_params_for_ui(self.current_scene);
+        self.ui.rebuild_params(&params);
+        self.fps_tracker.reset(now);
+        self.reset_view();
+        self.ui.mark_dirty();
+        replaced_canvas
     }
 
     fn tick(&mut self, now: f64) {
@@ -97,7 +179,8 @@ impl AppState {
         let selected = self.ui.selected_scene();
         if selected != self.current_scene && selected < self.scenes.len() {
             self.current_scene = selected;
-            self.backend = Backend::new(&self.canvas, self.width, self.height);
+            let kind = self.backend.kind();
+            self.backend = Backend::new(&self.canvas, self.width, self.height, kind);
             self.scenes = scenes::all_scenes();
             self.fps_tracker.reset(now);
             self.reset_view();
@@ -214,11 +297,6 @@ impl AppState {
     }
 }
 
-#[cfg(all(
-    not(feature = "cpu"),
-    not(feature = "pathfinder"),
-    feature = "hybrid"
-))]
 pub(crate) fn gpu_sync(renderer: &vello_hybrid::WebGlRenderer) {
     let gl = renderer.gl_context();
     let mut pixel = [0_u8; 4];
@@ -234,6 +312,64 @@ pub(crate) fn gpu_sync(renderer: &vello_hybrid::WebGlRenderer) {
     .unwrap();
 }
 
+fn backend_uses_webgl(kind: BackendKind) -> bool {
+    !matches!(kind, BackendKind::Canvas2d)
+}
+
+fn configure_canvas(
+    canvas: &HtmlCanvasElement,
+    px_w: u32,
+    px_h: u32,
+    mode: AppMode,
+) {
+    let window = web_sys::window().unwrap();
+    let css_w = window.inner_width().unwrap().as_f64().unwrap() as u32;
+    let css_h = window.inner_height().unwrap().as_f64().unwrap() as u32;
+    canvas.set_width(px_w);
+    canvas.set_height(px_h);
+    let cs = canvas.style();
+    cs.set_property("position", "fixed").unwrap();
+    cs.set_property("top", "40px").unwrap();
+    cs.set_property("left", "0").unwrap();
+    cs.set_property("z-index", "0").unwrap();
+    cs.set_property("width", &format!("{css_w}px")).unwrap();
+    cs.set_property("height", &format!("{}px", css_h.saturating_sub(40)))
+        .unwrap();
+    cs.set_property(
+        "visibility",
+        if mode == AppMode::Interactive {
+            "visible"
+        } else {
+            "hidden"
+        },
+    )
+    .unwrap();
+}
+
+fn make_canvas(document: &web_sys::Document, px_w: u32, px_h: u32, mode: AppMode) -> HtmlCanvasElement {
+    let canvas: HtmlCanvasElement = document
+        .create_element("canvas")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    configure_canvas(&canvas, px_w, px_h, mode);
+    canvas
+}
+
+fn replace_canvas_element(
+    current: &HtmlCanvasElement,
+    px_w: u32,
+    px_h: u32,
+    mode: AppMode,
+) -> HtmlCanvasElement {
+    let document = web_sys::window().unwrap().document().unwrap();
+    let new_canvas = make_canvas(&document, px_w, px_h, mode);
+    let parent = current.parent_node().unwrap();
+    parent.insert_before(&new_canvas, Some(current)).unwrap();
+    parent.remove_child(current).unwrap();
+    new_canvas
+}
+
 /// Entry point.
 pub async fn run() {
     let window = web_sys::window().unwrap();
@@ -246,26 +382,13 @@ pub async fn run() {
     let px_w = (css_w as f64 * dpr) as u32;
     let px_h = (css_h as f64 * dpr) as u32;
 
-    let canvas: HtmlCanvasElement = document
-        .create_element("canvas")
-        .unwrap()
-        .dyn_into()
-        .unwrap();
-    canvas.set_width(px_w);
-    canvas.set_height(px_h);
-    let cs = canvas.style();
-    cs.set_property("position", "fixed").unwrap();
-    cs.set_property("top", "40px").unwrap(); // below top bar
-    cs.set_property("left", "0").unwrap();
-    cs.set_property("z-index", "0").unwrap();
-    cs.set_property("width", &format!("{css_w}px")).unwrap();
-    cs.set_property("height", &format!("{}px", css_h.saturating_sub(40)))
-        .unwrap();
+    let canvas = make_canvas(&document, px_w, px_h, AppMode::Interactive);
     document.body().unwrap().append_child(&canvas).unwrap();
 
     let bench_scenes = scenes::all_scenes();
     let defs = bench_defs();
-    let backend_caps = current_backend_capabilities();
+    let backend_kind = current_backend_kind();
+    let backend_caps = current_backend_capabilities(backend_kind);
 
     let saved_state = storage::load_ui_state();
     let initial_mode = match saved_state.mode.as_deref() {
@@ -279,28 +402,11 @@ pub async fn run() {
         .or_else(|| Some(scene_index(scenes::SceneId::Rect)))
         .unwrap_or(0);
 
-    let ui = Ui::build(
-        &document,
-        &bench_scenes,
-        &defs,
-        backend_caps,
-        initial_scene,
-        px_w,
-        px_h,
-    );
-    let backend = Backend::new(&canvas, px_w, px_h);
+    let ui = Ui::build(&document, &bench_scenes, &defs, backend_caps, initial_scene, px_w, px_h);
+    let backend = Backend::new(&canvas, px_w, px_h, backend_kind);
     let now = performance.now();
 
-    // Canvas visibility depends on initial mode.
-    let canvas_vis = if initial_mode == AppMode::Interactive {
-        "visible"
-    } else {
-        "hidden"
-    };
-    canvas
-        .style()
-        .set_property("visibility", canvas_vis)
-        .unwrap();
+    configure_canvas(&canvas, px_w, px_h, initial_mode);
 
     let state = Rc::new(RefCell::new(AppState {
         scenes: bench_scenes,
@@ -360,12 +466,11 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         drop(borrow);
 
         let s = state.clone();
-        let canvas_ref = state.borrow().canvas.clone();
         let cb = Closure::wrap(Box::new(move || {
             let mut st = s.borrow_mut();
             st.ui.set_mode(AppMode::Interactive);
             st.ui.flush_state();
-            canvas_ref
+            st.canvas
                 .style()
                 .set_property("visibility", "visible")
                 .unwrap();
@@ -375,12 +480,11 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         cb.forget();
 
         let s = state.clone();
-        let canvas_ref = state.borrow().canvas.clone();
         let cb = Closure::wrap(Box::new(move || {
             let mut st = s.borrow_mut();
             st.ui.set_mode(AppMode::Benchmark);
             st.ui.flush_state();
-            canvas_ref
+            st.canvas
                 .style()
                 .set_property("visibility", "hidden")
                 .unwrap();
@@ -477,6 +581,34 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
             dirty.set(true);
         }) as Box<dyn FnMut()>);
         sel.add_event_listener_with_callback("change", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
+
+    // Backend select → switch backend at runtime.
+    {
+        let s = state.clone();
+        let select = state.borrow().ui.renderer_select().clone();
+        let select_for_cb = select.clone();
+        let cb = Closure::wrap(Box::new(move || {
+            let mut st = s.borrow_mut();
+            if st.harness.is_running() {
+                st.ui.set_renderer(st.backend.kind());
+                return;
+            }
+            let Some(kind) = BackendKind::from_str(&select_for_cb.value()) else {
+                st.ui.set_renderer(st.backend.kind());
+                return;
+            };
+            let now = web_sys::window().unwrap().performance().unwrap().now();
+            let replaced_canvas = st.switch_backend(kind, now);
+            drop(st);
+            if replaced_canvas {
+                wire_touch(&s);
+            }
+        }) as Box<dyn FnMut()>);
+        select
+            .add_event_listener_with_callback("change", cb.as_ref().unchecked_ref())
             .unwrap();
         cb.forget();
     }
@@ -762,7 +894,9 @@ fn wire_animation_loop(state: &Rc<RefCell<AppState>>) {
     let s = state.clone();
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
         let now = web_sys::window().unwrap().performance().unwrap().now();
-        s.borrow_mut().tick(now);
+        if let Ok(mut st) = s.try_borrow_mut() {
+            st.tick(now);
+        }
         request_animation_frame(f.borrow().as_ref().unwrap());
     }) as Box<dyn FnMut()>));
     request_animation_frame(g.borrow().as_ref().unwrap());

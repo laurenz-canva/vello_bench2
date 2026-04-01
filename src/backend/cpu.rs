@@ -1,5 +1,6 @@
 use alloc::sync::Arc;
 
+use vello_common::pixmap::Pixmap;
 use vello_common::filter_effects::Filter;
 use vello_common::glyph::Glyph;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
@@ -21,8 +22,6 @@ const FS: &str = "\
     varying vec2 uv;\
     uniform sampler2D t;\
     void main(){gl_FragColor=texture2D(t,uv);}";
-
-pub use vello_cpu::Pixmap;
 
 pub fn supports_scene(_scene_id: SceneId) -> bool {
     true

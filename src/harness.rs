@@ -5,7 +5,7 @@
     reason = "truncation has no appreciable impact in this benchmark"
 )]
 
-use crate::backend::Backend;
+use crate::backend::{Backend, current_backend_kind};
 use crate::scenes::{self, BenchScene, ParamId, SceneId, scene_index};
 use vello_common::kurbo::Affine;
 use web_sys::HtmlCanvasElement;
@@ -160,7 +160,7 @@ impl BenchHarness {
                 apply_params(scene, def.params, def.scale, self.preset);
 
                 let canvas = self.bench_canvas.as_ref().unwrap();
-                self.bench_backend = Some(Backend::new(canvas, width, height));
+                self.bench_backend = Some(Backend::new(canvas, width, height, current_backend_kind()));
                 let be = self.bench_backend.as_mut().unwrap();
                 render_one(scene, be, width, height, perf.now());
                 be.sync();
