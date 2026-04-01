@@ -131,8 +131,16 @@ impl AppState {
         let total_ms = perf.now() - t0;
         let (fps, frame_time) = self.fps_tracker.frame(now);
         let is_cpu = self.backend.is_cpu();
+        let supports_encode_timing = self.backend.supports_encode_timing();
         self.ui.update_timing(
-            fps, frame_time, encode_ms, render_ms, blit_ms, total_ms, is_cpu,
+            fps,
+            frame_time,
+            encode_ms,
+            render_ms,
+            blit_ms,
+            total_ms,
+            is_cpu,
+            supports_encode_timing,
         );
     }
 

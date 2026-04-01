@@ -54,6 +54,10 @@ impl BackendImpl {
         false
     }
 
+    pub fn supports_encode_timing(&self) -> bool {
+        true
+    }
+
     pub fn sync(&self) {
         crate::gpu_sync(&self.renderer);
     }

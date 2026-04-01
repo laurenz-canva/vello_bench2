@@ -120,6 +120,10 @@ impl BackendImpl {
         false
     }
 
+    pub fn supports_encode_timing(&self) -> bool {
+        false
+    }
+
     pub fn sync(&self) {}
 
     pub fn resize(&mut self, w: u32, h: u32) {

@@ -27,6 +27,7 @@ pub use selected::Pixmap;
 use selected::BackendImpl;
 
 pub trait Renderer {
+    fn supports_encode_timing(&self) -> bool;
     fn set_paint(&mut self, paint: PaintType);
     fn set_transform(&mut self, transform: Affine);
     fn reset_transform(&mut self);
@@ -97,6 +98,10 @@ impl Backend {
         self.inner.is_cpu()
     }
 
+    pub fn supports_encode_timing(&self) -> bool {
+        self.inner.supports_encode_timing()
+    }
+
     pub fn sync(&self) {
         self.inner.sync();
     }
@@ -107,6 +112,10 @@ impl Backend {
 }
 
 impl Renderer for Backend {
+    fn supports_encode_timing(&self) -> bool {
+        self.inner.supports_encode_timing()
+    }
+
     fn set_paint(&mut self, paint: PaintType) {
         self.inner.set_paint(paint);
     }

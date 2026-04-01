@@ -477,13 +477,25 @@ impl Ui {
         blit_ms: f64,
         total_ms: f64,
         is_cpu: bool,
+        supports_encode_timing: bool,
     ) {
         self.fps_label
             .set_text_content(Some(&format!("FPS: {fps:.1}  ({frame_time:.1}ms)")));
         self.top_timing_label
             .set_text_content(Some(&format!("{fps:.1} FPS  {frame_time:.1} ms/f")));
-        self.encode_label
-            .set_text_content(Some(&format!("Encode: {encode_ms:.2}ms")));
+        if supports_encode_timing {
+            self.encode_label
+                .set_text_content(Some(&format!("Encode: {encode_ms:.2}ms")));
+            self.encode_label
+                .style()
+                .set_property("display", "block")
+                .unwrap();
+        } else {
+            self.encode_label
+                .style()
+                .set_property("display", "none")
+                .unwrap();
+        }
         if is_cpu {
             self.render_label
                 .set_text_content(Some(&format!("Render: {render_ms:.2}ms")));
