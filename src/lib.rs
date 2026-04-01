@@ -121,14 +121,7 @@ impl AppState {
         };
 
         self.backend_caps = current_backend_capabilities(kind);
-        let replaced_canvas = if backend_uses_webgl(self.backend.kind()) != backend_uses_webgl(kind)
-        {
-            self.canvas =
-                replace_canvas_element(&self.canvas, self.width, self.height, self.ui.mode);
-            true
-        } else {
-            false
-        };
+        self.canvas = replace_canvas_element(&self.canvas, self.width, self.height, self.ui.mode);
         self.backend = Backend::new(&self.canvas, self.width, self.height, kind);
         self.scenes = scenes::all_scenes();
 
@@ -164,7 +157,7 @@ impl AppState {
         self.fps_tracker.reset(now);
         self.reset_view();
         self.ui.mark_dirty();
-        replaced_canvas
+        true
     }
 
     fn tick(&mut self, now: f64) {
@@ -310,10 +303,6 @@ pub(crate) fn gpu_sync(renderer: &vello_hybrid::WebGlRenderer) {
         Some(&mut pixel),
     )
     .unwrap();
-}
-
-fn backend_uses_webgl(kind: BackendKind) -> bool {
-    !matches!(kind, BackendKind::Canvas2d)
 }
 
 fn configure_canvas(canvas: &HtmlCanvasElement, px_w: u32, px_h: u32, mode: AppMode) {

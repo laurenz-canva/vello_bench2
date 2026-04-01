@@ -7,7 +7,10 @@ use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::{Fill, FontData};
 use vello_common::pixmap::Pixmap;
 use wasm_bindgen::JsCast;
-use web_sys::{HtmlCanvasElement, WebGl2RenderingContext as GL, WebGlProgram, WebGlTexture};
+use web_sys::{
+    HtmlCanvasElement, WebGl2RenderingContext as GL, WebGlBuffer, WebGlProgram, WebGlTexture,
+    WebGlUniformLocation,
+};
 
 use crate::scenes::{ParamId, SceneId};
 
@@ -42,6 +45,9 @@ pub struct BackendImpl {
     gl: GL,
     #[allow(dead_code)]
     program: WebGlProgram,
+    quad_buffer: WebGlBuffer,
+    position_loc: u32,
+    sampler_loc: WebGlUniformLocation,
     texture: WebGlTexture,
     target: Option<Pixmap>,
 }
@@ -75,21 +81,26 @@ impl BackendImpl {
         gl.delete_shader(Some(&fs));
 
         let verts: [f32; 8] = [-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0];
-        let buf = gl.create_buffer().unwrap();
-        gl.bind_buffer(GL::ARRAY_BUFFER, Some(&buf));
+        let quad_buffer = gl.create_buffer().unwrap();
+        gl.bind_buffer(GL::ARRAY_BUFFER, Some(&quad_buffer));
         let view = js_sys::Float32Array::new_with_length(8);
         view.copy_from(&verts);
         gl.buffer_data_with_array_buffer_view(GL::ARRAY_BUFFER, &view, GL::STATIC_DRAW);
-        let loc = gl.get_attrib_location(&program, "p") as u32;
-        gl.enable_vertex_attrib_array(loc);
-        gl.vertex_attrib_pointer_with_i32(loc, 2, GL::FLOAT, false, 0, 0);
+        let position_loc = gl.get_attrib_location(&program, "p") as u32;
+        gl.enable_vertex_attrib_array(position_loc);
+        gl.vertex_attrib_pointer_with_i32(position_loc, 2, GL::FLOAT, false, 0, 0);
 
         let texture = gl.create_texture().unwrap();
+        gl.active_texture(GL::TEXTURE0);
         gl.bind_texture(GL::TEXTURE_2D, Some(&texture));
         gl.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MIN_FILTER, GL::NEAREST as i32);
         gl.tex_parameteri(GL::TEXTURE_2D, GL::TEXTURE_MAG_FILTER, GL::NEAREST as i32);
 
         gl.use_program(Some(&program));
+        let sampler_loc = gl
+            .get_uniform_location(&program, "t")
+            .expect("missing texture sampler uniform");
+        gl.uniform1i(Some(&sampler_loc), 0);
         gl.disable(GL::BLEND);
 
         Self {
@@ -98,6 +109,9 @@ impl BackendImpl {
             height: h as u16,
             gl,
             program,
+            quad_buffer,
+            position_loc,
+            sampler_loc,
             texture,
             target: None,
         }
@@ -117,7 +131,14 @@ impl BackendImpl {
         let target = self.target.take().expect("render_offscreen not called");
         let bytes: &[u8] = bytemuck::cast_slice(target.data());
 
+        self.gl.use_program(Some(&self.program));
+        self.gl.bind_buffer(GL::ARRAY_BUFFER, Some(&self.quad_buffer));
+        self.gl.enable_vertex_attrib_array(self.position_loc);
+        self.gl
+            .vertex_attrib_pointer_with_i32(self.position_loc, 2, GL::FLOAT, false, 0, 0);
+        self.gl.active_texture(GL::TEXTURE0);
         self.gl.bind_texture(GL::TEXTURE_2D, Some(&self.texture));
+        self.gl.uniform1i(Some(&self.sampler_loc), 0);
         self.gl
             .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
                 GL::TEXTURE_2D,
