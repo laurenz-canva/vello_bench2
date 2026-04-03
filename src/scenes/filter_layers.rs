@@ -151,16 +151,6 @@ impl BenchScene for FilterLayersScene {
                 },
             },
             Param {
-                id: ParamId::Speed,
-                label: "Speed",
-                kind: ParamKind::Slider {
-                    min: 0.0,
-                    max: 10.0,
-                    step: 0.1,
-                },
-                value: self.speed,
-            },
-            Param {
                 id: ParamId::BlurStdDeviation,
                 label: "Blur Sigma",
                 kind: ParamKind::Slider {
