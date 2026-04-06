@@ -435,6 +435,7 @@ pub async fn run() {
         st.ui.apply_saved_benches(&saved_state);
         st.ui.apply_saved_bench_preset(&saved_state);
         st.ui.apply_saved_params(&saved_state);
+        st.ui.load_ab_comparison();
         st.ui.save_state();
     }
 
@@ -943,4 +944,113 @@ fn wire_resize(state: &Rc<RefCell<AppState>>) {
         .add_event_listener_with_callback("resize", cb.as_ref().unchecked_ref())
         .unwrap();
     cb.forget();
+}
+
+// ── Headless bench worker for interleaved A/B mode ──────────────────────────
+
+/// Headless worker entry point for interleaved A/B benchmarking.
+///
+/// Instead of building the full UI and animation loop, this registers a
+/// `message` event listener and responds to commands from a parent orchestrator
+/// page via `postMessage`.
+#[wasm_bindgen]
+pub fn bench_worker_init() {
+    console_error_panic_hook::set_once();
+    let _ = console_log::init_with_level(log::Level::Warn);
+
+    let window = web_sys::window().unwrap();
+
+    let cb = Closure::wrap(Box::new(move |event: web_sys::MessageEvent| {
+        let data = event.data();
+        let Some(obj) = data.dyn_ref::<js_sys::Object>() else {
+            return;
+        };
+        let msg_type = js_sys::Reflect::get(obj, &"type".into())
+            .ok()
+            .and_then(|v| v.as_string());
+
+        match msg_type.as_deref() {
+            Some("get_defs") => {
+                let defs = bench_defs();
+                let arr = js_sys::Array::new();
+                for (i, d) in defs.iter().enumerate() {
+                    let entry = js_sys::Object::new();
+                    js_sys::Reflect::set(&entry, &"idx".into(), &(i as u32).into()).unwrap();
+                    js_sys::Reflect::set(&entry, &"name".into(), &d.name.into()).unwrap();
+                    js_sys::Reflect::set(&entry, &"category".into(), &d.category.into()).unwrap();
+                    js_sys::Reflect::set(
+                        &entry,
+                        &"description".into(),
+                        &d.description.into(),
+                    )
+                    .unwrap();
+                    arr.push(&entry);
+                }
+                let reply = js_sys::Object::new();
+                js_sys::Reflect::set(&reply, &"type".into(), &"defs".into()).unwrap();
+                js_sys::Reflect::set(&reply, &"defs".into(), &arr).unwrap();
+                let _ = web_sys::window()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .unwrap()
+                    .post_message(&reply, "*");
+            }
+            Some("run_bench") => {
+                let get_f64 = |key: &str| {
+                    js_sys::Reflect::get(obj, &key.into())
+                        .ok()
+                        .and_then(|v| v.as_f64())
+                };
+                let idx = get_f64("idx").unwrap_or(0.0) as usize;
+                let preset = get_f64("preset").unwrap_or(10.0) as u32;
+                let warmup_ms = get_f64("warmup_ms").unwrap_or(250.0);
+                let run_ms = get_f64("run_ms").unwrap_or(1000.0);
+                let width = get_f64("width").unwrap_or(800.0) as u32;
+                let height = get_f64("height").unwrap_or(600.0) as u32;
+
+                let reply = js_sys::Object::new();
+                js_sys::Reflect::set(&reply, &"type".into(), &"bench_result".into()).unwrap();
+                js_sys::Reflect::set(&reply, &"idx".into(), &(idx as u32).into()).unwrap();
+
+                if let Some(result) = harness::run_single_bench(
+                    idx, preset, warmup_ms, run_ms, width, height,
+                ) {
+                    js_sys::Reflect::set(&reply, &"name".into(), &result.name.into()).unwrap();
+                    js_sys::Reflect::set(
+                        &reply,
+                        &"ms_per_frame".into(),
+                        &result.ms_per_frame.into(),
+                    )
+                    .unwrap();
+                    js_sys::Reflect::set(
+                        &reply,
+                        &"iterations".into(),
+                        &(result.iterations as u32).into(),
+                    )
+                    .unwrap();
+                } else {
+                    js_sys::Reflect::set(&reply, &"error".into(), &"invalid bench index".into())
+                        .unwrap();
+                }
+
+                let _ = web_sys::window()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .unwrap()
+                    .post_message(&reply, "*");
+            }
+            _ => {}
+        }
+    }) as Box<dyn FnMut(_)>);
+    window
+        .add_event_listener_with_callback("message", cb.as_ref().unchecked_ref())
+        .unwrap();
+    cb.forget();
+
+    // Signal readiness to the parent orchestrator.
+    let ready = js_sys::Object::new();
+    js_sys::Reflect::set(&ready, &"type".into(), &"ready".into()).unwrap();
+    let _ = window.parent().unwrap().unwrap().post_message(&ready, "*");
 }

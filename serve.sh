@@ -39,6 +39,9 @@ should_build() {
   return 1
 }
 
+# Remove stale A/B directories so index.html doesn't detect ab.sh mode.
+rm -rf "$DIST/control" "$DIST/treatment"
+
 should_build simd   && build_variant "-Ctarget-feature=+simd128" simd
 should_build nosimd && build_variant ""                          nosimd
 

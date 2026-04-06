@@ -50,6 +50,22 @@ fn select_style(sel: &HtmlSelectElement) {
     }
 }
 
+/// Returns the current A/B variant name if running under `ab.sh`, or `None`
+/// when served by `serve.sh`.
+fn current_ab_variant() -> Option<String> {
+    js_sys::Reflect::get(&js_sys::global(), &"__vello_variant".into())
+        .ok()
+        .and_then(|v| v.as_string())
+}
+
+fn other_ab_variant(variant: &str) -> &'static str {
+    if variant == "control" {
+        "treatment"
+    } else {
+        "control"
+    }
+}
+
 fn format_val(v: f64, step: f64) -> String {
     if step >= 1.0 || v.fract().abs() < f64::EPSILON {
         format!("{}", v as i64)
@@ -781,7 +797,7 @@ impl Ui {
     }
 
     /// All benchmarks done — re-enable UI and show deltas if comparison loaded.
-    pub fn bench_all_done(&self) {
+    pub fn bench_all_done(&mut self) {
         for r in &self.bench_rows {
             if !r.supported.get() {
                 continue;
@@ -794,7 +810,55 @@ impl Ui {
             .style()
             .set_property("pointer-events", "auto")
             .unwrap();
+
+        // In A/B mode, auto-save results for this variant and load the other
+        // variant's results as comparison baseline (if available).
+        if let Some(variant) = current_ab_variant() {
+            let report = self.collect_current_results(&variant);
+            if !report.results.is_empty() {
+                crate::storage::save_ab_snapshot(&variant, &report);
+            }
+            let other = other_ab_variant(&variant);
+            if let Some(other_report) = crate::storage::load_ab_snapshot(other) {
+                self.compare_report = Some(other_report);
+            }
+        }
+
         self.show_deltas();
+    }
+
+    /// Collect current on-screen benchmark results into a `BenchReport`.
+    fn collect_current_results(&self, label: &str) -> BenchReport {
+        let vp_w: u32 = self.vp_width_input.value().parse().unwrap_or(0);
+        let vp_h: u32 = self.vp_height_input.value().parse().unwrap_or(0);
+        let mut results = Vec::new();
+        for br in &self.bench_rows {
+            let text = br.result_text.text_content().unwrap_or_default();
+            if text.is_empty() {
+                continue;
+            }
+            if let Some(ms_str) = text.split(" ms/f").next()
+                && let Ok(ms) = ms_str.trim().parse::<f64>()
+            {
+                let iters = text
+                    .split('(')
+                    .nth(1)
+                    .and_then(|s| s.split(' ').next())
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(0);
+                results.push(crate::storage::SavedResult {
+                    name: br.name.to_string(),
+                    ms_per_frame: ms,
+                    iterations: iters,
+                });
+            }
+        }
+        BenchReport {
+            label: label.to_string(),
+            viewport_width: vp_w,
+            viewport_height: vp_h,
+            results,
+        }
     }
 
     pub(crate) fn update_bench_support(
@@ -1145,6 +1209,19 @@ impl Ui {
         self.hide_deltas();
         self.refresh_compare_dropdown();
     }
+
+    /// In A/B mode, load the *other* variant's auto-saved results as the
+    /// comparison baseline so deltas appear automatically after the first
+    /// benchmark run on each side.
+    pub fn load_ab_comparison(&mut self) {
+        let Some(variant) = current_ab_variant() else {
+            return;
+        };
+        let other = other_ab_variant(&variant);
+        if let Some(report) = crate::storage::load_ab_snapshot(other) {
+            self.compare_report = Some(report);
+        }
+    }
 }
 
 // ── Delta formatting ─────────────────────────────────────────────────────────
@@ -1268,9 +1345,12 @@ fn build_top_bar(
             ("background", "#1e1e2e"),
             ("display", "flex"),
             ("align-items", "center"),
-            ("padding", "0 16px"),
+            ("padding", "0 12px"),
             ("z-index", "100"),
             ("border-bottom", "1px solid #313244"),
+            ("overflow-x", "auto"),
+            ("overflow-y", "hidden"),
+            ("flex-shrink", "0"),
         ],
     );
 
@@ -1299,7 +1379,7 @@ fn build_top_bar(
     top_bar.append_child(&tab_interactive).unwrap();
 
     let spacer = div(document);
-    set(&spacer, &[("flex", "1")]);
+    set(&spacer, &[("flex", "1"), ("min-width", "0")]);
     top_bar.append_child(&spacer).unwrap();
 
     let top_timing_label = div(document);
@@ -1310,9 +1390,10 @@ fn build_top_bar(
             ("color", "#a6e3a1"),
             ("font-size", "12px"),
             ("font-weight", "700"),
-            ("margin-left", "16px"),
-            ("margin-right", "16px"),
+            ("margin-left", "8px"),
+            ("margin-right", "8px"),
             ("white-space", "nowrap"),
+            ("flex-shrink", "0"),
         ],
     );
     top_bar.append_child(&top_timing_label).unwrap();
@@ -1345,6 +1426,8 @@ fn build_top_bar(
                     },
                 ),
                 ("user-select", "none"),
+                ("white-space", "nowrap"),
+                ("flex-shrink", "0"),
             ],
         );
         {
@@ -1365,6 +1448,66 @@ fn build_top_bar(
         top_bar.append_child(&simd_btn).unwrap();
     }
 
+    let has_variant_toggle =
+        js_sys::Reflect::get(&js_sys::global(), &"__vello_toggle_variant".into())
+            .ok()
+            .map_or(false, |v| v.is_function());
+    if has_variant_toggle {
+        let variant = js_sys::Reflect::get(&js_sys::global(), &"__vello_variant".into())
+            .ok()
+            .and_then(|v| v.as_string())
+            .unwrap_or_else(|| "control".to_string());
+        let is_treatment = variant == "treatment";
+        let variant_btn = div(document);
+        variant_btn.set_text_content(Some(if is_treatment {
+            "TREATMENT"
+        } else {
+            "CONTROL"
+        }));
+        set(
+            &variant_btn,
+            &[
+                (
+                    "color",
+                    if is_treatment { "#fab387" } else { "#89b4fa" },
+                ),
+                ("font-size", "12px"),
+                ("font-weight", "600"),
+                ("cursor", "pointer"),
+                ("padding", "4px 10px"),
+                ("border-radius", "4px"),
+                (
+                    "border",
+                    if is_treatment {
+                        "1px solid #fab387"
+                    } else {
+                        "1px solid #89b4fa"
+                    },
+                ),
+                ("user-select", "none"),
+                ("white-space", "nowrap"),
+                ("flex-shrink", "0"),
+                ("margin-left", "6px"),
+            ],
+        );
+        {
+            let cb = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
+                if let Ok(f) =
+                    js_sys::Reflect::get(&js_sys::global(), &"__vello_toggle_variant".into())
+                {
+                    if let Some(f) = f.dyn_ref::<js_sys::Function>() {
+                        let _ = f.call0(&wasm_bindgen::JsValue::NULL);
+                    }
+                }
+            }) as Box<dyn FnMut()>);
+            variant_btn
+                .add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+                .unwrap();
+            cb.forget();
+        }
+        top_bar.append_child(&variant_btn).unwrap();
+    }
+
     let renderer_select: HtmlSelectElement = document
         .create_element("select")
         .unwrap()
@@ -1382,6 +1525,10 @@ fn build_top_bar(
     renderer_select
         .style()
         .set_property("padding", "4px 10px")
+        .unwrap();
+    renderer_select
+        .style()
+        .set_property("flex-shrink", "0")
         .unwrap();
     for kind in BackendKind::ALL {
         let opt = document.create_element("option").unwrap();

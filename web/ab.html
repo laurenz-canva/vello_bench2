@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>vello bench – A/B</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'JetBrains Mono', 'SF Mono', monospace;
+      background: #1e1e2e; color: #cdd6f4; font-size: 13px;
+    }
+    .top-bar {
+      position: fixed; top: 0; left: 0; right: 0; height: 40px;
+      background: #1e1e2e; display: flex; align-items: center;
+      padding: 0 16px; z-index: 100; border-bottom: 1px solid #313244;
+    }
+    .logo { color: #89b4fa; font-weight: 700; font-size: 14px; margin-right: 16px; }
+    .status { color: #6c7086; font-size: 12px; flex: 1; }
+    .container { margin-top: 48px; padding: 16px; max-width: 960px; margin-left: auto; margin-right: auto; }
+
+    .config-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    .config-row label { color: #6c7086; font-size: 11px; }
+    .config-row input {
+      width: 70px; padding: 4px 6px; background: #313244; color: #cdd6f4;
+      border: 1px solid #45475a; border-radius: 4px; font-family: inherit; font-size: 12px;
+    }
+    .start-btn {
+      padding: 8px 24px; background: #a6e3a1; color: #1e1e2e; border: none;
+      border-radius: 6px; font-weight: 700; font-family: inherit; font-size: 13px;
+      cursor: pointer;
+    }
+    .start-btn:disabled { opacity: 0.4; cursor: default; }
+
+    .categories { margin-top: 16px; }
+    .cat-header {
+      display: flex; align-items: center; gap: 8px; margin-top: 14px; margin-bottom: 6px;
+    }
+    .cat-header input[type=checkbox] { accent-color: #89b4fa; }
+    .cat-label { color: #89b4fa; font-weight: 600; font-size: 12px; }
+
+    .bench-row {
+      display: flex; align-items: center; padding: 4px 0 4px 20px; gap: 8px;
+      border-bottom: 1px solid #181825;
+    }
+    .bench-row input[type=checkbox] { accent-color: #a6e3a1; }
+    .bench-name { flex: 1; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .result-cell { width: 110px; text-align: right; font-size: 11px; white-space: nowrap; }
+    .result-ctrl { color: #89b4fa; }
+    .result-treat { color: #fab387; }
+    .result-delta { width: 80px; text-align: right; font-size: 11px; font-weight: 600; }
+
+    .header-row {
+      display: flex; align-items: center; padding: 6px 0 6px 20px; gap: 8px;
+      border-bottom: 1px solid #313244; font-size: 11px; color: #6c7086; font-weight: 600;
+    }
+    .header-name { flex: 1; }
+
+    .running { color: #f9e2af; }
+    .done { color: #a6e3a1; }
+
+    iframe { width: 0; height: 0; border: 0; position: absolute; left: -9999px; }
+  </style>
+</head>
+<body>
+  <div class="top-bar">
+    <div class="logo">vello bench – A/B</div>
+    <div class="status" id="status">Loading workers…</div>
+  </div>
+
+  <div class="container">
+    <div class="config-row">
+      <label>Preset <input id="preset" type="number" value="10" min="1" max="20"></label>
+      <label>Warmup (ms) <input id="warmup" type="number" value="250" min="50"></label>
+      <label>Run (ms) <input id="run_ms" type="number" value="1000" min="100"></label>
+      <label>Width <input id="vp_w" type="number" value="800"></label>
+      <label>Height <input id="vp_h" type="number" value="600"></label>
+      <button class="start-btn" id="start" disabled>Start A/B</button>
+    </div>
+
+    <div class="header-row">
+      <input type="checkbox" id="select-all" checked>
+      <div class="header-name">Benchmark</div>
+      <div class="result-cell">Control</div>
+      <div class="result-cell">Treatment</div>
+      <div class="result-delta">Delta</div>
+    </div>
+    <div id="benchmarks" class="categories"></div>
+  </div>
+
+  <iframe id="iframe-control" src="control/worker.html"></iframe>
+  <iframe id="iframe-treatment" src="treatment/worker.html"></iframe>
+
+<script>
+(function() {
+  const controlFrame = document.getElementById('iframe-control');
+  const treatmentFrame = document.getElementById('iframe-treatment');
+  const statusEl = document.getElementById('status');
+  const startBtn = document.getElementById('start');
+  const benchContainer = document.getElementById('benchmarks');
+  const selectAllCb = document.getElementById('select-all');
+
+  let controlReady = false, treatmentReady = false;
+  let benchDefs = [];
+  let running = false;
+  let rowEls = []; // { cb, ctrlCell, treatCell, deltaCell, rowEl }
+
+  // ── postMessage helpers ──────────────────────────────────────────
+
+  function sendToControl(msg) { controlFrame.contentWindow.postMessage(msg, '*'); }
+  function sendToTreatment(msg) { treatmentFrame.contentWindow.postMessage(msg, '*'); }
+
+  function waitForMessage(filter) {
+    return new Promise(resolve => {
+      function handler(e) {
+        if (filter(e.data)) {
+          window.removeEventListener('message', handler);
+          resolve(e.data);
+        }
+      }
+      window.addEventListener('message', handler);
+    });
+  }
+
+  // ── Initialization ───────────────────────────────────────────────
+
+  window.addEventListener('message', function onInit(e) {
+    const d = e.data;
+    if (!d || d.type !== 'ready') return;
+    if (e.source === controlFrame.contentWindow) controlReady = true;
+    if (e.source === treatmentFrame.contentWindow) treatmentReady = true;
+
+    if (controlReady && treatmentReady) {
+      window.removeEventListener('message', onInit);
+      statusEl.textContent = 'Requesting bench definitions…';
+      sendToControl({ type: 'get_defs' });
+      waitForMessage(d => d.type === 'defs').then(msg => {
+        benchDefs = msg.defs;
+        buildUI();
+        statusEl.textContent = 'Ready – select benchmarks and click Start A/B';
+        startBtn.disabled = false;
+      });
+    } else {
+      const c = controlReady ? 'ready' : 'loading';
+      const t = treatmentReady ? 'ready' : 'loading';
+      statusEl.textContent = `Workers: control ${c}, treatment ${t}`;
+    }
+  });
+
+  // ── Build benchmark selection UI ─────────────────────────────────
+
+  function buildUI() {
+    benchContainer.innerHTML = '';
+    rowEls = [];
+    let currentCat = null;
+    let catCb = null;
+    let catRows = [];
+
+    for (const def of benchDefs) {
+      if (def.category !== currentCat) {
+        // Finish previous category.
+        if (catCb && catRows.length) bindCatCheckbox(catCb, catRows);
+        catRows = [];
+        currentCat = def.category;
+
+        const hdr = document.createElement('div');
+        hdr.className = 'cat-header';
+        catCb = document.createElement('input');
+        catCb.type = 'checkbox';
+        catCb.checked = true;
+        hdr.appendChild(catCb);
+        const lbl = document.createElement('span');
+        lbl.className = 'cat-label';
+        lbl.textContent = currentCat;
+        hdr.appendChild(lbl);
+        benchContainer.appendChild(hdr);
+      }
+
+      const row = document.createElement('div');
+      row.className = 'bench-row';
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = true;
+      cb.dataset.idx = def.idx;
+      row.appendChild(cb);
+
+      const name = document.createElement('div');
+      name.className = 'bench-name';
+      name.textContent = def.name;
+      name.title = def.description;
+      row.appendChild(name);
+
+      const ctrlCell = document.createElement('div');
+      ctrlCell.className = 'result-cell result-ctrl';
+      row.appendChild(ctrlCell);
+
+      const treatCell = document.createElement('div');
+      treatCell.className = 'result-cell result-treat';
+      row.appendChild(treatCell);
+
+      const deltaCell = document.createElement('div');
+      deltaCell.className = 'result-delta';
+      row.appendChild(deltaCell);
+
+      benchContainer.appendChild(row);
+      const entry = { cb, ctrlCell, treatCell, deltaCell, rowEl: row, idx: def.idx, name: def.name };
+      rowEls.push(entry);
+      catRows.push(entry);
+    }
+    if (catCb && catRows.length) bindCatCheckbox(catCb, catRows);
+
+    selectAllCb.addEventListener('change', () => {
+      const checked = selectAllCb.checked;
+      for (const r of rowEls) r.cb.checked = checked;
+      for (const el of benchContainer.querySelectorAll('.cat-header input')) el.checked = checked;
+    });
+  }
+
+  function bindCatCheckbox(catCb, rows) {
+    const rr = [...rows];
+    catCb.addEventListener('change', () => {
+      for (const r of rr) r.cb.checked = catCb.checked;
+    });
+  }
+
+  // ── Delta formatting (matches Rust UI) ───────────────────────────
+
+  function formatDelta(el, ctrlMs, treatMs) {
+    if (ctrlMs == null || treatMs == null) { el.textContent = ''; return; }
+    const pct = ((treatMs - ctrlMs) / ctrlMs) * 100;
+    if (Math.abs(pct) < 5) {
+      el.textContent = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
+      el.style.color = '#6c7086';
+    } else if (pct < 0) {
+      el.textContent = pct.toFixed(1) + '%';
+      el.style.color = '#a6e3a1';
+    } else {
+      el.textContent = '+' + pct.toFixed(1) + '%';
+      el.style.color = '#f38ba8';
+    }
+  }
+
+  // ── Run interleaved benchmarks ───────────────────────────────────
+
+  startBtn.addEventListener('click', async () => {
+    if (running) return;
+
+    const selected = rowEls.filter(r => r.cb.checked);
+    if (!selected.length) return;
+
+    running = true;
+    startBtn.disabled = true;
+
+    const preset = parseInt(document.getElementById('preset').value) || 10;
+    const warmup_ms = parseInt(document.getElementById('warmup').value) || 250;
+    const run_ms = parseInt(document.getElementById('run_ms').value) || 1000;
+    const width = parseInt(document.getElementById('vp_w').value) || 800;
+    const height = parseInt(document.getElementById('vp_h').value) || 600;
+
+    // Clear previous results.
+    for (const r of rowEls) {
+      r.ctrlCell.textContent = '';
+      r.treatCell.textContent = '';
+      r.deltaCell.textContent = '';
+      r.rowEl.style.borderLeft = '';
+    }
+
+    for (let i = 0; i < selected.length; i++) {
+      const r = selected[i];
+      statusEl.textContent = `[${i + 1}/${selected.length}] ${r.name} – running control…`;
+      statusEl.className = 'status running';
+      r.rowEl.style.borderLeft = '3px solid #f9e2af';
+
+      const benchMsg = { type: 'run_bench', idx: r.idx, preset, warmup_ms, run_ms, width, height };
+
+      // Run control.
+      const ctrlPromise = waitForMessage(d => d.type === 'bench_result' && d.idx === r.idx);
+      sendToControl(benchMsg);
+      const ctrlResult = await ctrlPromise;
+
+      if (ctrlResult.error) {
+        r.ctrlCell.textContent = 'error';
+        r.rowEl.style.borderLeft = '3px solid #f38ba8';
+        continue;
+      }
+      r.ctrlCell.textContent = ctrlResult.ms_per_frame.toFixed(2) + ' ms/f';
+
+      // Run treatment.
+      statusEl.textContent = `[${i + 1}/${selected.length}] ${r.name} – running treatment…`;
+      const treatPromise = waitForMessage(d => d.type === 'bench_result' && d.idx === r.idx);
+      sendToTreatment(benchMsg);
+      const treatResult = await treatPromise;
+
+      if (treatResult.error) {
+        r.treatCell.textContent = 'error';
+        r.rowEl.style.borderLeft = '3px solid #f38ba8';
+        continue;
+      }
+      r.treatCell.textContent = treatResult.ms_per_frame.toFixed(2) + ' ms/f';
+
+      formatDelta(r.deltaCell, ctrlResult.ms_per_frame, treatResult.ms_per_frame);
+      r.rowEl.style.borderLeft = '3px solid #a6e3a1';
+    }
+
+    statusEl.textContent = 'Done';
+    statusEl.className = 'status done';
+    running = false;
+    startBtn.disabled = false;
+  });
+})();
+</script>
+</body>
+</html>
