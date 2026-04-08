@@ -14,13 +14,39 @@
   <script type="module">
     const simd = localStorage.getItem("vello_bench_simd") !== "0";
     const simdStr = simd ? "simd" : "nosimd";
-    const mod_path = `./${simdStr}/vello_bench2.js`;
 
-    window.__vello_simd = simd;
-    window.__vello_toggle_simd = () => {
-      localStorage.setItem("vello_bench_simd", simd ? "0" : "1");
-      location.reload();
-    };
+    // A/B variant support: when served via ab.sh, dist/ contains control/ and
+    // treatment/ directories.  When served via serve.sh, it contains simd/ and
+    // nosimd/ instead.  We probe for the control directory to detect ab.sh mode.
+    let abMode = false;
+    try {
+      const probe = await fetch("./control/vello_bench2.js", { method: "HEAD" });
+      abMode = probe.ok;
+    } catch (_) {}
+
+    let variant = localStorage.getItem("vello_bench_variant") || "control";
+    if (variant !== "control" && variant !== "treatment") variant = "control";
+
+    const mod_path = abMode
+      ? `./${variant}/vello_bench2.js`
+      : `./${simdStr}/vello_bench2.js`;
+
+    if (!abMode) {
+      window.__vello_simd = simd;
+      window.__vello_toggle_simd = () => {
+        localStorage.setItem("vello_bench_simd", simd ? "0" : "1");
+        location.reload();
+      };
+    }
+
+    if (abMode) {
+      window.__vello_variant = variant;
+      window.__vello_toggle_variant = () => {
+        const next = variant === "control" ? "treatment" : "control";
+        localStorage.setItem("vello_bench_variant", next);
+        location.reload();
+      };
+    }
 
     const { default: init } = await import(mod_path);
     if (document.readyState === "complete") {

@@ -39,10 +39,15 @@ should_build() {
   return 1
 }
 
+# Remove stale A/B directories so index.html doesn't detect ab.sh mode.
+rm -rf "$DIST/control" "$DIST/treatment"
+
 should_build simd   && build_variant "-Ctarget-feature=+simd128" simd
 should_build nosimd && build_variant ""                          nosimd
 
 cp web/index.html "$DIST/index.html"
+
+# ── Serve ─────────────────────────────────────────────────────────────────────
 
 echo "==> Serving at http://localhost:8080"
 if [[ "$BIND_ADDR" == "0.0.0.0" ]]; then
@@ -61,5 +66,5 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store')
         super().end_headers()
 
-http.server.HTTPServer(('$BIND_ADDR', 8080), Handler).serve_forever()
+http.server.ThreadingHTTPServer(('$BIND_ADDR', 8080), Handler).serve_forever()
 "

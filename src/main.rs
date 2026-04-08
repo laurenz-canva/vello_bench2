@@ -6,6 +6,16 @@
 fn main() {
     #[cfg(target_arch = "wasm32")]
     {
+        // In worker mode (set by worker.html), bench_worker_init() handles
+        // everything -- skip the normal UI startup.
+        let is_worker = js_sys::Reflect::get(&js_sys::global(), &"__vello_worker".into())
+            .ok()
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if is_worker {
+            return;
+        }
+
         console_error_panic_hook::set_once();
         console_log::init_with_level(log::Level::Warn).unwrap();
 

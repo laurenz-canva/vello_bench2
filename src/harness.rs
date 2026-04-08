@@ -5,6 +5,8 @@
     reason = "truncation has no appreciable impact in this benchmark"
 )]
 
+use wasm_bindgen::JsCast;
+
 use crate::backend::{Backend, current_backend_kind};
 use crate::scenes::{self, BenchScene, ParamId, SceneId, scene_index};
 use vello_common::kurbo::Affine;
@@ -259,6 +261,71 @@ fn render_one(
     bench_scene.render(backend, width, height, time, Affine::IDENTITY);
     backend.render_offscreen();
     backend.blit();
+}
+
+/// Run a single benchmark by index, creating a temporary canvas and backend.
+/// Used by the headless worker mode for interleaved A/B testing.
+pub fn run_single_bench(
+    idx: usize,
+    preset: u32,
+    warmup_ms: f64,
+    run_ms: f64,
+    width: u32,
+    height: u32,
+) -> Option<BenchResult> {
+    let defs = bench_defs();
+    let def = defs.get(idx)?;
+
+    let document = web_sys::window().unwrap().document().unwrap();
+    let canvas: HtmlCanvasElement = document
+        .create_element("canvas")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    canvas.set_width(width);
+    canvas.set_height(height);
+    document.body().unwrap().append_child(&canvas).unwrap();
+
+    let mut bench_scenes = scenes::all_scenes();
+    let mut scene = bench_scenes.swap_remove(scene_index(def.scene_id));
+    let scene = scene.as_mut();
+    apply_params(scene, def.params, def.scale, preset);
+
+    let mut be = Backend::new(&canvas, width, height, current_backend_kind());
+    let perf = web_sys::window().unwrap().performance().unwrap();
+
+    // Warmup: render frames for warmup_ms to calibrate iteration count.
+    render_one(scene, &mut be, width, height, perf.now());
+    be.sync();
+
+    let t0 = perf.now();
+    let mut frames = 0_usize;
+    while perf.now() - t0 < warmup_ms {
+        render_one(scene, &mut be, width, height, perf.now());
+        be.sync();
+        frames += 1;
+    }
+    let elapsed = (perf.now() - t0).max(0.001);
+    let rate = frames as f64 / elapsed;
+    let target_iters = (rate * run_ms).max(1.0) as usize;
+
+    // Measurement.
+    let t0 = perf.now();
+    for _ in 0..target_iters {
+        render_one(scene, &mut be, width, height, perf.now());
+        be.sync();
+    }
+    let total_ms = (perf.now() - t0).max(0.0);
+
+    // Clean up the temporary canvas.
+    document.body().unwrap().remove_child(&canvas).unwrap();
+
+    Some(BenchResult {
+        name: def.name,
+        ms_per_frame: total_ms / target_iters as f64,
+        iterations: target_iters,
+        total_ms,
+    })
 }
 
 /// All predefined benchmarks.
