@@ -359,6 +359,26 @@ fn replace_canvas_element(
     new_canvas
 }
 
+fn client_to_canvas_px(canvas: &HtmlCanvasElement, client_x: f64, client_y: f64) -> (f64, f64) {
+    let rect = canvas.get_bounding_client_rect();
+    let width = rect.width().max(1.0);
+    let height = rect.height().max(1.0);
+    let x = ((client_x - rect.left()) / width).clamp(0.0, 1.0);
+    let y = ((client_y - rect.top()) / height).clamp(0.0, 1.0);
+    (x * canvas.width() as f64, y * canvas.height() as f64)
+}
+
+fn client_delta_to_canvas_px(
+    canvas: &HtmlCanvasElement,
+    delta_x: f64,
+    delta_y: f64,
+) -> (f64, f64) {
+    let rect = canvas.get_bounding_client_rect();
+    let scale_x = canvas.width() as f64 / rect.width().max(1.0);
+    let scale_y = canvas.height() as f64 / rect.height().max(1.0);
+    (delta_x * scale_x, delta_y * scale_y)
+}
+
 /// Entry point.
 pub async fn run() {
     let window = web_sys::window().unwrap();
@@ -691,7 +711,6 @@ fn wire_pan_zoom(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
     cb.forget();
 
     let s = state.clone();
-    let dpr = window.device_pixel_ratio();
     let cb = Closure::wrap(Box::new(move |e: web_sys::MouseEvent| {
         let mut st = s.borrow_mut();
         if !st.dragging {
@@ -699,8 +718,9 @@ fn wire_pan_zoom(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         }
         let x = e.client_x() as f64;
         let y = e.client_y() as f64;
-        st.pan_x += (x - st.drag_last_x) * dpr;
-        st.pan_y += (y - st.drag_last_y) * dpr;
+        let (dx, dy) = client_delta_to_canvas_px(&st.canvas, x - st.drag_last_x, y - st.drag_last_y);
+        st.pan_x += dx;
+        st.pan_y += dy;
         st.drag_last_x = x;
         st.drag_last_y = y;
         st.update_reset_btn();
@@ -726,9 +746,7 @@ fn wire_pan_zoom(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
             return;
         }
         e.prevent_default();
-        let dpr = web_sys::window().unwrap().device_pixel_ratio();
-        let cx = e.client_x() as f64 * dpr;
-        let cy = (e.client_y() as f64 - 40.0) * dpr;
+        let (cx, cy) = client_to_canvas_px(&st.canvas, e.client_x() as f64, e.client_y() as f64);
 
         let dy = e.delta_y();
         let scale = if e.ctrl_key() {
@@ -826,7 +844,6 @@ fn wire_touch(state: &Rc<RefCell<AppState>>) {
                 return;
             }
             e.prevent_default();
-            let dpr = web_sys::window().unwrap().device_pixel_ratio();
             let touches = e.touches();
 
             if touches.length() == 1 && st.touch_count == 1 {
@@ -834,8 +851,10 @@ fn wire_touch(state: &Rc<RefCell<AppState>>) {
                 let t = touches.get(0).unwrap();
                 let x = t.client_x() as f64;
                 let y = t.client_y() as f64;
-                st.pan_x += (x - st.touch_last_x) * dpr;
-                st.pan_y += (y - st.touch_last_y) * dpr;
+                let (dx, dy) =
+                    client_delta_to_canvas_px(&st.canvas, x - st.touch_last_x, y - st.touch_last_y);
+                st.pan_x += dx;
+                st.pan_y += dy;
                 st.touch_last_x = x;
                 st.touch_last_y = y;
                 st.update_reset_btn();
@@ -846,13 +865,14 @@ fn wire_touch(state: &Rc<RefCell<AppState>>) {
 
                 if st.pinch_dist > 0.0 {
                     let factor = new_dist / st.pinch_dist;
-                    let cx = mx * dpr;
-                    let cy = (my - 40.0) * dpr;
+                    let (cx, cy) = client_to_canvas_px(&st.canvas, mx, my);
                     st.zoom_at(cx, cy, factor);
                 }
                 // Pan by midpoint delta.
-                st.pan_x += (mx - st.touch_last_x) * dpr;
-                st.pan_y += (my - st.touch_last_y) * dpr;
+                let (dx, dy) =
+                    client_delta_to_canvas_px(&st.canvas, mx - st.touch_last_x, my - st.touch_last_y);
+                st.pan_x += dx;
+                st.pan_y += dy;
 
                 st.pinch_dist = new_dist;
                 st.touch_last_x = mx;
