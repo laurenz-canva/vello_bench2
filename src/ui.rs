@@ -275,7 +275,7 @@ impl Ui {
         let benchmark_view = div(document);
         class(
             &benchmark_view,
-            "fixed inset-x-0 bottom-0 top-32 z-20 hidden overflow-y-auto px-3 pb-4 pt-2 sm:top-20 lg:top-24 lg:px-6 lg:pb-6",
+            "pointer-events-auto fixed inset-x-0 bottom-0 top-32 z-20 hidden overflow-y-auto px-3 pb-4 pt-2 sm:top-20 lg:top-24 lg:px-6 lg:pb-6",
         );
 
         let bench_layout = div(document);
@@ -1528,17 +1528,17 @@ fn build_timing_overlay(document: &Document) -> (HtmlElement, HtmlElement, HtmlE
 
 fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigParts {
     let wrapper = div(document);
-    class(&wrapper, "w-full shrink-0 lg:w-[22rem]");
+    class(&wrapper, "w-full shrink-0 lg:w-[21rem]");
 
     let left_col = div(document);
-    class(&left_col, "border border-white/10 bg-slate-950 p-5");
+    class(&left_col, "border border-white/10 bg-slate-950 px-4 py-3");
 
     let section_label = |doc: &Document, text: &str| -> HtmlElement {
         let el = div(doc);
         el.set_text_content(Some(text));
         class(
             &el,
-            "mb-3 text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500",
+            "mb-2 text-[0.62rem] font-semibold uppercase tracking-[0.28em] text-slate-500",
         );
         el
     };
@@ -1601,7 +1601,7 @@ fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigP
     start_btn.set_text_content(Some("Run Selected"));
     class(
         &start_btn,
-        "mb-4 border border-cyan-300/30 bg-cyan-300/10 px-4 py-3 text-center text-sm font-semibold text-cyan-200 transition hover:bg-cyan-300/15",
+        "mb-3 border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-center text-sm font-semibold text-cyan-200 transition hover:bg-cyan-300/15",
     );
     left_col.append_child(&start_btn).unwrap();
 
@@ -1626,7 +1626,7 @@ fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigP
     save_btn.set_text_content(Some("Save"));
     class(
         &save_btn,
-        "mb-4 border border-emerald-300/30 bg-emerald-300/10 px-4 py-3 text-center text-sm font-semibold text-emerald-300 transition hover:bg-emerald-300/15",
+        "mb-3 border border-emerald-300/30 bg-emerald-300/10 px-4 py-2 text-center text-sm font-semibold text-emerald-300 transition hover:bg-emerald-300/15",
     );
     left_col.append_child(&save_btn).unwrap();
 
@@ -1695,7 +1695,7 @@ fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigP
     delete_btn.set_text_content(Some("Delete Selected Report"));
     class(
         &delete_btn,
-        "border border-rose-300/30 bg-rose-300/10 px-4 py-3 text-center text-sm font-medium text-rose-300 transition hover:bg-rose-300/15",
+        "border border-rose-300/30 bg-rose-300/10 px-4 py-2 text-center text-sm font-medium text-rose-300 transition hover:bg-rose-300/15",
     );
     left_col.append_child(&delete_btn).unwrap();
 
@@ -1736,13 +1736,13 @@ fn build_bench_rows(
     dirty: &Rc<Cell<bool>>,
 ) -> BenchRowsParts {
     let container = div(document);
-    class(&container, "min-w-0 flex-1");
+    class(&container, "min-w-0 flex-1 pr-1");
 
     // Global "Select All" toggle
     let select_all_row = div(document);
     class(
         &select_all_row,
-        "mb-3 flex items-center gap-3 border border-white/10 bg-slate-950 px-4 py-3",
+        "mb-2 flex items-center gap-3 border border-white/10 bg-slate-950/90 px-3 py-2",
     );
     let select_all_cb: HtmlInputElement = document
         .create_element("input")
@@ -1763,10 +1763,19 @@ fn build_bench_rows(
     container.append_child(&select_all_row).unwrap();
 
     let cat_grid = div(document);
-    class(
-        &cat_grid,
-        "grid grid-cols-1 gap-4 xl:grid-cols-2 2xl:grid-cols-3",
-    );
+    class(&cat_grid, "grid grid-cols-1 gap-2 xl:grid-cols-2 xl:gap-3");
+
+    let hidden_rows = div(document);
+    class(&hidden_rows, "hidden");
+    container.append_child(&hidden_rows).unwrap();
+
+    let left_col = div(document);
+    class(&left_col, "space-y-2");
+    cat_grid.append_child(&left_col).unwrap();
+
+    let right_col = div(document);
+    class(&right_col, "space-y-2");
+    cat_grid.append_child(&right_col).unwrap();
 
     let mut bench_row_states: Vec<Option<BenchRowState>> =
         (0..bench_defs.len()).map(|_| None).collect();
@@ -1781,9 +1790,38 @@ fn build_bench_rows(
 
     let mut group_checkboxes: Vec<(HtmlInputElement, Vec<usize>)> = Vec::new();
 
+    let mut visible_category_idx = 0usize;
     for cat in &categories {
+        let category_indices: Vec<usize> = bench_defs
+            .iter()
+            .enumerate()
+            .filter_map(|(i, def)| (def.category == *cat).then_some(i))
+            .collect();
+        let member_indices: Vec<usize> = category_indices
+            .iter()
+            .copied()
+            .filter(|&i| bench_def_supported(&bench_defs[i], scenes, capabilities))
+            .collect();
+        if member_indices.is_empty() {
+            for i in category_indices {
+                if bench_row_states[i].is_none() {
+                    bench_row_states[i] = Some(build_single_bench_row(
+                        document,
+                        &bench_defs[i],
+                        false,
+                        &screenshot_img_rc,
+                        &hidden_rows,
+                    ));
+                }
+            }
+            continue;
+        }
+
         let header = div(document);
-        class(&header, "mb-3 flex items-center gap-3");
+        class(
+            &header,
+            "flex items-center gap-3 border-b border-white/10 bg-slate-900/80 px-3 py-2",
+        );
         let group_cb: HtmlInputElement = document
             .create_element("input")
             .unwrap()
@@ -1797,31 +1835,50 @@ fn build_bench_rows(
         cat_label.set_text_content(Some(cat));
         class(
             &cat_label,
-            "cursor-pointer text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500 select-none",
+            "cursor-pointer text-[0.62rem] font-semibold uppercase tracking-[0.24em] text-slate-300 select-none",
         );
         header.append_child(&cat_label).unwrap();
 
         let cat_block = div(document);
-        class(&cat_block, "border border-white/10 bg-slate-950 p-4");
+        class(
+            &cat_block,
+            "overflow-hidden border border-white/10 bg-slate-950/90",
+        );
         cat_block.append_child(&header).unwrap();
 
-        let mut member_indices = Vec::new();
+        let rows_wrap = div(document);
+        class(&rows_wrap, "divide-y divide-white/10");
+        cat_block.append_child(&rows_wrap).unwrap();
 
-        for (i, def) in bench_defs.iter().enumerate() {
-            if def.category != *cat {
-                continue;
-            }
-            member_indices.push(i);
+        for &i in &member_indices {
+            let def = &bench_defs[i];
             bench_row_states[i] = Some(build_single_bench_row(
                 document,
                 def,
                 bench_def_supported(def, scenes, capabilities),
                 &screenshot_img_rc,
-                &cat_block,
+                &rows_wrap,
             ));
         }
 
-        cat_grid.append_child(&cat_block).unwrap();
+        for i in category_indices {
+            if bench_row_states[i].is_none() {
+                bench_row_states[i] = Some(build_single_bench_row(
+                    document,
+                    &bench_defs[i],
+                    false,
+                    &screenshot_img_rc,
+                    &hidden_rows,
+                ));
+            }
+        }
+
+        if visible_category_idx.is_multiple_of(2) {
+            left_col.append_child(&cat_block).unwrap();
+        } else {
+            right_col.append_child(&cat_block).unwrap();
+        }
+        visible_category_idx += 1;
         group_checkboxes.push((group_cb, member_indices));
     }
 
@@ -1888,12 +1945,12 @@ fn build_single_bench_row(
     def: &BenchDef,
     supported: bool,
     screenshot_img_rc: &Rc<HtmlImageElement>,
-    cat_block: &HtmlElement,
+    rows_wrap: &HtmlElement,
 ) -> BenchRowState {
     let row = div(document);
     class(
         &row,
-        "mb-2 flex items-center gap-3 border border-white/10 bg-slate-950 px-4 py-3 transition hover:border-cyan-300/40 hover:bg-white/3",
+        "grid min-h-0 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 px-3 py-1.5 transition hover:bg-white/5 sm:grid-cols-[auto_auto_minmax(0,1fr)_auto_auto]",
     );
     if !supported {
         row.style().set_property("display", "none").unwrap();
@@ -1921,33 +1978,36 @@ fn build_single_bench_row(
     let dot = div(document);
     class(
         &dot,
-        "h-2.5 w-2.5 shrink-0 rounded-full bg-slate-400 transition",
+        "h-2 w-2 shrink-0 rounded-full bg-slate-400 transition",
     );
     row.append_child(&dot).unwrap();
 
     let info = div(document);
-    class(&info, "min-w-0 flex-1");
+    class(&info, "min-w-0 border-l border-white/10 pl-2.5");
 
     let name_el = div(document);
     name_el.set_text_content(Some(&format_bench_title(def.name, def.scale, 18)));
-    class(&name_el, "truncate text-sm font-semibold text-slate-100");
+    class(
+        &name_el,
+        "truncate text-[13px] font-medium leading-5 text-slate-100",
+    );
     info.append_child(&name_el).unwrap();
 
     let result_line = div(document);
-    class(&result_line, "mt-1 hidden items-center gap-2");
+    class(
+        &result_line,
+        "mt-0 hidden flex-wrap items-center gap-x-2 gap-y-0 text-[10px] leading-4",
+    );
 
     let result_text = div(document);
     class(
         &result_text,
-        "whitespace-nowrap text-xs font-medium text-emerald-300",
+        "whitespace-nowrap font-semibold text-emerald-300",
     );
     result_line.append_child(&result_text).unwrap();
 
     let delta_text = div(document);
-    class(
-        &delta_text,
-        "hidden whitespace-nowrap text-xs font-semibold",
-    );
+    class(&delta_text, "hidden whitespace-nowrap font-semibold");
     result_line.append_child(&delta_text).unwrap();
 
     info.append_child(&result_line).unwrap();
@@ -1955,13 +2015,16 @@ fn build_single_bench_row(
 
     // Info button with custom tooltip
     let info_wrapper = div(document);
-    class(&info_wrapper, "relative shrink-0");
+    class(
+        &info_wrapper,
+        "relative shrink-0 justify-self-end sm:justify-self-auto",
+    );
 
     let info_btn = div(document);
     info_btn.set_text_content(Some("ⓘ"));
     class(
         &info_btn,
-        "cursor-help text-sm text-slate-400 select-none transition hover:text-slate-100",
+        "cursor-help text-xs text-slate-500 select-none transition hover:text-slate-100",
     );
     info_wrapper.append_child(&info_btn).unwrap();
 
@@ -2006,7 +2069,7 @@ fn build_single_bench_row(
         let img = screenshot_img_rc.clone();
         class(
             &row,
-            "mb-2 flex cursor-pointer items-center gap-3 border border-white/10 bg-slate-950 px-4 py-3 transition hover:border-cyan-300/40 hover:bg-white/3",
+            "grid min-h-0 cursor-pointer grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 px-3 py-1.5 transition hover:bg-white/5 sm:grid-cols-[auto_auto_minmax(0,1fr)_auto_auto]",
         );
         let handler = Closure::wrap(Box::new(move || {
             let url = sd.borrow();
@@ -2020,7 +2083,7 @@ fn build_single_bench_row(
         handler.forget();
     }
 
-    cat_block.append_child(&row).unwrap();
+    rows_wrap.append_child(&row).unwrap();
 
     BenchRowState {
         supported: Cell::new(supported),
