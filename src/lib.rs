@@ -1075,9 +1075,11 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
             .cloned()
             .collect();
         for cb_el in checkboxes {
-            let dirty = state.borrow().ui.dirty_flag();
+            let s = state.clone();
             let cb = Closure::wrap(Box::new(move || {
-                dirty.set(true);
+                let st = s.borrow_mut();
+                st.ui.mark_dirty();
+                st.ui.sync_bench_checkbox_state();
             }) as Box<dyn FnMut()>);
             cb_el
                 .add_event_listener_with_callback("change", cb.as_ref().unchecked_ref())

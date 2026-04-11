@@ -199,6 +199,8 @@ pub struct Ui {
     /// Per-benchmark-row DOM state (in order of `bench_defs`).
     bench_rows: Vec<BenchRowState>,
     bench_rows_container: HtmlElement,
+    bench_select_all_checkbox: HtmlInputElement,
+    bench_group_checkboxes: Vec<(HtmlInputElement, Vec<usize>)>,
 
     // Viewport config
     vp_width_input: HtmlInputElement,
@@ -318,6 +320,8 @@ impl Ui {
             ab_status: cfg.ab_status,
             bench_rows: rows.bench_rows,
             bench_rows_container: rows.container.clone(),
+            bench_select_all_checkbox: rows.select_all_checkbox,
+            bench_group_checkboxes: rows.group_checkboxes,
             vp_width_input: cfg.vp_width_input,
             vp_height_input: cfg.vp_height_input,
             save_name_input: cfg.save_name_input,
@@ -815,7 +819,7 @@ impl Ui {
         scenes: &[Box<dyn BenchScene>],
         capabilities: BackendCapabilities,
     ) {
-        self.bench_rows = populate_bench_rows(
+        let rows = populate_bench_rows(
             &self.bench_rows_container,
             &doc(),
             bench_defs,
@@ -823,6 +827,36 @@ impl Ui {
             capabilities,
             &self.dirty,
         );
+        self.bench_rows = rows.bench_rows;
+        self.bench_select_all_checkbox = rows.select_all_checkbox;
+        self.bench_group_checkboxes = rows.group_checkboxes;
+        self.sync_bench_checkbox_state();
+    }
+
+    pub(crate) fn sync_bench_checkbox_state(&self) {
+        for (group_cb, member_indices) in &self.bench_group_checkboxes {
+            let checked_count = member_indices
+                .iter()
+                .filter(|&&idx| self.bench_rows[idx].checkbox.checked())
+                .count();
+            group_cb.set_checked(checked_count == member_indices.len());
+            group_cb.set_indeterminate(checked_count > 0 && checked_count < member_indices.len());
+        }
+
+        let supported_indices: Vec<usize> = self
+            .bench_rows
+            .iter()
+            .enumerate()
+            .filter_map(|(i, row)| row.supported.get().then_some(i))
+            .collect();
+        let checked_count = supported_indices
+            .iter()
+            .filter(|&&idx| self.bench_rows[idx].checkbox.checked())
+            .count();
+        self.bench_select_all_checkbox
+            .set_checked(!supported_indices.is_empty() && checked_count == supported_indices.len());
+        self.bench_select_all_checkbox
+            .set_indeterminate(checked_count > 0 && checked_count < supported_indices.len());
     }
 
     // ── Save / Load / Compare ─────────────────────────────────────────
@@ -1096,6 +1130,7 @@ impl Ui {
     /// Apply saved bench checkbox selection.
     pub(crate) fn apply_saved_benches(&self, saved: &UiState) {
         if saved.benches.is_empty() {
+            self.sync_bench_checkbox_state();
             return;
         }
         let set: std::collections::HashSet<usize> = saved.benches.iter().copied().collect();
@@ -1104,6 +1139,7 @@ impl Ui {
                 r.checkbox.set_checked(set.contains(&i));
             }
         }
+        self.sync_bench_checkbox_state();
     }
 
     pub(crate) fn apply_saved_bench_preset(&self, saved: &UiState) {
@@ -1252,6 +1288,8 @@ struct BenchConfigParts {
 struct BenchRowsParts {
     container: HtmlElement,
     bench_rows: Vec<BenchRowState>,
+    select_all_checkbox: HtmlInputElement,
+    group_checkboxes: Vec<(HtmlInputElement, Vec<usize>)>,
 }
 
 // ── Sub-builders ─────────────────────────────────────────────────────────────
@@ -1767,19 +1805,14 @@ fn build_bench_rows(
 ) -> BenchRowsParts {
     let container = div(document);
     class(&container, "min-w-0 flex-1 pr-1");
-    let bench_rows = populate_bench_rows(
+    populate_bench_rows(
         &container,
         document,
         bench_defs,
         scenes,
         capabilities,
         dirty,
-    );
-
-    BenchRowsParts {
-        container,
-        bench_rows,
-    }
+    )
 }
 
 fn populate_bench_rows(
@@ -1789,7 +1822,7 @@ fn populate_bench_rows(
     scenes: &[Box<dyn BenchScene>],
     capabilities: BackendCapabilities,
     dirty: &Rc<Cell<bool>>,
-) -> Vec<BenchRowState> {
+) -> BenchRowsParts {
     container.set_inner_html("");
 
     // Global "Select All" toggle
@@ -1854,6 +1887,7 @@ fn populate_bench_rows(
             .copied()
             .filter(|&i| bench_def_supported(&bench_defs[i], scenes, capabilities))
             .collect();
+        let all_members_supported = member_indices.len() == category_indices.len();
         if member_indices.is_empty() {
             for i in category_indices {
                 if bench_row_states[i].is_none() {
@@ -1880,6 +1914,7 @@ fn populate_bench_rows(
             .unwrap();
         group_cb.set_type("checkbox");
         group_cb.set_checked(true);
+        group_cb.set_disabled(!all_members_supported);
         class(&group_cb, "h-4 w-4 cursor-pointer accent-cyan-300");
         header.append_child(&group_cb).unwrap();
         let cat_label = div(document);
@@ -1979,7 +2014,12 @@ fn populate_bench_rows(
     }
 
     container.append_child(&cat_grid).unwrap();
-    bench_rows
+    BenchRowsParts {
+        container: container.clone(),
+        bench_rows,
+        select_all_checkbox: select_all_cb,
+        group_checkboxes,
+    }
 }
 
 fn build_single_bench_row(
