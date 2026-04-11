@@ -206,26 +206,6 @@ impl RectScene {
             self.rects.truncate(self.num_rects);
         }
     }
-
-    /// Upload patterned images to the renderer (once).
-    ///
-    /// Each image gets a concentric-ring pattern with a unique frequency and
-    /// color palette — cheap to compute but produces visible moiré when scaled,
-    /// making the difference between nearest-neighbor and bilinear obvious.
-    fn image_source(
-        &self,
-        resources: &mut ResourceStore,
-        backend: &mut dyn Backend,
-        image_idx: usize,
-    ) -> vello_common::paint::ImageSource {
-        resources.get_or_upload_image(
-            self.scene_id(),
-            self.image_epoch,
-            image_idx as u64,
-            backend,
-            || make_image_pixmap(image_idx, self.image_opaque),
-        )
-    }
 }
 
 fn make_image_pixmap(image_idx: usize, image_opaque: bool) -> Pixmap {
@@ -427,6 +407,8 @@ impl BenchScene for RectScene {
         let dt = delta_time(&mut self.last_time, time, self.speed);
         let frame = self.frame;
         self.frame += 1;
+        let image_epoch = self.image_epoch;
+        let image_opaque = self.image_opaque;
 
         let size = if self.target_overlap > 0.0 && self.num_rects > 0 {
             // Derive rect size from viewport area and rect count to maintain
@@ -562,7 +544,13 @@ impl BenchScene for RectScene {
                 _ if self.use_draw_image => {
                     // draw_image expects the rect in image-native coordinates;
                     // the scene transform handles positioning and scaling.
-                    let source = self.image_source(resources, backend, r.image_idx);
+                    let source = resources.get_or_upload_image(
+                        SceneId::Rect,
+                        image_epoch,
+                        r.image_idx as u64,
+                        backend,
+                        || make_image_pixmap(r.image_idx, image_opaque),
+                    );
                     let bilinear = self.image_filter != 0;
                     let scale = size / IMAGE_SIZE as f64;
                     let img_rect = Rect::new(0.0, 0.0, IMAGE_SIZE as f64, IMAGE_SIZE as f64);
@@ -586,7 +574,13 @@ impl BenchScene for RectScene {
                 _ => {
                     // Image paint mode.
                     let image = Image {
-                        image: self.image_source(resources, backend, r.image_idx),
+                        image: resources.get_or_upload_image(
+                            SceneId::Rect,
+                            image_epoch,
+                            r.image_idx as u64,
+                            backend,
+                            || make_image_pixmap(r.image_idx, image_opaque),
+                        ),
                         sampler: ImageSampler {
                             x_extend: Extend::Pad,
                             y_extend: Extend::Pad,

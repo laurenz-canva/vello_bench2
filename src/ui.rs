@@ -2050,38 +2050,6 @@ fn style_tab(el: &HtmlElement, active: bool) {
     );
 }
 
-// ── Number input helper ──────────────────────────────────────────────────────
-
-fn num_input(document: &Document, label: &str, default: &str) -> (HtmlElement, HtmlInputElement) {
-    let wrapper = div(document);
-    class(&wrapper, "mb-2 flex items-center gap-3");
-
-    let lbl = div(document);
-    lbl.set_text_content(Some(label));
-    class(&lbl, "text-sm text-slate-300");
-    wrapper.append_child(&lbl).unwrap();
-
-    let input: HtmlInputElement = document
-        .create_element("input")
-        .unwrap()
-        .dyn_into()
-        .unwrap();
-    input.set_type("number");
-    input.set_value(default);
-    class(
-        &input,
-        "w-20 rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-sm text-slate-100 outline-none focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/20",
-    );
-    wrapper.append_child(&input).unwrap();
-
-    let ms = div(document);
-    ms.set_text_content(Some("ms"));
-    class(&ms, "text-xs text-slate-500");
-    wrapper.append_child(&ms).unwrap();
-
-    (wrapper, input)
-}
-
 fn slider_input(
     document: &Document,
     label: &str,

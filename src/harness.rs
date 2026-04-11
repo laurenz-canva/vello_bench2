@@ -9,7 +9,7 @@ use wasm_bindgen::JsCast;
 
 use crate::backend::{Backend, current_backend_kind, new_backend};
 use crate::resource_store::ResourceStore;
-use crate::scenes::{self, BenchScene, ParamId, SceneId, scene_index};
+use crate::scenes::{BenchScene, ParamId, SceneId, new_scene};
 use vello_common::kurbo::Affine;
 use web_sys::HtmlCanvasElement;
 
@@ -165,9 +165,7 @@ impl BenchHarness {
             Phase::Idle | Phase::Complete => {}
             Phase::PendingBench(idx) => {
                 let def = &defs[idx];
-                let mut bench_scenes = scenes::all_scenes();
-                let scene = bench_scenes.swap_remove(scene_index(def.scene_id));
-                self.bench_scene = Some(scene);
+                self.bench_scene = Some(new_scene(def.scene_id));
                 let scene = self.bench_scene.as_mut().unwrap().as_mut();
                 apply_params(scene, def.params, def.scale, self.preset);
 
@@ -305,8 +303,7 @@ pub fn run_single_bench(idx: usize, preset: u32, width: u32, height: u32) -> Opt
     canvas.set_height(height);
     document.body().unwrap().append_child(&canvas).unwrap();
 
-    let mut bench_scenes = scenes::all_scenes();
-    let mut scene = bench_scenes.swap_remove(scene_index(def.scene_id));
+    let mut scene = new_scene(def.scene_id);
     let scene = scene.as_mut();
     apply_params(scene, def.params, def.scale, preset);
 

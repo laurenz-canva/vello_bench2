@@ -276,6 +276,18 @@ pub fn all_scenes() -> Vec<Box<dyn BenchScene>> {
     ]
 }
 
+pub fn new_scene(scene_id: SceneId) -> Box<dyn BenchScene> {
+    match scene_id {
+        SceneId::Rect => Box::new(RectScene::new()),
+        SceneId::Strokes => Box::new(StrokesScene::new()),
+        SceneId::Polyline => Box::new(PolylineScene::new()),
+        SceneId::Svg => Box::new(SvgScene::new()),
+        SceneId::Clip => Box::new(ClipScene::new()),
+        SceneId::Text => Box::new(TextScene::new()),
+        SceneId::FilterLayers => Box::new(FilterLayersScene::new()),
+    }
+}
+
 pub fn scene_index(scene_id: SceneId) -> usize {
     match scene_id {
         SceneId::Rect => 0,
