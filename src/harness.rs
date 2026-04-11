@@ -5,8 +5,6 @@
     reason = "truncation has no appreciable impact in this benchmark"
 )]
 
-use wasm_bindgen::JsCast;
-
 use crate::backend::{Backend, current_backend_kind, new_backend};
 use crate::resource_store::ResourceStore;
 use crate::scenes::{BenchScene, ParamId, SceneId, new_scene};
@@ -75,9 +73,6 @@ enum Phase {
     Complete,
 }
 
-const BENCH_WARMUP_SAMPLES: usize = 3;
-const BENCH_MEASURED_SAMPLES: usize = 15;
-
 /// Orchestrates running benchmarks.
 ///
 /// The harness creates its own fresh context and bench scene instances
@@ -86,6 +81,8 @@ const BENCH_MEASURED_SAMPLES: usize = 15;
 pub(crate) struct BenchHarness {
     phase: Phase,
     pub(crate) preset: u32,
+    pub(crate) warmup_samples: usize,
+    pub(crate) measured_samples: usize,
     pub(crate) results: Vec<BenchResult>,
     run_order: Vec<usize>,
     run_pos: usize,
@@ -111,6 +108,8 @@ impl BenchHarness {
         Self {
             phase: Phase::Idle,
             preset: 10,
+            warmup_samples: 3,
+            measured_samples: 15,
             results: Vec::new(),
             run_order: Vec::new(),
             run_pos: 0,
@@ -176,7 +175,7 @@ impl BenchHarness {
                 self.phase = Phase::Running {
                     idx,
                     last_now: now,
-                    warmup_remaining: BENCH_WARMUP_SAMPLES,
+                    warmup_remaining: self.warmup_samples,
                     total_ms: 0.0,
                     samples: 0,
                 };
@@ -200,7 +199,7 @@ impl BenchHarness {
                     samples += 1;
                 }
 
-                if samples < BENCH_MEASURED_SAMPLES {
+                if samples < self.measured_samples {
                     self.phase = Phase::Running {
                         idx,
                         last_now: now,
@@ -211,8 +210,8 @@ impl BenchHarness {
                 } else {
                     let result = BenchResult {
                         name: def.name,
-                        ms_per_frame: total_ms / BENCH_MEASURED_SAMPLES as f64,
-                        iterations: BENCH_MEASURED_SAMPLES,
+                        ms_per_frame: total_ms / self.measured_samples as f64,
+                        iterations: self.measured_samples,
                         total_ms,
                     };
                     self.results.push(result.clone());
@@ -311,53 +310,6 @@ fn render_one(
     bench_scene.render(backend, resources, width, height, time, Affine::IDENTITY);
     backend.render_offscreen();
     backend.blit();
-}
-
-/// Run a single benchmark by index, creating a temporary canvas and backend.
-/// Used by the headless worker mode for interleaved A/B testing.
-pub fn run_single_bench(idx: usize, preset: u32, width: u32, height: u32) -> Option<BenchResult> {
-    let defs = bench_defs();
-    let def = defs.get(idx)?;
-
-    let document = web_sys::window().unwrap().document().unwrap();
-    let canvas: HtmlCanvasElement = document
-        .create_element("canvas")
-        .unwrap()
-        .dyn_into()
-        .unwrap();
-    canvas.set_width(width);
-    canvas.set_height(height);
-    document.body().unwrap().append_child(&canvas).unwrap();
-
-    let mut scene = new_scene(def.scene_id);
-    let scene = scene.as_mut();
-    apply_params(scene, def.params, def.scale, preset);
-
-    let mut be = new_backend(&canvas, width, height, current_backend_kind());
-    let mut resources = ResourceStore::new();
-    let perf = web_sys::window().unwrap().performance().unwrap();
-    let mut last = perf.now();
-    let mut total_ms = 0.0;
-    for i in 0..(BENCH_WARMUP_SAMPLES + BENCH_MEASURED_SAMPLES) {
-        let now = perf.now();
-        render_one(scene, be.as_mut(), &mut resources, width, height, now);
-        if i >= BENCH_WARMUP_SAMPLES {
-            total_ms += (now - last).max(0.0);
-        }
-        last = now;
-    }
-
-    resources.clear_all(be.as_mut());
-
-    // Clean up the temporary canvas.
-    document.body().unwrap().remove_child(&canvas).unwrap();
-
-    Some(BenchResult {
-        name: def.name,
-        ms_per_frame: total_ms / BENCH_MEASURED_SAMPLES as f64,
-        iterations: BENCH_MEASURED_SAMPLES,
-        total_ms,
-    })
 }
 
 /// All predefined benchmarks.

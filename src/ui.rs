@@ -43,27 +43,11 @@ fn select_style(sel: &HtmlSelectElement) {
     );
 }
 
-/// Returns the current A/B variant name if running under `ab.sh`, or `None`
-/// when served by `serve.sh`.
-fn current_ab_variant() -> Option<String> {
-    js_sys::Reflect::get(&js_sys::global(), &"__vello_variant".into())
-        .ok()
-        .and_then(|v| v.as_string())
-}
-
 fn ab_mode_enabled() -> bool {
     js_sys::Reflect::get(&js_sys::global(), &"__vello_ab_mode".into())
         .ok()
         .and_then(|v| v.as_bool())
         .unwrap_or(false)
-}
-
-fn other_ab_variant(variant: &str) -> &'static str {
-    if variant == "control" {
-        "treatment"
-    } else {
-        "control"
-    }
 }
 
 fn extract_ms(text: &str) -> Option<f64> {
@@ -205,9 +189,12 @@ pub struct Ui {
     // Benchmark
     preset_input: HtmlInputElement,
     preset_value_label: HtmlElement,
+    warmup_input: HtmlInputElement,
+    measured_input: HtmlInputElement,
     /// Start button.
     pub start_btn: HtmlElement,
     pub ab_start_btn: Option<HtmlElement>,
+    ab_rounds_input: Option<HtmlInputElement>,
     ab_status: Option<HtmlElement>,
     /// Per-benchmark-row DOM state (in order of `bench_defs`).
     bench_rows: Vec<BenchRowState>,
@@ -230,7 +217,6 @@ pub struct Ui {
 
     /// Currently loaded comparison report (if any).
     compare_report: Option<BenchReport>,
-    ab_mode: bool,
 
     /// Current mode.
     pub mode: AppMode,
@@ -324,8 +310,11 @@ impl Ui {
             reset_view_btn: iv.reset_view_btn,
             preset_input: cfg.preset_input,
             preset_value_label: cfg.preset_value_label,
+            warmup_input: cfg.warmup_input,
+            measured_input: cfg.measured_input,
             start_btn: cfg.start_btn,
             ab_start_btn: cfg.ab_start_btn,
+            ab_rounds_input: cfg.ab_rounds_input,
             ab_status: cfg.ab_status,
             bench_rows: rows.bench_rows,
             bench_rows_container: rows.container.clone(),
@@ -337,7 +326,6 @@ impl Ui {
             compare_select: cfg.compare_select,
             delete_btn: cfg.delete_btn,
             compare_report: None,
-            ab_mode,
             mode: AppMode::Benchmark,
             dirty,
         };
@@ -566,6 +554,30 @@ impl Ui {
             .clamp(1, 20)
     }
 
+    pub fn bench_warmup_samples(&self) -> usize {
+        self.warmup_input
+            .value()
+            .parse::<usize>()
+            .unwrap_or(3)
+            .clamp(0, 10_000)
+    }
+
+    pub fn bench_measured_samples(&self) -> usize {
+        self.measured_input
+            .value()
+            .parse::<usize>()
+            .unwrap_or(15)
+            .clamp(1, 10_000)
+    }
+
+    pub fn ab_rounds(&self) -> usize {
+        self.ab_rounds_input
+            .as_ref()
+            .and_then(|input| input.value().parse::<usize>().ok())
+            .unwrap_or(1)
+            .clamp(1, 100)
+    }
+
     pub fn update_bench_titles(&self) {
         let preset = self.bench_preset();
         self.preset_value_label
@@ -604,6 +616,18 @@ impl Ui {
 
     pub fn preset_input(&self) -> &HtmlInputElement {
         &self.preset_input
+    }
+
+    pub fn warmup_input(&self) -> &HtmlInputElement {
+        &self.warmup_input
+    }
+
+    pub fn measured_input(&self) -> &HtmlInputElement {
+        &self.measured_input
+    }
+
+    pub fn ab_rounds_input(&self) -> Option<&HtmlInputElement> {
+        self.ab_rounds_input.as_ref()
     }
 
     /// Return indices of checked benchmarks.
@@ -719,21 +743,6 @@ impl Ui {
 
         self.set_ab_ready(true);
 
-        // Standalone variant pages still auto-save snapshots. The integrated
-        // dashboard A/B mode manages its own comparison display directly.
-        if !self.ab_mode
-            && let Some(variant) = current_ab_variant()
-        {
-            let report = self.collect_current_results(&variant);
-            if !report.results.is_empty() {
-                crate::storage::save_ab_snapshot(&variant, &report);
-            }
-            let other = other_ab_variant(&variant);
-            if let Some(other_report) = crate::storage::load_ab_snapshot(other) {
-                self.compare_report = Some(other_report);
-            }
-        }
-
         self.show_deltas();
     }
 
@@ -798,38 +807,6 @@ impl Ui {
             Some(treatment.ms_per_frame),
             Some(control.ms_per_frame),
         );
-    }
-
-    /// Collect current on-screen benchmark results into a `BenchReport`.
-    fn collect_current_results(&self, label: &str) -> BenchReport {
-        let vp_w: u32 = self.vp_width_input.value().parse().unwrap_or(0);
-        let vp_h: u32 = self.vp_height_input.value().parse().unwrap_or(0);
-        let mut results = Vec::new();
-        for br in &self.bench_rows {
-            let text = br.result_text.text_content().unwrap_or_default();
-            if text.is_empty() {
-                continue;
-            }
-            if let Some(ms) = extract_ms(&text) {
-                let iters = text
-                    .split('(')
-                    .nth(1)
-                    .and_then(|s| s.split(' ').next())
-                    .and_then(|s| s.parse::<usize>().ok())
-                    .unwrap_or(0);
-                results.push(crate::storage::SavedResult {
-                    name: br.name.to_string(),
-                    ms_per_frame: ms,
-                    iterations: iters,
-                });
-            }
-        }
-        BenchReport {
-            label: label.to_string(),
-            viewport_width: vp_w,
-            viewport_height: vp_h,
-            results,
-        }
     }
 
     pub(crate) fn update_bench_support(
@@ -1110,6 +1087,9 @@ impl Ui {
             params,
             benches,
             bench_preset: Some(self.bench_preset()),
+            bench_warmup_samples: Some(self.bench_warmup_samples() as u32),
+            bench_measured_samples: Some(self.bench_measured_samples() as u32),
+            ab_rounds: Some(self.ab_rounds() as u32),
         });
     }
 
@@ -1130,6 +1110,17 @@ impl Ui {
         if let Some(preset) = saved.bench_preset {
             self.preset_input
                 .set_value(&preset.clamp(1, 20).to_string());
+        }
+        if let Some(warmup) = saved.bench_warmup_samples {
+            self.warmup_input.set_value(&warmup.to_string());
+        }
+        if let Some(measured) = saved.bench_measured_samples {
+            self.measured_input.set_value(&measured.max(1).to_string());
+        }
+        if let Some(rounds) = saved.ab_rounds
+            && let Some(input) = &self.ab_rounds_input
+        {
+            input.set_value(&rounds.max(1).to_string());
         }
         self.update_bench_titles();
     }
@@ -1164,19 +1155,6 @@ impl Ui {
         self.compare_report = None;
         self.hide_deltas();
         self.refresh_compare_dropdown();
-    }
-
-    /// In A/B mode, load the *other* variant's auto-saved results as the
-    /// comparison baseline so deltas appear automatically after the first
-    /// benchmark run on each side.
-    pub fn load_ab_comparison(&mut self) {
-        let Some(variant) = current_ab_variant() else {
-            return;
-        };
-        let other = other_ab_variant(&variant);
-        if let Some(report) = crate::storage::load_ab_snapshot(other) {
-            self.compare_report = Some(report);
-        }
     }
 }
 
@@ -1256,8 +1234,11 @@ struct BenchConfigParts {
     wrapper: HtmlElement,
     preset_input: HtmlInputElement,
     preset_value_label: HtmlElement,
+    warmup_input: HtmlInputElement,
+    measured_input: HtmlInputElement,
     start_btn: HtmlElement,
     ab_start_btn: Option<HtmlElement>,
+    ab_rounds_input: Option<HtmlInputElement>,
     ab_status: Option<HtmlElement>,
     vp_width_input: HtmlInputElement,
     vp_height_input: HtmlInputElement,
@@ -1359,44 +1340,6 @@ fn build_top_bar(
             cb.forget();
         }
         controls_group.append_child(&simd_btn).unwrap();
-    }
-
-    let has_variant_toggle = !ab_mode_enabled()
-        && js_sys::Reflect::get(&js_sys::global(), &"__vello_toggle_variant".into())
-            .ok()
-            .map_or(false, |v| v.is_function());
-    if has_variant_toggle {
-        let variant = js_sys::Reflect::get(&js_sys::global(), &"__vello_variant".into())
-            .ok()
-            .and_then(|v| v.as_string())
-            .unwrap_or_else(|| "control".to_string());
-        let is_treatment = variant == "treatment";
-        let variant_btn = div(document);
-        variant_btn.set_text_content(Some(if is_treatment { "TREATMENT" } else { "CONTROL" }));
-        class(
-            &variant_btn,
-            if is_treatment {
-                "ml-1 shrink-0 whitespace-nowrap rounded-full border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700"
-            } else {
-                "ml-1 shrink-0 whitespace-nowrap rounded-full border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700"
-            },
-        );
-        {
-            let cb = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
-                if let Ok(f) =
-                    js_sys::Reflect::get(&js_sys::global(), &"__vello_toggle_variant".into())
-                {
-                    if let Some(f) = f.dyn_ref::<js_sys::Function>() {
-                        let _ = f.call0(&wasm_bindgen::JsValue::NULL);
-                    }
-                }
-            }) as Box<dyn FnMut()>);
-            variant_btn
-                .add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
-                .unwrap();
-            cb.forget();
-        }
-        controls_group.append_child(&variant_btn).unwrap();
     }
 
     let renderer_select: HtmlSelectElement = document
@@ -1618,12 +1561,25 @@ fn build_bench_config(
         .set_property("margin-bottom", "6px")
         .unwrap();
     left_col.append_child(&preset_input.0).unwrap();
-    let sample_note = div(document);
-    sample_note.set_text_content(Some(
-        "Each benchmark warms up for 3 frames, then averages 15 frames.",
-    ));
-    class(&sample_note, "mb-3 text-xs leading-5 text-slate-400");
-    left_col.append_child(&sample_note).unwrap();
+
+    let sample_row = div(document);
+    class(&sample_row, "mb-3 grid grid-cols-2 gap-2");
+
+    let warmup_input = sized_num_input(document, "3", "100%");
+    warmup_input.set_type("number");
+    warmup_input.set_min("0");
+    sample_row
+        .append_child(&labeled_field(document, "Warmup", &warmup_input))
+        .unwrap();
+
+    let measured_input = sized_num_input(document, "15", "100%");
+    measured_input.set_type("number");
+    measured_input.set_min("1");
+    sample_row
+        .append_child(&labeled_field(document, "Measured", &measured_input))
+        .unwrap();
+
+    left_col.append_child(&sample_row).unwrap();
 
     left_col
         .append_child(&section_label(document, "Viewport"))
@@ -1661,7 +1617,14 @@ fn build_bench_config(
     );
     left_col.append_child(&start_btn).unwrap();
 
-    let (ab_start_btn, ab_status) = if ab_mode {
+    let (ab_start_btn, ab_rounds_input, ab_status) = if ab_mode {
+        let rounds_input = sized_num_input(document, "3", "100%");
+        rounds_input.set_type("number");
+        rounds_input.set_min("1");
+        left_col
+            .append_child(&labeled_field(document, "A/B Rounds", &rounds_input))
+            .unwrap();
+
         let btn = div(document);
         btn.set_text_content(Some("Run A/B"));
         class(
@@ -1674,9 +1637,9 @@ fn build_bench_config(
         status.set_text_content(Some("Loading A/B runner…"));
         class(&status, "mb-3 text-xs leading-5 text-slate-400");
         left_col.append_child(&status).unwrap();
-        (Some(btn), Some(status))
+        (Some(btn), Some(rounds_input), Some(status))
     } else {
-        (None, None)
+        (None, None, None)
     };
 
     let sep = div(document);
@@ -1779,8 +1742,11 @@ fn build_bench_config(
         wrapper,
         preset_input: preset_input.1,
         preset_value_label: preset_input.2,
+        warmup_input,
+        measured_input,
         start_btn,
         ab_start_btn,
+        ab_rounds_input,
         ab_status,
         vp_width_input,
         vp_height_input,
@@ -2257,6 +2223,18 @@ fn sized_num_input(document: &Document, default: &str, width: &str) -> HtmlInput
     );
     set_prop(&input, "width", width);
     input
+}
+
+fn labeled_field(document: &Document, label: &str, input: &HtmlInputElement) -> HtmlElement {
+    let wrapper = div(document);
+    class(&wrapper, "flex flex-col gap-1");
+
+    let lbl = div(document);
+    lbl.set_text_content(Some(label));
+    class(&lbl, "text-xs font-medium text-slate-400");
+    wrapper.append_child(&lbl).unwrap();
+    wrapper.append_child(input).unwrap();
+    wrapper
 }
 
 fn set_prop(el: &impl AsRef<HtmlElement>, k: &str, v: &str) {

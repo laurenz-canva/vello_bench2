@@ -6,19 +6,11 @@
 fn main() {
     #[cfg(target_arch = "wasm32")]
     {
-        // In worker/child modes, dedicated entry points handle everything --
-        // skip the normal UI startup.
-        let is_worker = js_sys::Reflect::get(&js_sys::global(), &"__vello_worker".into())
-            .ok()
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        // In child-runner mode, a dedicated entry point handles everything.
         let is_ab_child = js_sys::Reflect::get(&js_sys::global(), &"__vello_ab_child".into())
             .ok()
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        if is_worker {
-            return;
-        }
         if is_ab_child {
             return;
         }

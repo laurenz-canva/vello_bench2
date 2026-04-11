@@ -89,6 +89,10 @@ struct AbHarnessState {
     running: bool,
     selected: Vec<usize>,
     run_pos: usize,
+    round_pos: usize,
+    total_rounds: usize,
+    control_samples: Vec<f64>,
+    treatment_samples: Vec<f64>,
     pending_control: Option<harness::BenchResult>,
 }
 
@@ -102,6 +106,10 @@ impl AbHarnessState {
             running: false,
             selected: Vec::new(),
             run_pos: 0,
+            round_pos: 0,
+            total_rounds: 1,
+            control_samples: Vec::new(),
+            treatment_samples: Vec::new(),
             pending_control: None,
         }
     }
@@ -385,7 +393,8 @@ impl AppState {
 
         self.ui.bench_started(&selected);
         self.ui.set_benchmark_presentation(true);
-        self.ui.set_ab_status("Running control…");
+        self.ui
+            .set_ab_status(&format!("Running control… ({}/{})", 1, self.ui.ab_rounds()));
         set_canvas_visibility(&self.canvas, false);
         set_canvas_visibility(&self.benchmark_canvas, false);
         self.show_ab_variant(Some(AbVariant::Control));
@@ -394,6 +403,10 @@ impl AppState {
         ab.running = true;
         ab.selected = selected;
         ab.run_pos = 0;
+        ab.round_pos = 0;
+        ab.total_rounds = self.ui.ab_rounds();
+        ab.control_samples.clear();
+        ab.treatment_samples.clear();
         ab.pending_control = None;
 
         self.send_ab_bench(AbVariant::Control);
@@ -446,6 +459,18 @@ impl AppState {
         js_sys::Reflect::set(&msg, &"type".into(), &"run_bench".into()).unwrap();
         js_sys::Reflect::set(&msg, &"idx".into(), &(idx as u32).into()).unwrap();
         js_sys::Reflect::set(&msg, &"preset".into(), &self.ui.bench_preset().into()).unwrap();
+        js_sys::Reflect::set(
+            &msg,
+            &"warmup_samples".into(),
+            &(self.ui.bench_warmup_samples() as u32).into(),
+        )
+        .unwrap();
+        js_sys::Reflect::set(
+            &msg,
+            &"measured_samples".into(),
+            &(self.ui.bench_measured_samples() as u32).into(),
+        )
+        .unwrap();
         js_sys::Reflect::set(&msg, &"width".into(), &self.width.into()).unwrap();
         js_sys::Reflect::set(&msg, &"height".into(), &self.height.into()).unwrap();
         js_sys::Reflect::set(
@@ -487,29 +512,76 @@ impl AppState {
         let idx = ab.selected[ab.run_pos];
         match variant {
             AbVariant::Control => {
-                self.ui.bench_set_ab_control_done(idx, &result);
+                ab.control_samples.push(result.ms_per_frame);
+                let control_avg =
+                    ab.control_samples.iter().sum::<f64>() / ab.control_samples.len() as f64;
+                let control_preview = harness::BenchResult {
+                    name: result.name,
+                    ms_per_frame: control_avg,
+                    iterations: result.iterations * ab.control_samples.len(),
+                    total_ms: 0.0,
+                };
+                self.ui.bench_set_ab_control_done(idx, &control_preview);
                 ab.pending_control = Some(result);
-                self.ui.set_ab_status("Running treatment…");
+                self.ui.set_ab_status(&format!(
+                    "Running treatment… ({}/{})",
+                    ab.round_pos + 1,
+                    ab.total_rounds
+                ));
                 self.show_ab_variant(Some(AbVariant::Treatment));
                 self.send_ab_bench(AbVariant::Treatment);
             }
             AbVariant::Treatment => {
-                if let Some(control) = ab.pending_control.take() {
-                    self.ui.bench_set_ab_done(idx, &control, &result);
-                }
-                ab.run_pos += 1;
-                if ab.run_pos < ab.selected.len() {
-                    self.ui.set_ab_status("Running control…");
+                let Some(control) = ab.pending_control.take() else {
+                    return;
+                };
+                ab.treatment_samples.push(result.ms_per_frame);
+                if ab.round_pos + 1 < ab.total_rounds {
+                    ab.round_pos += 1;
+                    self.ui.set_ab_status(&format!(
+                        "Running control… ({}/{})",
+                        ab.round_pos + 1,
+                        ab.total_rounds
+                    ));
                     self.show_ab_variant(Some(AbVariant::Control));
                     self.send_ab_bench(AbVariant::Control);
                 } else {
-                    ab.running = false;
-                    self.ui.bench_all_done();
-                    self.ui.set_ab_status("A/B run complete");
-                    self.ui.set_benchmark_presentation(false);
-                    self.show_ab_variant(None);
-                    if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-                        set_stage_shell_presentation(&document, false);
+                    let control_result = harness::BenchResult {
+                        name: control.name,
+                        ms_per_frame: ab.control_samples.iter().sum::<f64>()
+                            / ab.control_samples.len() as f64,
+                        iterations: control.iterations * ab.control_samples.len(),
+                        total_ms: 0.0,
+                    };
+                    let treatment_result = harness::BenchResult {
+                        name: result.name,
+                        ms_per_frame: ab.treatment_samples.iter().sum::<f64>()
+                            / ab.treatment_samples.len() as f64,
+                        iterations: result.iterations * ab.treatment_samples.len(),
+                        total_ms: 0.0,
+                    };
+                    self.ui
+                        .bench_set_ab_done(idx, &control_result, &treatment_result);
+                    ab.run_pos += 1;
+                    ab.round_pos = 0;
+                    ab.control_samples.clear();
+                    ab.treatment_samples.clear();
+                    if ab.run_pos < ab.selected.len() {
+                        self.ui.set_ab_status(&format!(
+                            "Running control… ({}/{})",
+                            1, ab.total_rounds
+                        ));
+                        self.show_ab_variant(Some(AbVariant::Control));
+                        self.send_ab_bench(AbVariant::Control);
+                    } else {
+                        ab.running = false;
+                        self.ui.bench_all_done();
+                        self.ui.set_ab_status("A/B run complete");
+                        self.ui.set_benchmark_presentation(false);
+                        self.show_ab_variant(None);
+                        if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                            set_stage_shell_presentation(&document, false);
+                        }
                     }
                 }
             }
@@ -767,7 +839,6 @@ pub async fn run() {
         st.ui.apply_saved_benches(&saved_state);
         st.ui.apply_saved_bench_preset(&saved_state);
         st.ui.apply_saved_params(&saved_state);
-        st.ui.load_ab_comparison();
         st.ui.save_state();
     }
 
@@ -860,6 +931,8 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
                 st.backend.resize(vp_w, vp_h);
             }
             st.harness.preset = st.ui.bench_preset();
+            st.harness.warmup_samples = st.ui.bench_warmup_samples();
+            st.harness.measured_samples = st.ui.bench_measured_samples();
             st.ui.bench_started(&selected);
             st.ui.set_benchmark_presentation(true);
             set_canvas_visibility(&st.canvas, false);
@@ -1021,6 +1094,32 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
             let st = s.borrow_mut();
             st.ui.update_bench_titles();
             st.ui.mark_dirty();
+        }) as Box<dyn FnMut()>);
+        input
+            .add_event_listener_with_callback("input", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
+
+    // Benchmark sample config changes → mark dirty
+    for input in [
+        state.borrow().ui.warmup_input().clone(),
+        state.borrow().ui.measured_input().clone(),
+    ] {
+        let dirty = state.borrow().ui.dirty_flag();
+        let cb = Closure::wrap(Box::new(move || {
+            dirty.set(true);
+        }) as Box<dyn FnMut()>);
+        input
+            .add_event_listener_with_callback("input", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
+
+    if let Some(input) = state.borrow().ui.ab_rounds_input().cloned() {
+        let dirty = state.borrow().ui.dirty_flag();
+        let cb = Closure::wrap(Box::new(move || {
+            dirty.set(true);
         }) as Box<dyn FnMut()>);
         input
             .add_event_listener_with_callback("input", cb.as_ref().unchecked_ref())
@@ -1369,107 +1468,6 @@ fn wire_ab_messages(state: &Rc<RefCell<AppState>>) {
     cb.forget();
 }
 
-// ── Headless bench worker for interleaved A/B mode ──────────────────────────
-
-/// Headless worker entry point for interleaved A/B benchmarking.
-///
-/// Instead of building the full UI and animation loop, this registers a
-/// `message` event listener and responds to commands from a parent orchestrator
-/// page via `postMessage`.
-#[wasm_bindgen]
-pub fn bench_worker_init() {
-    console_error_panic_hook::set_once();
-    let _ = console_log::init_with_level(log::Level::Warn);
-
-    let window = web_sys::window().unwrap();
-
-    let cb = Closure::wrap(Box::new(move |event: web_sys::MessageEvent| {
-        let data = event.data();
-        let Some(obj) = data.dyn_ref::<js_sys::Object>() else {
-            return;
-        };
-        let msg_type = js_sys::Reflect::get(obj, &"type".into())
-            .ok()
-            .and_then(|v| v.as_string());
-
-        match msg_type.as_deref() {
-            Some("get_defs") => {
-                let defs = bench_defs();
-                let arr = js_sys::Array::new();
-                for (i, d) in defs.iter().enumerate() {
-                    let entry = js_sys::Object::new();
-                    js_sys::Reflect::set(&entry, &"idx".into(), &(i as u32).into()).unwrap();
-                    js_sys::Reflect::set(&entry, &"name".into(), &d.name.into()).unwrap();
-                    js_sys::Reflect::set(&entry, &"category".into(), &d.category.into()).unwrap();
-                    js_sys::Reflect::set(&entry, &"description".into(), &d.description.into())
-                        .unwrap();
-                    arr.push(&entry);
-                }
-                let reply = js_sys::Object::new();
-                js_sys::Reflect::set(&reply, &"type".into(), &"defs".into()).unwrap();
-                js_sys::Reflect::set(&reply, &"defs".into(), &arr).unwrap();
-                let _ = web_sys::window()
-                    .unwrap()
-                    .parent()
-                    .unwrap()
-                    .unwrap()
-                    .post_message(&reply, "*");
-            }
-            Some("run_bench") => {
-                let get_f64 = |key: &str| {
-                    js_sys::Reflect::get(obj, &key.into())
-                        .ok()
-                        .and_then(|v| v.as_f64())
-                };
-                let idx = get_f64("idx").unwrap_or(0.0) as usize;
-                let preset = get_f64("preset").unwrap_or(10.0) as u32;
-                let width = get_f64("width").unwrap_or(800.0) as u32;
-                let height = get_f64("height").unwrap_or(600.0) as u32;
-
-                let reply = js_sys::Object::new();
-                js_sys::Reflect::set(&reply, &"type".into(), &"bench_result".into()).unwrap();
-                js_sys::Reflect::set(&reply, &"idx".into(), &(idx as u32).into()).unwrap();
-
-                if let Some(result) = harness::run_single_bench(idx, preset, width, height) {
-                    js_sys::Reflect::set(&reply, &"name".into(), &result.name.into()).unwrap();
-                    js_sys::Reflect::set(
-                        &reply,
-                        &"ms_per_frame".into(),
-                        &result.ms_per_frame.into(),
-                    )
-                    .unwrap();
-                    js_sys::Reflect::set(
-                        &reply,
-                        &"iterations".into(),
-                        &(result.iterations as u32).into(),
-                    )
-                    .unwrap();
-                } else {
-                    js_sys::Reflect::set(&reply, &"error".into(), &"invalid bench index".into())
-                        .unwrap();
-                }
-
-                let _ = web_sys::window()
-                    .unwrap()
-                    .parent()
-                    .unwrap()
-                    .unwrap()
-                    .post_message(&reply, "*");
-            }
-            _ => {}
-        }
-    }) as Box<dyn FnMut(_)>);
-    window
-        .add_event_listener_with_callback("message", cb.as_ref().unchecked_ref())
-        .unwrap();
-    cb.forget();
-
-    // Signal readiness to the parent orchestrator.
-    let ready = js_sys::Object::new();
-    js_sys::Reflect::set(&ready, &"type".into(), &"ready".into()).unwrap();
-    let _ = window.parent().unwrap().unwrap().post_message(&ready, "*");
-}
-
 #[derive(Debug)]
 struct AbChildState {
     canvas: HtmlCanvasElement,
@@ -1523,6 +1521,8 @@ pub fn ab_child_init() {
             };
             let idx = get_f64("idx").unwrap_or(0.0) as usize;
             let preset = get_f64("preset").unwrap_or(10.0) as u32;
+            let warmup_samples = get_f64("warmup_samples").unwrap_or(3.0) as usize;
+            let measured_samples = get_f64("measured_samples").unwrap_or(15.0) as usize;
             let width = get_f64("width").unwrap_or(800.0) as u32;
             let height = get_f64("height").unwrap_or(600.0) as u32;
 
@@ -1530,6 +1530,8 @@ pub fn ab_child_init() {
             st.canvas.set_width(width);
             st.canvas.set_height(height);
             st.harness.preset = preset;
+            st.harness.warmup_samples = warmup_samples;
+            st.harness.measured_samples = measured_samples.max(1);
             let canvas = st.canvas.clone();
             st.harness.start(vec![idx], width, height, &canvas);
         }) as Box<dyn FnMut(_)>);

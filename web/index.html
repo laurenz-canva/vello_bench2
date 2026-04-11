@@ -82,9 +82,8 @@
     const simd = localStorage.getItem("vello_bench_simd") !== "0";
     const simdStr = simd ? "simd" : "nosimd";
 
-    // A/B variant support: when served via ab.sh, dist/ contains control/ and
-    // treatment/ directories.  When served via serve.sh, it contains simd/ and
-    // nosimd/ instead.  We probe for the control directory to detect ab.sh mode.
+    // Optional integrated A/B support: when served with control/ and treatment/
+    // assets present, the dashboard enables its built-in A/B harness.
     let abMode = false;
     try {
       const probe = await fetch("./control/vello_bench2.js", { method: "HEAD" });

@@ -88,6 +88,12 @@ pub(crate) struct UiState {
     pub(crate) benches: Vec<usize>,
     /// Benchmark preset scale (benchmark mode).
     pub(crate) bench_preset: Option<u32>,
+    /// Benchmark warmup frames.
+    pub(crate) bench_warmup_samples: Option<u32>,
+    /// Benchmark measured frames.
+    pub(crate) bench_measured_samples: Option<u32>,
+    /// A/B rounds per benchmark pair.
+    pub(crate) ab_rounds: Option<u32>,
 }
 
 /// Load persisted UI state.
@@ -118,28 +124,4 @@ pub(crate) fn save_backend_name(name: &str) {
     if let Some(storage) = local_storage() {
         let _ = storage.set_item(BACKEND_KEY, name);
     }
-}
-
-// ── A/B variant auto-snapshots ──────────────────────────────────────────────
-
-const AB_KEY_PREFIX: &str = "vello_bench_ab_";
-
-fn ab_key(variant: &str) -> String {
-    format!("{AB_KEY_PREFIX}{variant}")
-}
-
-/// Save a `BenchReport` snapshot for the given A/B variant ("control" or "treatment").
-pub(crate) fn save_ab_snapshot(variant: &str, report: &BenchReport) {
-    if let Some(storage) = local_storage()
-        && let Ok(json) = serde_json::to_string(report)
-    {
-        let _ = storage.set_item(&ab_key(variant), &json);
-    }
-}
-
-/// Load the A/B snapshot for a variant, if one exists.
-pub(crate) fn load_ab_snapshot(variant: &str) -> Option<BenchReport> {
-    let storage = local_storage()?;
-    let json = storage.get_item(&ab_key(variant)).ok().flatten()?;
-    serde_json::from_str(&json).ok()
 }
