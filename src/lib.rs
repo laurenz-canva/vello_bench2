@@ -282,19 +282,17 @@ pub(crate) fn gpu_sync(renderer: &vello_hybrid::WebGlRenderer) {
 }
 
 fn configure_canvas(canvas: &HtmlCanvasElement, px_w: u32, px_h: u32, mode: AppMode) {
-    let window = web_sys::window().unwrap();
-    let css_w = window.inner_width().unwrap().as_f64().unwrap() as u32;
-    let css_h = window.inner_height().unwrap().as_f64().unwrap() as u32;
     canvas.set_width(px_w);
     canvas.set_height(px_h);
     let cs = canvas.style();
-    cs.set_property("position", "fixed").unwrap();
-    cs.set_property("top", "40px").unwrap();
+    cs.set_property("position", "absolute").unwrap();
+    cs.set_property("inset", "0").unwrap();
     cs.set_property("left", "0").unwrap();
     cs.set_property("z-index", "0").unwrap();
-    cs.set_property("width", &format!("{css_w}px")).unwrap();
-    cs.set_property("height", &format!("{}px", css_h.saturating_sub(40)))
-        .unwrap();
+    cs.set_property("width", "100%").unwrap();
+    cs.set_property("height", "100%").unwrap();
+    cs.set_property("display", "block").unwrap();
+    cs.set_property("touch-action", "none").unwrap();
     cs.set_property(
         "visibility",
         if mode == AppMode::Interactive {
@@ -304,6 +302,19 @@ fn configure_canvas(canvas: &HtmlCanvasElement, px_w: u32, px_h: u32, mode: AppM
         },
     )
     .unwrap();
+}
+
+fn stage_physical_size(document: &web_sys::Document) -> (u32, u32, u32, u32) {
+    let stage = document
+        .get_element_by_id("canvas-host")
+        .expect("canvas-host should exist in index.html");
+    let rect = stage.get_bounding_client_rect();
+    let dpr = web_sys::window().unwrap().device_pixel_ratio();
+    let css_w = rect.width().max(1.0).round() as u32;
+    let css_h = rect.height().max(1.0).round() as u32;
+    let px_w = (css_w as f64 * dpr).round() as u32;
+    let px_h = (css_h as f64 * dpr).round() as u32;
+    (css_w, css_h, px_w, px_h)
 }
 
 fn make_canvas(
@@ -356,15 +367,13 @@ pub async fn run() {
     let window = web_sys::window().unwrap();
     let document = window.document().unwrap();
     let performance = window.performance().unwrap();
-    let dpr = window.device_pixel_ratio();
-
-    let css_w = window.inner_width().unwrap().as_f64().unwrap() as u32;
-    let css_h = window.inner_height().unwrap().as_f64().unwrap() as u32;
-    let px_w = (css_w as f64 * dpr) as u32;
-    let px_h = (css_h as f64 * dpr) as u32;
+    let (_, _, px_w, px_h) = stage_physical_size(&document);
 
     let canvas = make_canvas(&document, px_w, px_h, AppMode::Interactive);
-    document.body().unwrap().append_child(&canvas).unwrap();
+    let canvas_host = document
+        .get_element_by_id("canvas-host")
+        .expect("canvas-host should exist in index.html");
+    canvas_host.append_child(&canvas).unwrap();
 
     let bench_scenes = scenes::all_scenes();
     let defs = bench_defs();
@@ -913,23 +922,10 @@ fn wire_resize(state: &Rc<RefCell<AppState>>) {
     let s = state.clone();
     let cb = Closure::wrap(Box::new(move |_: web_sys::Event| {
         let mut st = s.borrow_mut();
-        let w = web_sys::window().unwrap();
-        let dpr = w.device_pixel_ratio();
-        let css_w = w.inner_width().unwrap().as_f64().unwrap() as u32;
-        let css_h = w.inner_height().unwrap().as_f64().unwrap() as u32;
-        let px_w = (css_w as f64 * dpr) as u32;
-        let px_h = (css_h as f64 * dpr) as u32;
-
+        let document = web_sys::window().unwrap().document().unwrap();
+        let (_, _, px_w, px_h) = stage_physical_size(&document);
         st.canvas.set_width(px_w);
         st.canvas.set_height(px_h);
-        st.canvas
-            .style()
-            .set_property("width", &format!("{css_w}px"))
-            .unwrap();
-        st.canvas
-            .style()
-            .set_property("height", &format!("{}px", css_h.saturating_sub(40)))
-            .unwrap();
         st.width = px_w;
         st.height = px_h;
         st.backend.resize(px_w, px_h);

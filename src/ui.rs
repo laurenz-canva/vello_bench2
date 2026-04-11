@@ -10,7 +10,7 @@ use std::rc::Rc;
 
 use crate::backend::{BackendCapabilities, BackendKind};
 use crate::harness::{BenchDef, BenchResult, BenchScale};
-use crate::scenes::{BenchScene, ParamId};
+use crate::scenes::{BenchScene, Param, ParamId, ParamKind};
 use crate::storage::{BenchReport, UiState};
 use wasm_bindgen::prelude::*;
 use web_sys::{
@@ -27,6 +27,10 @@ fn div(d: &Document) -> HtmlElement {
     d.create_element("div").unwrap().dyn_into().unwrap()
 }
 
+fn class(el: &impl AsRef<Element>, value: &str) {
+    el.as_ref().set_class_name(value);
+}
+
 fn set(el: &HtmlElement, props: &[(&str, &str)]) {
     let s = el.style();
     for &(k, v) in props {
@@ -35,19 +39,10 @@ fn set(el: &HtmlElement, props: &[(&str, &str)]) {
 }
 
 fn select_style(sel: &HtmlSelectElement) {
-    let s = sel.style();
-    for &(k, v) in &[
-        ("width", "100%"),
-        ("padding", "5px 8px"),
-        ("background", "#1e1e2e"),
-        ("color", "#cdd6f4"),
-        ("border", "1px solid #45475a"),
-        ("border-radius", "6px"),
-        ("font-family", "'JetBrains Mono', monospace"),
-        ("font-size", "12px"),
-    ] {
-        s.set_property(k, v).unwrap();
-    }
+    class(
+        sel,
+        "w-full rounded-xl border border-slate-300 bg-white/90 px-3 py-2 text-sm text-slate-800 shadow-sm outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-200/70",
+    );
 }
 
 /// Returns the current A/B variant name if running under `ab.sh`, or `None`
@@ -177,17 +172,13 @@ pub struct Ui {
     tab_interactive: HtmlElement,
     tab_benchmark: HtmlElement,
     top_timing_label: HtmlElement,
+    top_timing_popup: HtmlElement,
     renderer_select: HtmlSelectElement,
 
     // Interactive: sidebar
     sidebar: HtmlElement,
     toggle_btn: HtmlElement,
     sidebar_collapsed: bool,
-    fps_label: HtmlElement,
-    encode_label: HtmlElement,
-    render_label: HtmlElement,
-    blit_label: HtmlElement,
-    total_label: HtmlElement,
     viewport_label: HtmlElement,
     /// Scene selector.
     pub scene_select: HtmlSelectElement,
@@ -257,24 +248,22 @@ impl Ui {
         vp_h: u32,
     ) -> Self {
         let body = document.body().unwrap();
-        set(
-            &body,
-            &[
-                ("margin", "0"),
-                ("padding", "0"),
-                ("overflow", "hidden"),
-                ("background", "#11111b"),
-                ("color", "#cdd6f4"),
-                ("font-family", "'JetBrains Mono', ui-monospace, monospace"),
-                ("font-size", "13px"),
-            ],
-        );
+        class(&body, "overflow-hidden antialiased");
+        let app_overlay = document
+            .get_element_by_id("app-overlay")
+            .expect("app-overlay should exist in index.html");
 
         let dirty = Rc::new(Cell::new(false));
 
-        let (top_bar, tab_interactive, tab_benchmark, top_timing_label, renderer_select) =
-            build_top_bar(document, crate::backend::current_backend_kind());
-        body.append_child(&top_bar).unwrap();
+        let (
+            top_bar,
+            tab_interactive,
+            tab_benchmark,
+            top_timing_label,
+            top_timing_popup,
+            renderer_select,
+        ) = build_top_bar(document, crate::backend::current_backend_kind());
+        app_overlay.append_child(&top_bar).unwrap();
 
         let iv = build_interactive_view(
             document,
@@ -285,33 +274,18 @@ impl Ui {
             vp_h,
             &dirty,
         );
-        body.append_child(&iv.view).unwrap();
+        app_overlay.append_child(&iv.view).unwrap();
 
         let benchmark_view = div(document);
-        set(
+        class(
             &benchmark_view,
-            &[
-                ("position", "fixed"),
-                ("top", "40px"),
-                ("left", "0"),
-                ("right", "0"),
-                ("bottom", "0"),
-                ("z-index", "5"),
-                ("display", "none"),
-                ("overflow-y", "auto"),
-                ("padding", "16px 16px 16px 12px"),
-                ("box-sizing", "border-box"),
-            ],
+            "fixed inset-x-0 bottom-0 top-20 z-20 hidden overflow-y-auto px-3 pb-4 pt-2 lg:top-24 lg:px-6 lg:pb-6",
         );
 
         let bench_layout = div(document);
-        set(
+        class(
             &bench_layout,
-            &[
-                ("display", "flex"),
-                ("gap", "16px"),
-                ("align-items", "flex-start"),
-            ],
+            "mx-auto flex max-w-[1600px] flex-col gap-4 lg:flex-row lg:items-start lg:gap-6",
         );
 
         let cfg = build_bench_config(document, vp_w, vp_h);
@@ -328,7 +302,7 @@ impl Ui {
         bench_layout.append_child(&rows.container).unwrap();
 
         benchmark_view.append_child(&bench_layout).unwrap();
-        body.append_child(&benchmark_view).unwrap();
+        app_overlay.append_child(&benchmark_view).unwrap();
 
         let (lightbox, lightbox_img) = build_lightbox(document, &body, &cfg.screenshot_img);
 
@@ -339,15 +313,11 @@ impl Ui {
             tab_interactive,
             tab_benchmark,
             top_timing_label,
+            top_timing_popup,
             renderer_select,
             sidebar: iv.sidebar,
             toggle_btn: iv.toggle_btn,
             sidebar_collapsed: false,
-            fps_label: iv.fps_label,
-            encode_label: iv.encode_label,
-            render_label: iv.render_label,
-            blit_label: iv.blit_label,
-            total_label: iv.total_label,
             viewport_label: iv.viewport_label,
             scene_select: iv.scene_select,
             controls: iv.controls,
@@ -450,7 +420,7 @@ impl Ui {
                 .unwrap();
             self.toggle_btn
                 .style()
-                .set_property("left", "284px")
+                .set_property("left", "220px")
                 .unwrap();
             self.toggle_btn.set_inner_html("&#x25C0;");
         }
@@ -480,56 +450,31 @@ impl Ui {
         is_cpu: bool,
         supports_encode_timing: bool,
     ) {
-        self.fps_label
-            .set_text_content(Some(&format!("FPS: {fps:.1}  ({frame_time:.1}ms)")));
         self.top_timing_label
-            .set_text_content(Some(&format!("{fps:.1} FPS  {frame_time:.1} ms/f")));
-        if supports_encode_timing {
-            self.encode_label
-                .set_text_content(Some(&format!("Encode: {encode_ms:.2}ms")));
-            self.encode_label
-                .style()
-                .set_property("display", "block")
-                .unwrap();
+            .set_text_content(Some(&format!("FPS: {fps:.1} ({frame_time:.1}ms)")));
+        let encode = if supports_encode_timing {
+            format!("{encode_ms:.2}ms")
         } else {
-            self.encode_label
-                .style()
-                .set_property("display", "none")
-                .unwrap();
-        }
-        if is_cpu {
-            self.render_label
-                .set_text_content(Some(&format!("Render: {render_ms:.2}ms")));
-            self.render_label
-                .style()
-                .set_property("display", "block")
-                .unwrap();
-            self.blit_label
-                .set_text_content(Some(&format!("Blit: {blit_ms:.2}ms")));
-            self.blit_label
-                .style()
-                .set_property("display", "block")
-                .unwrap();
-            self.total_label
-                .set_text_content(Some(&format!("Total: {total_ms:.2}ms")));
-            self.total_label
-                .style()
-                .set_property("display", "block")
-                .unwrap();
+            "--".to_string()
+        };
+        let render = if is_cpu {
+            format!("{render_ms:.2}ms")
         } else {
-            self.render_label
-                .style()
-                .set_property("display", "none")
-                .unwrap();
-            self.blit_label
-                .style()
-                .set_property("display", "none")
-                .unwrap();
-            self.total_label
-                .style()
-                .set_property("display", "none")
-                .unwrap();
-        }
+            "--".to_string()
+        };
+        let blit = if is_cpu {
+            format!("{blit_ms:.2}ms")
+        } else {
+            "--".to_string()
+        };
+        let total = if is_cpu {
+            format!("{total_ms:.2}ms")
+        } else {
+            "--".to_string()
+        };
+        self.top_timing_popup.set_inner_html(&format!(
+            "<div class=\"space-y-1 text-slate-600\"><div>Encode: {encode}</div><div>Render: {render}</div><div>Blit: {blit}</div><div>Total: {total}</div></div>"
+        ));
     }
 
     /// Update viewport display.
@@ -1244,11 +1189,6 @@ struct InteractiveViewParts {
     view: HtmlElement,
     sidebar: HtmlElement,
     toggle_btn: HtmlElement,
-    fps_label: HtmlElement,
-    encode_label: HtmlElement,
-    render_label: HtmlElement,
-    blit_label: HtmlElement,
-    total_label: HtmlElement,
     viewport_label: HtmlElement,
     scene_select: HtmlSelectElement,
     controls: Vec<(ParamCtrl, HtmlElement, ParamId)>,
@@ -1287,41 +1227,20 @@ fn build_top_bar(
     HtmlElement,
     HtmlElement,
     HtmlElement,
+    HtmlElement,
     HtmlSelectElement,
 ) {
     let top_bar = div(document);
-    set(
+    class(
         &top_bar,
-        &[
-            ("position", "fixed"),
-            ("top", "0"),
-            ("left", "0"),
-            ("right", "0"),
-            ("height", "40px"),
-            ("background", "#1e1e2e"),
-            ("display", "flex"),
-            ("align-items", "center"),
-            ("padding", "0 12px"),
-            ("z-index", "100"),
-            ("border-bottom", "1px solid #313244"),
-            ("overflow-x", "auto"),
-            ("overflow-y", "hidden"),
-            ("flex-shrink", "0"),
-        ],
+        "pointer-events-none fixed inset-x-0 top-0 z-[80] h-0",
     );
 
-    let logo = div(document);
-    logo.set_text_content(Some("vello bench"));
-    set(
-        &logo,
-        &[
-            ("color", "#89b4fa"),
-            ("font-weight", "700"),
-            ("margin-right", "24px"),
-            ("font-size", "14px"),
-        ],
+    let nav_group = div(document);
+    class(
+        &nav_group,
+        "pointer-events-auto fixed left-3 top-3 flex h-11 items-center gap-4 border border-slate-200/90 bg-white/92 px-4 lg:left-4 lg:top-4",
     );
-    top_bar.append_child(&logo).unwrap();
 
     let tab_interactive = div(document);
     tab_interactive.set_text_content(Some("Interactive"));
@@ -1331,28 +1250,72 @@ fn build_top_bar(
     tab_benchmark.set_text_content(Some("Benchmark"));
     style_tab(&tab_benchmark, false);
 
-    top_bar.append_child(&tab_benchmark).unwrap();
-    top_bar.append_child(&tab_interactive).unwrap();
+    nav_group.append_child(&tab_benchmark).unwrap();
+    nav_group.append_child(&tab_interactive).unwrap();
+    top_bar.append_child(&nav_group).unwrap();
 
-    let spacer = div(document);
-    set(&spacer, &[("flex", "1"), ("min-width", "0")]);
-    top_bar.append_child(&spacer).unwrap();
+    let controls_group = div(document);
+    class(
+        &controls_group,
+        "pointer-events-auto fixed right-3 top-3 flex h-11 items-center gap-4 border border-slate-200/90 bg-white/92 px-4 lg:right-4 lg:top-4",
+    );
 
+    let timing_wrap = div(document);
+    class(&timing_wrap, "relative hidden shrink-0 lg:block");
     let top_timing_label = div(document);
     top_timing_label.set_text_content(Some("-- FPS  -- ms/f"));
-    set(
+    class(
         &top_timing_label,
-        &[
-            ("color", "#a6e3a1"),
-            ("font-size", "12px"),
-            ("font-weight", "700"),
-            ("margin-left", "8px"),
-            ("margin-right", "8px"),
-            ("white-space", "nowrap"),
-            ("flex-shrink", "0"),
-        ],
+        "whitespace-nowrap border-l border-slate-200 pl-4 text-xs font-semibold text-emerald-700",
     );
-    top_bar.append_child(&top_timing_label).unwrap();
+    let top_timing_popup = div(document);
+    top_timing_popup.set_inner_html(
+        "<div class=\"space-y-1 text-slate-600\"><div>Encode: --</div><div>Render: --</div><div>Blit: --</div><div>Total: --</div></div>",
+    );
+    class(
+        &top_timing_popup,
+        "pointer-events-none absolute left-0 top-full z-[90] mt-2 hidden min-w-[12rem] border border-slate-200 bg-white px-4 py-3 text-xs shadow-sm",
+    );
+    {
+        let popup = top_timing_popup.clone();
+        let timeout_id = Rc::new(Cell::new(None::<i32>));
+        let enter_timeout = timeout_id.clone();
+        let enter = Closure::wrap(Box::new(move || {
+            let popup = popup.clone();
+            let cb = Closure::once_into_js(move || {
+                let _ = popup.style().set_property("display", "block");
+            });
+            let id = web_sys::window()
+                .unwrap()
+                .set_timeout_with_callback_and_timeout_and_arguments_0(
+                    cb.as_ref().unchecked_ref(),
+                    300,
+                )
+                .unwrap();
+            enter_timeout.set(Some(id));
+        }) as Box<dyn FnMut()>);
+        timing_wrap
+            .add_event_listener_with_callback("mouseenter", enter.as_ref().unchecked_ref())
+            .unwrap();
+        enter.forget();
+
+        let popup = top_timing_popup.clone();
+        let leave_timeout = timeout_id.clone();
+        let leave = Closure::wrap(Box::new(move || {
+            if let Some(id) = leave_timeout.get() {
+                web_sys::window().unwrap().clear_timeout_with_handle(id);
+                leave_timeout.set(None);
+            }
+            let _ = popup.style().set_property("display", "none");
+        }) as Box<dyn FnMut()>);
+        timing_wrap
+            .add_event_listener_with_callback("mouseleave", leave.as_ref().unchecked_ref())
+            .unwrap();
+        leave.forget();
+    }
+    timing_wrap.append_child(&top_timing_label).unwrap();
+    timing_wrap.append_child(&top_timing_popup).unwrap();
+    controls_group.append_child(&timing_wrap).unwrap();
 
     let has_toggle = js_sys::Reflect::get(&js_sys::global(), &"__vello_toggle_simd".into())
         .ok()
@@ -1364,27 +1327,13 @@ fn build_top_bar(
             .unwrap_or(true);
         let simd_btn = div(document);
         simd_btn.set_text_content(Some(if simd_on { "SIMD: ON" } else { "SIMD: OFF" }));
-        set(
+        class(
             &simd_btn,
-            &[
-                ("color", if simd_on { "#a6e3a1" } else { "#f38ba8" }),
-                ("font-size", "12px"),
-                ("font-weight", "600"),
-                ("cursor", "pointer"),
-                ("padding", "4px 10px"),
-                ("border-radius", "4px"),
-                (
-                    "border",
-                    if simd_on {
-                        "1px solid #a6e3a1"
-                    } else {
-                        "1px solid #f38ba8"
-                    },
-                ),
-                ("user-select", "none"),
-                ("white-space", "nowrap"),
-                ("flex-shrink", "0"),
-            ],
+            if simd_on {
+                "shrink-0 cursor-pointer whitespace-nowrap border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700"
+            } else {
+                "shrink-0 cursor-pointer whitespace-nowrap border border-rose-300 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-600"
+            },
         );
         {
             let cb = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
@@ -1401,7 +1350,7 @@ fn build_top_bar(
                 .unwrap();
             cb.forget();
         }
-        top_bar.append_child(&simd_btn).unwrap();
+        controls_group.append_child(&simd_btn).unwrap();
     }
 
     let has_variant_toggle =
@@ -1416,28 +1365,13 @@ fn build_top_bar(
         let is_treatment = variant == "treatment";
         let variant_btn = div(document);
         variant_btn.set_text_content(Some(if is_treatment { "TREATMENT" } else { "CONTROL" }));
-        set(
+        class(
             &variant_btn,
-            &[
-                ("color", if is_treatment { "#fab387" } else { "#89b4fa" }),
-                ("font-size", "12px"),
-                ("font-weight", "600"),
-                ("cursor", "pointer"),
-                ("padding", "4px 10px"),
-                ("border-radius", "4px"),
-                (
-                    "border",
-                    if is_treatment {
-                        "1px solid #fab387"
-                    } else {
-                        "1px solid #89b4fa"
-                    },
-                ),
-                ("user-select", "none"),
-                ("white-space", "nowrap"),
-                ("flex-shrink", "0"),
-                ("margin-left", "6px"),
-            ],
+            if is_treatment {
+                "ml-1 shrink-0 whitespace-nowrap rounded-full border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700"
+            } else {
+                "ml-1 shrink-0 whitespace-nowrap rounded-full border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700"
+            },
         );
         {
             let cb = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
@@ -1454,7 +1388,7 @@ fn build_top_bar(
                 .unwrap();
             cb.forget();
         }
-        top_bar.append_child(&variant_btn).unwrap();
+        controls_group.append_child(&variant_btn).unwrap();
     }
 
     let renderer_select: HtmlSelectElement = document
@@ -1463,22 +1397,10 @@ fn build_top_bar(
         .dyn_into()
         .unwrap();
     select_style(&renderer_select);
-    renderer_select
-        .style()
-        .set_property("width", "auto")
-        .unwrap();
-    renderer_select
-        .style()
-        .set_property("margin-left", "8px")
-        .unwrap();
-    renderer_select
-        .style()
-        .set_property("padding", "4px 10px")
-        .unwrap();
-    renderer_select
-        .style()
-        .set_property("flex-shrink", "0")
-        .unwrap();
+    class(
+        &renderer_select,
+        "ml-2 w-auto shrink-0 border border-slate-300 bg-white/90 px-3 py-1 text-sm text-slate-800 shadow-none",
+    );
     for kind in BackendKind::ALL {
         let opt = document.create_element("option").unwrap();
         opt.set_text_content(Some(kind.label()));
@@ -1486,13 +1408,15 @@ fn build_top_bar(
         renderer_select.append_child(&opt).unwrap();
     }
     renderer_select.set_value(current_backend.as_str());
-    top_bar.append_child(&renderer_select).unwrap();
+    controls_group.append_child(&renderer_select).unwrap();
+    top_bar.append_child(&controls_group).unwrap();
 
     (
         top_bar,
         tab_interactive,
         tab_benchmark,
         top_timing_label,
+        top_timing_popup,
         renderer_select,
     )
 }
@@ -1507,137 +1431,32 @@ fn build_interactive_view(
     dirty: &Rc<Cell<bool>>,
 ) -> InteractiveViewParts {
     let view = div(document);
-    set(
-        &view,
-        &[
-            ("position", "fixed"),
-            ("top", "40px"),
-            ("left", "0"),
-            ("right", "0"),
-            ("bottom", "0"),
-            ("z-index", "5"),
-            ("pointer-events", "none"),
-        ],
-    );
+    class(&view, "fixed inset-0 z-20 pointer-events-none");
 
     let sidebar = div(document);
-    set(
+    class(
         &sidebar,
-        &[
-            ("position", "absolute"),
-            ("top", "0"),
-            ("left", "0"),
-            ("width", "280px"),
-            ("height", "100%"),
-            ("background", "#1e1e2e"),
-            ("padding", "16px"),
-            ("box-sizing", "border-box"),
-            ("overflow-y", "auto"),
-            ("z-index", "10"),
-            ("pointer-events", "auto"),
-            ("transition", "transform 0.2s ease"),
-            ("border-right", "1px solid #313244"),
-            ("display", "flex"),
-            ("flex-direction", "column"),
-        ],
+        "pointer-events-auto fixed bottom-0 left-0 top-16 z-20 flex w-[240px] flex-col overflow-y-auto border-r border-slate-200/90 bg-white/60 px-3 py-4 transition-transform duration-200 lg:top-20 lg:w-[220px]",
     );
 
     let toggle_btn = div(document);
-    set(
+    class(
         &toggle_btn,
-        &[
-            ("position", "absolute"),
-            ("top", "8px"),
-            ("left", "284px"),
-            ("width", "24px"),
-            ("height", "24px"),
-            ("background", "#1e1e2e"),
-            ("color", "#89b4fa"),
-            ("border-radius", "0 6px 6px 0"),
-            ("cursor", "pointer"),
-            ("z-index", "11"),
-            ("pointer-events", "auto"),
-            ("display", "flex"),
-            ("align-items", "center"),
-            ("justify-content", "center"),
-            ("font-size", "14px"),
-            ("user-select", "none"),
-            ("transition", "left 0.2s ease"),
-            ("border", "1px solid #313244"),
-            ("border-left", "none"),
-        ],
+        "pointer-events-auto fixed left-[220px] top-24 z-30 hidden h-10 w-7 items-center justify-center border border-l-0 border-slate-200 bg-white/92 text-cyan-700 lg:flex",
     );
     toggle_btn.set_inner_html("&#x25C0;");
     view.append_child(&toggle_btn).unwrap();
 
-    let fps_label = div(document);
-    fps_label.set_text_content(Some("FPS: --"));
-    set(
-        &fps_label,
-        &[
-            ("font-size", "15px"),
-            ("font-weight", "700"),
-            ("color", "#a6e3a1"),
-            ("margin-bottom", "2px"),
-        ],
-    );
-    sidebar.append_child(&fps_label).unwrap();
-
-    let encode_label = div(document);
-    encode_label.set_text_content(Some("Encode: --"));
-    set(
-        &encode_label,
-        &[("color", "#9399b2"), ("margin-bottom", "2px")],
-    );
-    sidebar.append_child(&encode_label).unwrap();
-
-    let render_label = div(document);
-    render_label.set_text_content(Some("Render: --"));
-    set(
-        &render_label,
-        &[("color", "#9399b2"), ("margin-bottom", "2px")],
-    );
-    sidebar.append_child(&render_label).unwrap();
-
-    let blit_label = div(document);
-    blit_label.set_text_content(Some("Blit: --"));
-    set(
-        &blit_label,
-        &[
-            ("color", "#9399b2"),
-            ("margin-bottom", "2px"),
-            ("display", "none"),
-        ],
-    );
-    sidebar.append_child(&blit_label).unwrap();
-
-    let total_label = div(document);
-    total_label.set_text_content(Some("Total: --"));
-    set(
-        &total_label,
-        &[("color", "#9399b2"), ("margin-bottom", "2px")],
-    );
-    sidebar.append_child(&total_label).unwrap();
-
     let viewport_label = div(document);
     viewport_label.set_text_content(Some(&format!("Viewport: {vp_w} x {vp_h}")));
-    set(
-        &viewport_label,
-        &[("color", "#6c7086"), ("margin-bottom", "14px")],
-    );
+    class(&viewport_label, "mb-3 px-1 text-[11px] text-slate-500");
     sidebar.append_child(&viewport_label).unwrap();
 
     let lbl = div(document);
     lbl.set_text_content(Some("Scene"));
-    set(
+    class(
         &lbl,
-        &[
-            ("color", "#9399b2"),
-            ("margin-bottom", "4px"),
-            ("font-size", "11px"),
-            ("text-transform", "uppercase"),
-            ("letter-spacing", "1px"),
-        ],
+        "mb-2 text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500",
     );
     sidebar.append_child(&lbl).unwrap();
 
@@ -1647,7 +1466,10 @@ fn build_interactive_view(
         .dyn_into()
         .unwrap();
     select_style(&scene_select);
-    set_prop(&scene_select, "margin-bottom", "16px");
+    class(
+        &scene_select,
+        "mb-2 w-full border border-slate-300 bg-white/90 px-2 py-1.5 text-sm text-slate-800",
+    );
     for (i, s) in scenes.iter().enumerate() {
         let opt = document.create_element("option").unwrap();
         opt.set_text_content(Some(s.name()));
@@ -1662,13 +1484,7 @@ fn build_interactive_view(
     sidebar.append_child(&scene_select).unwrap();
 
     let sep = div(document);
-    set(
-        &sep,
-        &[
-            ("border-top", "1px solid #313244"),
-            ("margin", "4px 0 12px 0"),
-        ],
-    );
+    class(&sep, "my-1 border-t border-slate-200");
     sidebar.append_child(&sep).unwrap();
 
     let controls = build_controls(
@@ -1681,20 +1497,9 @@ fn build_interactive_view(
 
     let reset_view_btn = div(document);
     reset_view_btn.set_text_content(Some("Reset View"));
-    set(
+    class(
         &reset_view_btn,
-        &[
-            ("margin-top", "auto"),
-            ("padding", "6px 12px"),
-            ("background", "#313244"),
-            ("color", "#cdd6f4"),
-            ("border-radius", "6px"),
-            ("cursor", "pointer"),
-            ("text-align", "center"),
-            ("font-size", "12px"),
-            ("user-select", "none"),
-            ("display", "none"),
-        ],
+        "mt-3 hidden border border-slate-300 bg-white/80 px-3 py-1.5 text-center text-sm font-medium text-slate-700 transition hover:bg-slate-100",
     );
     sidebar.append_child(&reset_view_btn).unwrap();
 
@@ -1704,11 +1509,6 @@ fn build_interactive_view(
         view,
         sidebar,
         toggle_btn,
-        fps_label,
-        encode_label,
-        render_label,
-        blit_label,
-        total_label,
         viewport_label,
         scene_select,
         controls,
@@ -1718,33 +1518,20 @@ fn build_interactive_view(
 
 fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigParts {
     let wrapper = div(document);
-    set(&wrapper, &[("width", "240px"), ("flex-shrink", "0")]);
+    class(&wrapper, "w-full shrink-0 lg:w-[22rem]");
 
     let left_col = div(document);
-    set(
+    class(
         &left_col,
-        &[
-            ("background", "#1e1e2e"),
-            ("border", "1px solid #313244"),
-            ("border-radius", "12px"),
-            ("padding", "16px"),
-            ("box-sizing", "border-box"),
-        ],
+        "rounded-[2rem] border border-slate-200 bg-white/88 p-5 shadow-[0_20px_50px_-32px_rgba(15,23,42,0.2)] backdrop-blur-xl",
     );
 
     let section_label = |doc: &Document, text: &str| -> HtmlElement {
         let el = div(doc);
         el.set_text_content(Some(text));
-        set(
+        class(
             &el,
-            &[
-                ("color", "#9399b2"),
-                ("font-size", "10px"),
-                ("text-transform", "uppercase"),
-                ("letter-spacing", "1.5px"),
-                ("margin-bottom", "8px"),
-                ("font-weight", "600"),
-            ],
+            "mb-3 text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500",
         );
         el
     };
@@ -1805,32 +1592,14 @@ fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigP
 
     let start_btn = div(document);
     start_btn.set_text_content(Some("Run Selected"));
-    set(
+    class(
         &start_btn,
-        &[
-            ("padding", "10px 0"),
-            ("background", "#89b4fa"),
-            ("color", "#1e1e2e"),
-            ("border-radius", "8px"),
-            ("font-weight", "700"),
-            ("cursor", "pointer"),
-            ("user-select", "none"),
-            ("font-size", "13px"),
-            ("text-align", "center"),
-            ("transition", "opacity 0.15s"),
-            ("margin-bottom", "16px"),
-        ],
+        "mb-4 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-3 text-center text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition hover:brightness-105",
     );
     left_col.append_child(&start_btn).unwrap();
 
     let sep = div(document);
-    set(
-        &sep,
-        &[
-            ("border-top", "1px solid #313244"),
-            ("margin-bottom", "16px"),
-        ],
-    );
+    class(&sep, "mb-4 border-t border-slate-200");
     left_col.append_child(&sep).unwrap();
 
     left_col
@@ -1840,45 +1609,23 @@ fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigP
     let save_name_input = sized_num_input(document, "baseline", "100%");
     save_name_input.set_type("text");
     save_name_input.set_placeholder("Report name");
-    save_name_input
-        .style()
-        .set_property("margin-bottom", "8px")
-        .unwrap();
-    save_name_input
-        .style()
-        .set_property("box-sizing", "border-box")
-        .unwrap();
+    class(
+        &save_name_input,
+        "mb-2 box-border w-full rounded-xl border border-slate-300 bg-white/95 px-3 py-2 text-sm text-slate-800 outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-200/70",
+    );
     left_col.append_child(&save_name_input).unwrap();
 
     let save_btn = div(document);
     save_btn.set_text_content(Some("Save"));
-    set(
+    class(
         &save_btn,
-        &[
-            ("padding", "7px 0"),
-            ("background", "#a6e3a1"),
-            ("color", "#1e1e2e"),
-            ("border-radius", "6px"),
-            ("font-weight", "700"),
-            ("cursor", "pointer"),
-            ("user-select", "none"),
-            ("font-size", "12px"),
-            ("text-align", "center"),
-            ("margin-bottom", "12px"),
-        ],
+        "mb-4 rounded-2xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-center text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100",
     );
     left_col.append_child(&save_btn).unwrap();
 
     let load_label = div(document);
     load_label.set_text_content(Some("Load report"));
-    set(
-        &load_label,
-        &[
-            ("color", "#9399b2"),
-            ("font-size", "11px"),
-            ("margin-bottom", "4px"),
-        ],
-    );
+    class(&load_label, "mb-2 text-xs font-medium text-slate-500");
     left_col.append_child(&load_label).unwrap();
 
     let load_select: HtmlSelectElement = document
@@ -1887,10 +1634,10 @@ fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigP
         .dyn_into()
         .unwrap();
     select_style(&load_select);
-    load_select
-        .style()
-        .set_property("margin-bottom", "8px")
-        .unwrap();
+    class(
+        &load_select,
+        "mb-3 w-full rounded-xl border border-slate-300 bg-white/95 px-3 py-2 text-sm text-slate-800",
+    );
     {
         let opt = document.create_element("option").unwrap();
         opt.set_text_content(Some("(latest run)"));
@@ -1909,14 +1656,7 @@ fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigP
 
     let compare_label = div(document);
     compare_label.set_text_content(Some("Compare with"));
-    set(
-        &compare_label,
-        &[
-            ("color", "#9399b2"),
-            ("font-size", "11px"),
-            ("margin-bottom", "4px"),
-        ],
-    );
+    class(&compare_label, "mb-2 text-xs font-medium text-slate-500");
     left_col.append_child(&compare_label).unwrap();
 
     let compare_select: HtmlSelectElement = document
@@ -1925,10 +1665,10 @@ fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigP
         .dyn_into()
         .unwrap();
     select_style(&compare_select);
-    compare_select
-        .style()
-        .set_property("margin-bottom", "8px")
-        .unwrap();
+    class(
+        &compare_select,
+        "mb-3 w-full rounded-xl border border-slate-300 bg-white/95 px-3 py-2 text-sm text-slate-800",
+    );
     {
         let opt = document.create_element("option").unwrap();
         opt.set_text_content(Some("(none)"));
@@ -1946,19 +1686,9 @@ fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigP
 
     let delete_btn = div(document);
     delete_btn.set_text_content(Some("Delete Selected Report"));
-    set(
+    class(
         &delete_btn,
-        &[
-            ("padding", "6px 0"),
-            ("background", "#45475a"),
-            ("color", "#f38ba8"),
-            ("border-radius", "6px"),
-            ("font-weight", "600"),
-            ("cursor", "pointer"),
-            ("user-select", "none"),
-            ("font-size", "11px"),
-            ("text-align", "center"),
-        ],
+        "rounded-2xl border border-rose-300 bg-rose-50 px-4 py-3 text-center text-sm font-medium text-rose-600 transition hover:bg-rose-100",
     );
     left_col.append_child(&delete_btn).unwrap();
 
@@ -1966,12 +1696,10 @@ fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigP
 
     let screenshot_img: HtmlImageElement =
         document.create_element("img").unwrap().dyn_into().unwrap();
-    set_prop(&screenshot_img, "width", "100%");
-    set_prop(&screenshot_img, "border-radius", "8px");
-    set_prop(&screenshot_img, "border", "1px solid #313244");
-    set_prop(&screenshot_img, "margin-top", "12px");
-    set_prop(&screenshot_img, "display", "none");
-    set_prop(&screenshot_img, "cursor", "pointer");
+    class(
+        &screenshot_img,
+        "mt-4 hidden w-full cursor-pointer rounded-[1.5rem] border border-slate-200 object-cover shadow-lg",
+    );
     wrapper.append_child(&screenshot_img).unwrap();
 
     BenchConfigParts {
@@ -2001,19 +1729,13 @@ fn build_bench_rows(
     dirty: &Rc<Cell<bool>>,
 ) -> BenchRowsParts {
     let container = div(document);
-    set(&container, &[("flex", "1"), ("min-width", "0")]);
+    class(&container, "min-w-0 flex-1");
 
     // Global "Select All" toggle
     let select_all_row = div(document);
-    set(
+    class(
         &select_all_row,
-        &[
-            ("display", "flex"),
-            ("align-items", "center"),
-            ("gap", "6px"),
-            ("margin-bottom", "6px"),
-            ("padding", "0 2px"),
-        ],
+        "mb-3 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/82 px-4 py-3 backdrop-blur",
     );
     let select_all_cb: HtmlInputElement = document
         .create_element("input")
@@ -2022,38 +1744,21 @@ fn build_bench_rows(
         .unwrap();
     select_all_cb.set_type("checkbox");
     select_all_cb.set_checked(true);
-    set_prop(&select_all_cb, "accent-color", "#89b4fa");
-    set_prop(&select_all_cb, "width", "16px");
-    set_prop(&select_all_cb, "height", "16px");
-    set_prop(&select_all_cb, "cursor", "pointer");
+    class(&select_all_cb, "h-4 w-4 cursor-pointer accent-cyan-300");
     select_all_row.append_child(&select_all_cb).unwrap();
     let select_all_label = div(document);
     select_all_label.set_text_content(Some("Select All"));
-    set(
+    class(
         &select_all_label,
-        &[
-            ("color", "#cdd6f4"),
-            ("font-weight", "600"),
-            ("font-size", "13px"),
-            ("cursor", "pointer"),
-            ("user-select", "none"),
-        ],
+        "cursor-pointer text-sm font-semibold text-slate-800 select-none",
     );
     select_all_row.append_child(&select_all_label).unwrap();
     container.append_child(&select_all_row).unwrap();
 
     let cat_grid = div(document);
-    set(
+    class(
         &cat_grid,
-        &[
-            ("display", "grid"),
-            (
-                "grid-template-columns",
-                "repeat(auto-fill, minmax(340px, 1fr))",
-            ),
-            ("gap", "10px"),
-            ("align-items", "start"),
-        ],
+        "grid grid-cols-1 gap-4 xl:grid-cols-2 2xl:grid-cols-3",
     );
 
     let mut bench_row_states: Vec<Option<BenchRowState>> =
@@ -2071,17 +1776,7 @@ fn build_bench_rows(
 
     for cat in &categories {
         let header = div(document);
-        set(
-            &header,
-            &[
-                ("display", "flex"),
-                ("align-items", "center"),
-                ("gap", "6px"),
-                ("margin-bottom", "4px"),
-                ("margin-top", "2px"),
-                ("padding", "0 2px"),
-            ],
-        );
+        class(&header, "mb-3 flex items-center gap-3");
         let group_cb: HtmlInputElement = document
             .create_element("input")
             .unwrap()
@@ -2089,35 +1784,20 @@ fn build_bench_rows(
             .unwrap();
         group_cb.set_type("checkbox");
         group_cb.set_checked(true);
-        set_prop(&group_cb, "accent-color", "#89b4fa");
-        set_prop(&group_cb, "width", "14px");
-        set_prop(&group_cb, "height", "14px");
-        set_prop(&group_cb, "cursor", "pointer");
+        class(&group_cb, "h-4 w-4 cursor-pointer accent-cyan-300");
         header.append_child(&group_cb).unwrap();
         let cat_label = div(document);
         cat_label.set_text_content(Some(cat));
-        set(
+        class(
             &cat_label,
-            &[
-                ("color", "#9399b2"),
-                ("font-size", "11px"),
-                ("text-transform", "uppercase"),
-                ("letter-spacing", "1.5px"),
-                ("font-weight", "600"),
-                ("cursor", "pointer"),
-                ("user-select", "none"),
-            ],
+            "cursor-pointer text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500 select-none",
         );
         header.append_child(&cat_label).unwrap();
 
         let cat_block = div(document);
-        set(
+        class(
             &cat_block,
-            &[
-                ("display", "flex"),
-                ("flex-direction", "column"),
-                ("gap", "4px"),
-            ],
+            "rounded-[2rem] border border-slate-200 bg-white/84 p-4 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.18)] backdrop-blur-xl",
         );
         cat_block.append_child(&header).unwrap();
 
@@ -2207,18 +1887,9 @@ fn build_single_bench_row(
     cat_block: &HtmlElement,
 ) -> BenchRowState {
     let row = div(document);
-    set(
+    class(
         &row,
-        &[
-            ("background", "#1e1e2e"),
-            ("border", "1px solid #313244"),
-            ("border-radius", "6px"),
-            ("padding", "6px 10px"),
-            ("display", "flex"),
-            ("align-items", "center"),
-            ("gap", "8px"),
-            ("transition", "border-color 0.3s, background 0.3s"),
-        ],
+        "mb-2 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 transition hover:border-cyan-300 hover:bg-cyan-50/40",
     );
     if !supported {
         row.style().set_property("display", "none").unwrap();
@@ -2232,11 +1903,7 @@ fn build_single_bench_row(
     cb.set_type("checkbox");
     cb.set_checked(supported);
     cb.set_disabled(!supported);
-    set_prop(&cb, "accent-color", "#89b4fa");
-    set_prop(&cb, "width", "14px");
-    set_prop(&cb, "height", "14px");
-    set_prop(&cb, "cursor", "pointer");
-    set_prop(&cb, "flex-shrink", "0");
+    class(&cb, "h-4 w-4 shrink-0 cursor-pointer accent-cyan-300");
     {
         let stop = Closure::wrap(Box::new(move |e: web_sys::Event| {
             e.stop_propagation();
@@ -2248,65 +1915,34 @@ fn build_single_bench_row(
     row.append_child(&cb).unwrap();
 
     let dot = div(document);
-    set(
+    class(
         &dot,
-        &[
-            ("width", "6px"),
-            ("height", "6px"),
-            ("border-radius", "50%"),
-            ("background", "#45475a"),
-            ("flex-shrink", "0"),
-            ("transition", "background 0.3s"),
-        ],
+        "h-2.5 w-2.5 shrink-0 rounded-full bg-slate-400 transition",
     );
     row.append_child(&dot).unwrap();
 
     let info = div(document);
-    set(&info, &[("flex", "1"), ("min-width", "0")]);
+    class(&info, "min-w-0 flex-1");
 
     let name_el = div(document);
     name_el.set_text_content(Some(&format_bench_title(def.name, def.scale, 18)));
-    set(
-        &name_el,
-        &[
-            ("font-weight", "600"),
-            ("font-size", "12px"),
-            ("color", "#cdd6f4"),
-        ],
-    );
+    class(&name_el, "truncate text-sm font-semibold text-slate-900");
     info.append_child(&name_el).unwrap();
 
     let result_line = div(document);
-    set(
-        &result_line,
-        &[
-            ("display", "none"),
-            ("align-items", "center"),
-            ("gap", "6px"),
-            ("margin-top", "1px"),
-        ],
-    );
+    class(&result_line, "mt-1 hidden items-center gap-2");
 
     let result_text = div(document);
-    set(
+    class(
         &result_text,
-        &[
-            ("color", "#a6e3a1"),
-            ("font-size", "11px"),
-            ("white-space", "nowrap"),
-        ],
+        "whitespace-nowrap text-xs font-medium text-emerald-700",
     );
     result_line.append_child(&result_text).unwrap();
 
     let delta_text = div(document);
-    set(
+    class(
         &delta_text,
-        &[
-            ("font-size", "11px"),
-            ("white-space", "nowrap"),
-            ("display", "none"),
-            ("font-weight", "600"),
-        ],
+        "hidden whitespace-nowrap text-xs font-semibold",
     );
     result_line.append_child(&delta_text).unwrap();
 
@@ -2315,21 +1951,13 @@ fn build_single_bench_row(
 
     // Info button with custom tooltip
     let info_wrapper = div(document);
-    set(
-        &info_wrapper,
-        &[("position", "relative"), ("flex-shrink", "0")],
-    );
+    class(&info_wrapper, "relative shrink-0");
 
     let info_btn = div(document);
     info_btn.set_text_content(Some("ⓘ"));
-    set(
+    class(
         &info_btn,
-        &[
-            ("color", "#585b70"),
-            ("font-size", "13px"),
-            ("cursor", "help"),
-            ("user-select", "none"),
-        ],
+        "cursor-help text-sm text-slate-400 select-none transition hover:text-slate-700",
     );
     info_wrapper.append_child(&info_btn).unwrap();
 
@@ -2339,25 +1967,9 @@ fn build_single_bench_row(
         def.description
     );
     tooltip.set_text_content(Some(&full_desc));
-    set(
+    class(
         &tooltip,
-        &[
-            ("display", "none"),
-            ("position", "absolute"),
-            ("right", "0"),
-            ("bottom", "100%"),
-            ("margin-bottom", "6px"),
-            ("background", "#313244"),
-            ("color", "#bac2de"),
-            ("font-size", "11px"),
-            ("padding", "6px 10px"),
-            ("border-radius", "6px"),
-            ("white-space", "normal"),
-            ("width", "200px"),
-            ("z-index", "100"),
-            ("pointer-events", "none"),
-            ("box-shadow", "0 2px 8px rgba(0,0,0,0.4)"),
-        ],
+        "pointer-events-none absolute bottom-full right-0 z-50 mb-2 hidden w-56 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-600 shadow-2xl",
     );
     info_wrapper.append_child(&tooltip).unwrap();
 
@@ -2388,7 +2000,10 @@ fn build_single_bench_row(
     {
         let sd = screenshot_data.clone();
         let img = screenshot_img_rc.clone();
-        set(&row, &[("cursor", "pointer")]);
+        class(
+            &row,
+            "mb-2 flex cursor-pointer items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 transition hover:border-cyan-300 hover:bg-cyan-50/40",
+        );
         let handler = Closure::wrap(Box::new(move || {
             let url = sd.borrow();
             if !url.is_empty() {
@@ -2530,45 +2145,25 @@ fn build_lightbox(
 // ── Tab styling ──────────────────────────────────────────────────────────────
 
 fn style_tab(el: &HtmlElement, active: bool) {
-    set(
+    class(
         el,
-        &[
-            ("padding", "8px 16px"),
-            ("cursor", "pointer"),
-            ("user-select", "none"),
-            ("font-size", "13px"),
-            ("border-radius", "6px 6px 0 0"),
-            ("transition", "color 0.15s, border-color 0.15s"),
-            ("border-bottom", "2px solid"),
-        ],
+        if active {
+            "shrink-0 cursor-pointer border-b-2 border-cyan-500 px-1 py-2 text-sm font-semibold text-cyan-700 transition"
+        } else {
+            "shrink-0 cursor-pointer border-b-2 border-transparent px-1 py-2 text-sm font-medium text-slate-500 transition hover:text-slate-900"
+        },
     );
-    if active {
-        el.style().set_property("color", "#89b4fa").unwrap();
-        el.style().set_property("border-color", "#89b4fa").unwrap();
-    } else {
-        el.style().set_property("color", "#6c7086").unwrap();
-        el.style()
-            .set_property("border-color", "transparent")
-            .unwrap();
-    }
 }
 
 // ── Number input helper ──────────────────────────────────────────────────────
 
 fn num_input(document: &Document, label: &str, default: &str) -> (HtmlElement, HtmlInputElement) {
     let wrapper = div(document);
-    set(
-        &wrapper,
-        &[
-            ("display", "flex"),
-            ("align-items", "center"),
-            ("gap", "6px"),
-        ],
-    );
+    class(&wrapper, "mb-2 flex items-center gap-3");
 
     let lbl = div(document);
     lbl.set_text_content(Some(label));
-    set(&lbl, &[("color", "#9399b2"), ("font-size", "12px")]);
+    class(&lbl, "text-sm text-slate-600");
     wrapper.append_child(&lbl).unwrap();
 
     let input: HtmlInputElement = document
@@ -2578,19 +2173,15 @@ fn num_input(document: &Document, label: &str, default: &str) -> (HtmlElement, H
         .unwrap();
     input.set_type("number");
     input.set_value(default);
-    set_prop(&input, "width", "70px");
-    set_prop(&input, "background", "#1e1e2e");
-    set_prop(&input, "color", "#cdd6f4");
-    set_prop(&input, "border", "1px solid #45475a");
-    set_prop(&input, "border-radius", "6px");
-    set_prop(&input, "padding", "4px 8px");
-    set_prop(&input, "font-family", "inherit");
-    set_prop(&input, "font-size", "12px");
+    class(
+        &input,
+        "w-20 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-200/70",
+    );
     wrapper.append_child(&input).unwrap();
 
     let ms = div(document);
     ms.set_text_content(Some("ms"));
-    set(&ms, &[("color", "#6c7086"), ("font-size", "11px")]);
+    class(&ms, "text-xs text-slate-500");
     wrapper.append_child(&ms).unwrap();
 
     (wrapper, input)
@@ -2604,40 +2195,19 @@ fn slider_input(
     max: &str,
 ) -> (HtmlElement, HtmlInputElement, HtmlElement) {
     let wrapper = div(document);
-    set(
-        &wrapper,
-        &[
-            ("display", "flex"),
-            ("flex-direction", "column"),
-            ("gap", "4px"),
-        ],
-    );
+    class(&wrapper, "mb-2 flex flex-col gap-2");
 
     let header = div(document);
-    set(
-        &header,
-        &[
-            ("display", "flex"),
-            ("justify-content", "space-between"),
-            ("gap", "8px"),
-        ],
-    );
+    class(&header, "flex items-center justify-between gap-3");
 
     let lbl = div(document);
     lbl.set_text_content(Some(label));
-    set(&lbl, &[("color", "#9399b2"), ("font-size", "12px")]);
+    class(&lbl, "text-sm text-slate-600");
     header.append_child(&lbl).unwrap();
 
     let value = div(document);
     value.set_text_content(Some(default));
-    set(
-        &value,
-        &[
-            ("color", "#cdd6f4"),
-            ("font-size", "12px"),
-            ("font-weight", "600"),
-        ],
-    );
+    class(&value, "text-sm font-semibold text-slate-900");
     header.append_child(&value).unwrap();
 
     wrapper.append_child(&header).unwrap();
@@ -2652,9 +2222,7 @@ fn slider_input(
     input.set_max(max);
     input.set_step("1");
     input.set_value(default);
-    set_prop(&input, "width", "100%");
-    set_prop(&input, "accent-color", "#89b4fa");
-    set_prop(&input, "margin", "0");
+    class(&input, "m-0 w-full accent-cyan-500");
     wrapper.append_child(&input).unwrap();
 
     {
@@ -2680,14 +2248,11 @@ fn sized_num_input(document: &Document, default: &str, width: &str) -> HtmlInput
         .unwrap();
     input.set_type("number");
     input.set_value(default);
+    class(
+        &input,
+        "rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-200/70",
+    );
     set_prop(&input, "width", width);
-    set_prop(&input, "background", "#1e1e2e");
-    set_prop(&input, "color", "#cdd6f4");
-    set_prop(&input, "border", "1px solid #45475a");
-    set_prop(&input, "border-radius", "6px");
-    set_prop(&input, "padding", "4px 8px");
-    set_prop(&input, "font-family", "inherit");
-    set_prop(&input, "font-size", "12px");
     input
 }
 
@@ -2712,31 +2277,18 @@ fn build_controls(
 
     for p in params {
         let row = div(document);
-        set(&row, &[("margin-bottom", "12px")]);
+        class(&row, "mb-3 border-b border-slate-200/80 pb-3");
 
         let label = div(document);
         label.set_text_content(Some(p.label));
-        set(
+        class(
             &label,
-            &[
-                ("color", "#9399b2"),
-                ("margin-bottom", "4px"),
-                ("font-size", "11px"),
-                ("text-transform", "uppercase"),
-                ("letter-spacing", "1px"),
-            ],
+            "mb-2 text-[0.65rem] font-semibold uppercase tracking-[0.32em] text-slate-500",
         );
         row.append_child(&label).unwrap();
 
         let val_span = div(document);
-        set(
-            &val_span,
-            &[
-                ("display", "inline"),
-                ("margin-left", "8px"),
-                ("color", "#cdd6f4"),
-            ],
-        );
+        class(&val_span, "ml-2 inline text-slate-900");
 
         let ctrl = match &p.kind {
             ParamKind::Slider {
@@ -2754,58 +2306,18 @@ fn build_controls(
                 row.append_child(&input).unwrap();
 
                 let stepper = div(document);
-                set(
-                    &stepper,
-                    &[
-                        ("display", "flex"),
-                        ("align-items", "center"),
-                        ("gap", "8px"),
-                    ],
-                );
+                class(&stepper, "flex items-center gap-2");
 
-                let button_style = [
-                    ("width", "32px"),
-                    ("height", "28px"),
-                    ("display", "flex"),
-                    ("align-items", "center"),
-                    ("justify-content", "center"),
-                    ("border", "1px solid #45475a"),
-                    ("border-radius", "6px"),
-                    ("background", "#1e1e2e"),
-                    ("color", "#cdd6f4"),
-                    ("cursor", "pointer"),
-                    ("user-select", "none"),
-                    ("font-size", "16px"),
-                    ("line-height", "1"),
-                    ("flex-shrink", "0"),
-                ];
+                let button_class = "flex h-8 w-8 shrink-0 items-center justify-center border border-slate-300 bg-white text-base leading-none text-slate-800 transition hover:border-cyan-400 hover:bg-cyan-50";
 
                 let minus = div(document);
                 minus.set_text_content(Some("-"));
-                set(&minus, &button_style);
+                class(&minus, button_class);
                 stepper.append_child(&minus).unwrap();
 
-                set(
+                class(
                     &val_span,
-                    &[
-                        ("display", "flex"),
-                        ("flex", "1"),
-                        ("align-items", "center"),
-                        ("justify-content", "center"),
-                        ("min-height", "28px"),
-                        ("margin-left", "0"),
-                        ("padding", "0 8px"),
-                        ("border", "1px solid #313244"),
-                        ("border-radius", "6px"),
-                        ("background", "#181825"),
-                        ("color", "#cdd6f4"),
-                        ("font-family", "'JetBrains Mono', monospace"),
-                        ("font-size", "12px"),
-                        ("cursor", "text"),
-                        ("outline", "none"),
-                        ("white-space", "nowrap"),
-                        ("overflow", "hidden"),
-                    ],
+                    "flex min-h-8 flex-1 items-center justify-center overflow-hidden border border-slate-300 bg-white px-2 text-sm font-medium text-slate-900 outline-none",
                 );
                 val_span.set_attribute("contenteditable", "true").unwrap();
                 val_span.set_attribute("spellcheck", "false").unwrap();
@@ -2815,7 +2327,7 @@ fn build_controls(
 
                 let plus = div(document);
                 plus.set_text_content(Some("+"));
-                set(&plus, &button_style);
+                class(&plus, button_class);
                 stepper.append_child(&plus).unwrap();
                 row.append_child(&stepper).unwrap();
 
@@ -2890,6 +2402,10 @@ fn build_controls(
                     .dyn_into()
                     .unwrap();
                 select_style(&sel);
+                class(
+                    &sel,
+                    "w-full border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-800 outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-200/70",
+                );
                 for &(text, val) in options {
                     let opt = document.create_element("option").unwrap();
                     opt.set_text_content(Some(text));
