@@ -6,13 +6,20 @@
 fn main() {
     #[cfg(target_arch = "wasm32")]
     {
-        // In worker mode (set by worker.html), bench_worker_init() handles
-        // everything -- skip the normal UI startup.
+        // In worker/child modes, dedicated entry points handle everything --
+        // skip the normal UI startup.
         let is_worker = js_sys::Reflect::get(&js_sys::global(), &"__vello_worker".into())
             .ok()
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        let is_ab_child = js_sys::Reflect::get(&js_sys::global(), &"__vello_ab_child".into())
+            .ok()
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         if is_worker {
+            return;
+        }
+        if is_ab_child {
             return;
         }
 

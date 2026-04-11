@@ -51,12 +51,29 @@ fn current_ab_variant() -> Option<String> {
         .and_then(|v| v.as_string())
 }
 
+fn ab_mode_enabled() -> bool {
+    js_sys::Reflect::get(&js_sys::global(), &"__vello_ab_mode".into())
+        .ok()
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
 fn other_ab_variant(variant: &str) -> &'static str {
     if variant == "control" {
         "treatment"
     } else {
         "control"
     }
+}
+
+fn extract_ms(text: &str) -> Option<f64> {
+    if let Some(ms_str) = text.split(" ms/f").next()
+        && let Ok(ms) = ms_str.trim().parse::<f64>()
+    {
+        return Some(ms);
+    }
+    text.split_whitespace()
+        .find_map(|token| token.parse::<f64>().ok())
 }
 
 fn format_val(v: f64, step: f64) -> String {
@@ -148,6 +165,7 @@ struct BenchRowState {
     row: HtmlElement,
     status_dot: HtmlElement,
     name_el: HtmlElement,
+    aux_text: HtmlElement,
     result_text: HtmlElement,
     result_line: HtmlElement,
     delta_text: HtmlElement,
@@ -189,6 +207,8 @@ pub struct Ui {
     preset_value_label: HtmlElement,
     /// Start button.
     pub start_btn: HtmlElement,
+    pub ab_start_btn: Option<HtmlElement>,
+    ab_status: Option<HtmlElement>,
     /// Per-benchmark-row DOM state (in order of `bench_defs`).
     bench_rows: Vec<BenchRowState>,
     bench_rows_container: HtmlElement,
@@ -210,6 +230,7 @@ pub struct Ui {
 
     /// Currently loaded comparison report (if any).
     compare_report: Option<BenchReport>,
+    ab_mode: bool,
 
     /// Current mode.
     pub mode: AppMode,
@@ -246,6 +267,7 @@ impl Ui {
             .expect("app-overlay should exist in index.html");
 
         let dirty = Rc::new(Cell::new(false));
+        let ab_mode = ab_mode_enabled();
 
         let (top_bar, sidebar_toggle_btn, tab_interactive, tab_benchmark, renderer_select) =
             build_top_bar(document, crate::backend::current_backend_kind());
@@ -274,7 +296,7 @@ impl Ui {
             "mx-auto flex max-w-[1600px] flex-col gap-4 lg:flex-row lg:items-start lg:gap-6",
         );
 
-        let cfg = build_bench_config(document, vp_w, vp_h);
+        let cfg = build_bench_config(document, vp_w, vp_h, ab_mode);
         bench_layout.append_child(&cfg.wrapper).unwrap();
 
         let rows = build_bench_rows(document, bench_defs, scenes, capabilities, &dirty);
@@ -303,6 +325,8 @@ impl Ui {
             preset_input: cfg.preset_input,
             preset_value_label: cfg.preset_value_label,
             start_btn: cfg.start_btn,
+            ab_start_btn: cfg.ab_start_btn,
+            ab_status: cfg.ab_status,
             bench_rows: rows.bench_rows,
             bench_rows_container: rows.container.clone(),
             vp_width_input: cfg.vp_width_input,
@@ -313,6 +337,7 @@ impl Ui {
             compare_select: cfg.compare_select,
             delete_btn: cfg.delete_btn,
             compare_report: None,
+            ab_mode,
             mode: AppMode::Benchmark,
             dirty,
         };
@@ -556,6 +581,27 @@ impl Ui {
         &self.start_btn
     }
 
+    pub fn ab_start_btn(&self) -> Option<&HtmlElement> {
+        self.ab_start_btn.as_ref()
+    }
+
+    pub fn set_ab_ready(&self, ready: bool) {
+        if let Some(btn) = &self.ab_start_btn {
+            btn.style()
+                .set_property("opacity", if ready { "1" } else { "0.4" })
+                .unwrap();
+            btn.style()
+                .set_property("pointer-events", if ready { "auto" } else { "none" })
+                .unwrap();
+        }
+    }
+
+    pub fn set_ab_status(&self, text: &str) {
+        if let Some(status) = &self.ab_status {
+            status.set_text_content(Some(text));
+        }
+    }
+
     pub fn preset_input(&self) -> &HtmlInputElement {
         &self.preset_input
     }
@@ -581,6 +627,7 @@ impl Ui {
                 .set_property("display", "none")
                 .unwrap();
             r.result_text.set_text_content(Some(""));
+            r.aux_text.set_text_content(Some(""));
             if selected.contains(&i) {
                 r.status_dot
                     .style()
@@ -608,6 +655,7 @@ impl Ui {
             .style()
             .set_property("pointer-events", "none")
             .unwrap();
+        self.set_ab_ready(false);
     }
 
     /// Mark a bench as currently running — prominent red-tinted card.
@@ -646,6 +694,7 @@ impl Ui {
             "{:.2} ms/f  ({} iters)",
             r.ms_per_frame, r.iterations
         )));
+        br.aux_text.set_text_content(Some(""));
         br.result_line
             .style()
             .set_property("display", "flex")
@@ -668,9 +717,13 @@ impl Ui {
             .set_property("pointer-events", "auto")
             .unwrap();
 
-        // In A/B mode, auto-save results for this variant and load the other
-        // variant's results as comparison baseline (if available).
-        if let Some(variant) = current_ab_variant() {
+        self.set_ab_ready(true);
+
+        // Standalone variant pages still auto-save snapshots. The integrated
+        // dashboard A/B mode manages its own comparison display directly.
+        if !self.ab_mode
+            && let Some(variant) = current_ab_variant()
+        {
             let report = self.collect_current_results(&variant);
             if !report.results.is_empty() {
                 crate::storage::save_ab_snapshot(&variant, &report);
@@ -684,6 +737,69 @@ impl Ui {
         self.show_deltas();
     }
 
+    pub(crate) fn bench_set_ab_control_done(&self, idx: usize, r: &BenchResult) {
+        let br = &self.bench_rows[idx];
+        br.row
+            .style()
+            .set_property("border-color", "#67e8f9")
+            .unwrap();
+        br.row
+            .style()
+            .set_property("background", "#1e1e2e")
+            .unwrap();
+        br.status_dot
+            .style()
+            .set_property("background", "#67e8f9")
+            .unwrap();
+        br.result_line
+            .style()
+            .set_property("display", "flex")
+            .unwrap();
+        br.result_text
+            .set_text_content(Some(&format!("Control {:.2} ms/f", r.ms_per_frame)));
+        br.aux_text.set_text_content(Some(""));
+        br.delta_text
+            .style()
+            .set_property("display", "none")
+            .unwrap();
+    }
+
+    pub(crate) fn bench_set_ab_done(
+        &self,
+        idx: usize,
+        control: &BenchResult,
+        treatment: &BenchResult,
+    ) {
+        let br = &self.bench_rows[idx];
+        br.row
+            .style()
+            .set_property("border-color", "#313244")
+            .unwrap();
+        br.row
+            .style()
+            .set_property("background", "#1e1e2e")
+            .unwrap();
+        br.status_dot
+            .style()
+            .set_property("background", "#a6e3a1")
+            .unwrap();
+        br.result_line
+            .style()
+            .set_property("display", "flex")
+            .unwrap();
+        br.result_text
+            .set_text_content(Some(&format!("Control {:.2} ms/f", control.ms_per_frame)));
+        br.aux_text.set_text_content(Some(&format!(
+            "Treatment {:.2} ms/f",
+            treatment.ms_per_frame
+        )));
+        format_delta(
+            &br.delta_text,
+            Some(treatment.ms_per_frame),
+            Some(control.ms_per_frame),
+        );
+    }
+
     /// Collect current on-screen benchmark results into a `BenchReport`.
     fn collect_current_results(&self, label: &str) -> BenchReport {
         let vp_w: u32 = self.vp_width_input.value().parse().unwrap_or(0);
@@ -694,9 +810,7 @@ impl Ui {
             if text.is_empty() {
                 continue;
             }
-            if let Some(ms_str) = text.split(" ms/f").next()
-                && let Ok(ms) = ms_str.trim().parse::<f64>()
-            {
+            if let Some(ms) = extract_ms(&text) {
                 let iters = text
                     .split('(')
                     .nth(1)
@@ -758,9 +872,7 @@ impl Ui {
                 continue;
             }
             // Parse "X.XX ms/f  (N iters)"
-            if let Some(ms_str) = text.split(" ms/f").next()
-                && let Ok(ms) = ms_str.trim().parse::<f64>()
-            {
+            if let Some(ms) = extract_ms(&text) {
                 let iters = text
                     .split('(')
                     .nth(1)
@@ -844,12 +956,14 @@ impl Ui {
                     saved.ms_per_frame, saved.iterations
                 );
                 br.result_text.set_text_content(Some(&text));
+                br.aux_text.set_text_content(Some(""));
                 br.result_line
                     .style()
                     .set_property("display", "flex")
                     .unwrap();
             } else {
                 br.result_text.set_text_content(Some(""));
+                br.aux_text.set_text_content(Some(""));
                 br.result_line
                     .style()
                     .set_property("display", "none")
@@ -902,13 +1016,7 @@ impl Ui {
             return;
         };
         for br in &self.bench_rows {
-            let cur_ms = br
-                .result_text
-                .text_content()
-                .unwrap_or_default()
-                .split(" ms/f")
-                .next()
-                .and_then(|s| s.trim().parse::<f64>().ok());
+            let cur_ms = extract_ms(&br.result_text.text_content().unwrap_or_default());
             let base = report
                 .results
                 .iter()
@@ -1149,6 +1257,8 @@ struct BenchConfigParts {
     preset_input: HtmlInputElement,
     preset_value_label: HtmlElement,
     start_btn: HtmlElement,
+    ab_start_btn: Option<HtmlElement>,
+    ab_status: Option<HtmlElement>,
     vp_width_input: HtmlInputElement,
     vp_height_input: HtmlInputElement,
     save_name_input: HtmlInputElement,
@@ -1251,8 +1361,8 @@ fn build_top_bar(
         controls_group.append_child(&simd_btn).unwrap();
     }
 
-    let has_variant_toggle =
-        js_sys::Reflect::get(&js_sys::global(), &"__vello_toggle_variant".into())
+    let has_variant_toggle = !ab_mode_enabled()
+        && js_sys::Reflect::get(&js_sys::global(), &"__vello_toggle_variant".into())
             .ok()
             .map_or(false, |v| v.is_function());
     if has_variant_toggle {
@@ -1475,7 +1585,12 @@ fn build_timing_overlay(document: &Document) -> (HtmlElement, HtmlElement, HtmlE
     (timing_wrap, top_timing_label, top_timing_popup)
 }
 
-fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigParts {
+fn build_bench_config(
+    document: &Document,
+    vp_w: u32,
+    vp_h: u32,
+    ab_mode: bool,
+) -> BenchConfigParts {
     let wrapper = div(document);
     class(&wrapper, "w-full shrink-0 lg:w-[21rem]");
 
@@ -1545,6 +1660,24 @@ fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigP
         "mb-3 border border-cyan-300/30 bg-cyan-300/10 px-4 py-2 text-center text-sm font-semibold text-cyan-200 transition hover:bg-cyan-300/15",
     );
     left_col.append_child(&start_btn).unwrap();
+
+    let (ab_start_btn, ab_status) = if ab_mode {
+        let btn = div(document);
+        btn.set_text_content(Some("Run A/B"));
+        class(
+            &btn,
+            "mb-2 border border-amber-300/30 bg-amber-300/10 px-4 py-2 text-center text-sm font-semibold text-amber-200 transition hover:bg-amber-300/15",
+        );
+        left_col.append_child(&btn).unwrap();
+
+        let status = div(document);
+        status.set_text_content(Some("Loading A/B runner…"));
+        class(&status, "mb-3 text-xs leading-5 text-slate-400");
+        left_col.append_child(&status).unwrap();
+        (Some(btn), Some(status))
+    } else {
+        (None, None)
+    };
 
     let sep = div(document);
     class(&sep, "mb-4 border-t border-slate-200");
@@ -1647,6 +1780,8 @@ fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigP
         preset_input: preset_input.1,
         preset_value_label: preset_input.2,
         start_btn,
+        ab_start_btn,
+        ab_status,
         vp_width_input,
         vp_height_input,
         save_name_input,
@@ -1946,6 +2081,10 @@ fn build_single_bench_row(
     );
     result_line.append_child(&result_text).unwrap();
 
+    let aux_text = div(document);
+    class(&aux_text, "whitespace-nowrap font-semibold text-cyan-300");
+    result_line.append_child(&aux_text).unwrap();
+
     let delta_text = div(document);
     class(&delta_text, "hidden whitespace-nowrap font-semibold");
     result_line.append_child(&delta_text).unwrap();
@@ -2010,6 +2149,7 @@ fn build_single_bench_row(
         row,
         status_dot: dot,
         name_el,
+        aux_text,
         result_text,
         result_line,
         delta_text,

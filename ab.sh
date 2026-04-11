@@ -149,12 +149,12 @@ trap - EXIT
 
 # ── Copy HTML pages ───────────────────────────────────────────────────────────
 
-# Orchestrator page (interleaved A/B) becomes the landing page.
-cp web/ab.html "$DIST/index.html"
+# Main dashboard becomes the landing page in A/B mode as well.
+cp web/index.html "$DIST/index.html"
 
-# Worker pages loaded by the orchestrator's iframes.
-cp web/worker.html "$DIST/control/worker.html"
-cp web/worker.html "$DIST/treatment/worker.html"
+# Child runner pages loaded by the integrated A/B harness.
+cp web/ab_child.html "$DIST/control/ab_child.html"
+cp web/ab_child.html "$DIST/treatment/ab_child.html"
 
 # Also copy the original index.html into each variant for standalone use.
 cp web/index.html "$DIST/control/index.html"

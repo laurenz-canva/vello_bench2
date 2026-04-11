@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>vello bench child</title>
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #020617;
+    }
+  </style>
+</head>
+<body>
+  <script type="module">
+    window.__vello_ab_child = true;
+    window.__vello_variant = location.pathname.includes("/treatment/") ? "treatment" : "control";
+    const { default: init, ab_child_init } = await import("./vello_bench2.js");
+    await init();
+    ab_child_init();
+  </script>
+</body>
+</html>

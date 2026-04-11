@@ -72,6 +72,7 @@
       class="fixed inset-x-0 top-16 bottom-0 overflow-hidden border-t border-white/10 bg-slate-950 lg:top-20"
     >
       <div id="benchmark-canvas-host" class="absolute inset-0 overflow-hidden"></div>
+      <div id="ab-frame-host" class="absolute inset-0 hidden overflow-hidden"></div>
     </div>
 
     <div id="app-overlay" class="pointer-events-none relative z-20 min-h-screen"></div>
@@ -90,11 +91,12 @@
       abMode = probe.ok;
     } catch (_) {}
 
-    let variant = localStorage.getItem("vello_bench_variant") || "control";
-    if (variant !== "control" && variant !== "treatment") variant = "control";
+    const query = new URLSearchParams(location.search);
+    const abChild = query.get("ab_child") === "1";
+    const variant = location.pathname.includes("/treatment/") ? "treatment" : "control";
 
     const mod_path = abMode
-      ? `./${variant}/vello_bench2.js`
+      ? (abChild ? "./vello_bench2.js" : "./control/vello_bench2.js")
       : `./${simdStr}/vello_bench2.js`;
 
     if (!abMode) {
@@ -106,12 +108,11 @@
     }
 
     if (abMode) {
-      window.__vello_variant = variant;
-      window.__vello_toggle_variant = () => {
-        const next = variant === "control" ? "treatment" : "control";
-        localStorage.setItem("vello_bench_variant", next);
-        location.reload();
-      };
+      window.__vello_ab_mode = !abChild;
+      if (abChild) {
+        window.__vello_ab_child = true;
+        window.__vello_variant = variant;
+      }
     }
 
     const { default: init } = await import(mod_path);

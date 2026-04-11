@@ -34,7 +34,7 @@ use scenes::{BenchScene, scene_index};
 use ui::{AppMode, Ui};
 use vello_common::kurbo::Affine;
 use wasm_bindgen::prelude::*;
-use web_sys::HtmlCanvasElement;
+use web_sys::{HtmlCanvasElement, HtmlIFrameElement};
 
 type RafClosure = Rc<RefCell<Option<Closure<dyn FnMut()>>>>;
 
@@ -56,6 +56,7 @@ struct AppState {
     fps_tracker: FpsTracker,
     ui: Ui,
     harness: BenchHarness,
+    ab_harness: Option<AbHarnessState>,
     bench_defs: Vec<BenchDef>,
     resources: ResourceStore,
     // View state (pan in physical pixels, zoom multiplier).
@@ -73,6 +74,58 @@ struct AppState {
     pinch_dist: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AbVariant {
+    Control,
+    Treatment,
+}
+
+#[derive(Debug)]
+struct AbHarnessState {
+    control_frame: HtmlIFrameElement,
+    treatment_frame: HtmlIFrameElement,
+    control_ready: bool,
+    treatment_ready: bool,
+    running: bool,
+    selected: Vec<usize>,
+    run_pos: usize,
+    pending_control: Option<harness::BenchResult>,
+}
+
+impl AbHarnessState {
+    fn new(control_frame: HtmlIFrameElement, treatment_frame: HtmlIFrameElement) -> Self {
+        Self {
+            control_frame,
+            treatment_frame,
+            control_ready: false,
+            treatment_ready: false,
+            running: false,
+            selected: Vec::new(),
+            run_pos: 0,
+            pending_control: None,
+        }
+    }
+
+    fn is_ready(&self) -> bool {
+        self.control_ready && self.treatment_ready
+    }
+}
+
+fn ab_mode_enabled() -> bool {
+    js_sys::Reflect::get(&js_sys::global(), &"__vello_ab_mode".into())
+        .ok()
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+fn parse_ab_variant(value: &str) -> Option<AbVariant> {
+    match value {
+        "control" => Some(AbVariant::Control),
+        "treatment" => Some(AbVariant::Treatment),
+        _ => None,
+    }
+}
+
 impl std::fmt::Debug for AppState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AppState")
@@ -84,6 +137,14 @@ impl std::fmt::Debug for AppState {
 }
 
 impl AppState {
+    fn benchmark_running(&self) -> bool {
+        self.harness.is_running()
+            || self
+                .ab_harness
+                .as_ref()
+                .is_some_and(|harness| harness.running)
+    }
+
     fn scene_params_for_ui(&self, scene_idx: usize) -> Vec<scenes::Param> {
         scenes::visible_params(self.scenes[scene_idx].as_ref(), self.backend_caps)
     }
@@ -295,6 +356,165 @@ impl AppState {
             }
         }
     }
+
+    fn start_ab_benchmark(&mut self) {
+        let ab_ready = self
+            .ab_harness
+            .as_ref()
+            .is_some_and(AbHarnessState::is_ready);
+        let ab_running = self.ab_harness.as_ref().is_some_and(|ab| ab.running);
+        if !ab_ready || ab_running {
+            return;
+        }
+        if self.ab_harness.is_none() {
+            return;
+        }
+
+        let selected = self.ui.selected_bench_indices();
+        if selected.is_empty() {
+            return;
+        }
+
+        let (vp_w, vp_h) = self.ui.configured_viewport();
+        if vp_w == 0 || vp_h == 0 {
+            return;
+        }
+
+        self.width = vp_w;
+        self.height = vp_h;
+
+        self.ui.bench_started(&selected);
+        self.ui.set_benchmark_presentation(true);
+        self.ui.set_ab_status("Running control…");
+        set_canvas_visibility(&self.canvas, false);
+        set_canvas_visibility(&self.benchmark_canvas, false);
+        self.show_ab_variant(Some(AbVariant::Control));
+
+        let ab = self.ab_harness.as_mut().unwrap();
+        ab.running = true;
+        ab.selected = selected;
+        ab.run_pos = 0;
+        ab.pending_control = None;
+
+        self.send_ab_bench(AbVariant::Control);
+    }
+
+    fn show_ab_variant(&self, active: Option<AbVariant>) {
+        let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+            return;
+        };
+        let host: web_sys::HtmlElement = document
+            .get_element_by_id("ab-frame-host")
+            .expect("ab-frame-host should exist in index.html")
+            .dyn_into()
+            .expect("ab-frame-host should be an HtmlElement");
+        host.style()
+            .set_property("display", if active.is_some() { "block" } else { "none" })
+            .unwrap();
+        if let Some(ab) = &self.ab_harness {
+            ab.control_frame
+                .style()
+                .set_property(
+                    "display",
+                    if active == Some(AbVariant::Control) {
+                        "block"
+                    } else {
+                        "none"
+                    },
+                )
+                .unwrap();
+            ab.treatment_frame
+                .style()
+                .set_property(
+                    "display",
+                    if active == Some(AbVariant::Treatment) {
+                        "block"
+                    } else {
+                        "none"
+                    },
+                )
+                .unwrap();
+        }
+    }
+
+    fn send_ab_bench(&self, variant: AbVariant) {
+        let Some(ab) = &self.ab_harness else {
+            return;
+        };
+        let idx = ab.selected[ab.run_pos];
+        let msg = js_sys::Object::new();
+        js_sys::Reflect::set(&msg, &"type".into(), &"run_bench".into()).unwrap();
+        js_sys::Reflect::set(&msg, &"idx".into(), &(idx as u32).into()).unwrap();
+        js_sys::Reflect::set(&msg, &"preset".into(), &self.ui.bench_preset().into()).unwrap();
+        js_sys::Reflect::set(&msg, &"width".into(), &self.width.into()).unwrap();
+        js_sys::Reflect::set(&msg, &"height".into(), &self.height.into()).unwrap();
+        js_sys::Reflect::set(
+            &msg,
+            &"backend".into(),
+            &self.backend.kind().as_str().into(),
+        )
+        .unwrap();
+        let target = match variant {
+            AbVariant::Control => &ab.control_frame,
+            AbVariant::Treatment => &ab.treatment_frame,
+        };
+        let _ = target.content_window().unwrap().post_message(&msg, "*");
+    }
+
+    fn handle_ab_ready(&mut self, variant: AbVariant) {
+        let Some(ab) = self.ab_harness.as_mut() else {
+            return;
+        };
+        match variant {
+            AbVariant::Control => ab.control_ready = true,
+            AbVariant::Treatment => ab.treatment_ready = true,
+        }
+        self.ui.set_ab_ready(ab.is_ready());
+        if ab.is_ready() {
+            self.ui.set_ab_status("A/B harness ready");
+        } else {
+            self.ui.set_ab_status("Loading A/B runner…");
+        }
+    }
+
+    fn handle_ab_bench_result(&mut self, variant: AbVariant, result: harness::BenchResult) {
+        let Some(ab) = self.ab_harness.as_mut() else {
+            return;
+        };
+        if !ab.running || ab.run_pos >= ab.selected.len() {
+            return;
+        }
+        let idx = ab.selected[ab.run_pos];
+        match variant {
+            AbVariant::Control => {
+                self.ui.bench_set_ab_control_done(idx, &result);
+                ab.pending_control = Some(result);
+                self.ui.set_ab_status("Running treatment…");
+                self.show_ab_variant(Some(AbVariant::Treatment));
+                self.send_ab_bench(AbVariant::Treatment);
+            }
+            AbVariant::Treatment => {
+                if let Some(control) = ab.pending_control.take() {
+                    self.ui.bench_set_ab_done(idx, &control, &result);
+                }
+                ab.run_pos += 1;
+                if ab.run_pos < ab.selected.len() {
+                    self.ui.set_ab_status("Running control…");
+                    self.show_ab_variant(Some(AbVariant::Control));
+                    self.send_ab_bench(AbVariant::Control);
+                } else {
+                    ab.running = false;
+                    self.ui.bench_all_done();
+                    self.ui.set_ab_status("A/B run complete");
+                    self.ui.set_benchmark_presentation(false);
+                    self.show_ab_variant(None);
+                    if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                        set_stage_shell_presentation(&document, false);
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn set_canvas_visibility(canvas: &HtmlCanvasElement, visible: bool) {
@@ -440,6 +660,42 @@ pub async fn run() {
         .append_child(&benchmark_canvas)
         .unwrap();
 
+    let ab_harness = if ab_mode_enabled() {
+        let frame_host: web_sys::HtmlElement = document
+            .get_element_by_id("ab-frame-host")
+            .expect("ab-frame-host should exist in index.html")
+            .dyn_into()
+            .expect("ab-frame-host should be an HtmlElement");
+
+        let make_frame = |src: &str| -> HtmlIFrameElement {
+            let frame: HtmlIFrameElement = document
+                .create_element("iframe")
+                .unwrap()
+                .dyn_into()
+                .unwrap();
+            frame.set_src(src);
+            frame
+                .set_attribute("allow", "cross-origin-isolated")
+                .unwrap();
+            let style = frame.style();
+            style.set_property("position", "absolute").unwrap();
+            style.set_property("inset", "0").unwrap();
+            style.set_property("width", "100%").unwrap();
+            style.set_property("height", "100%").unwrap();
+            style.set_property("border", "0").unwrap();
+            style.set_property("display", "none").unwrap();
+            frame
+        };
+
+        let control_frame = make_frame("control/ab_child.html");
+        let treatment_frame = make_frame("treatment/ab_child.html");
+        frame_host.append_child(&control_frame).unwrap();
+        frame_host.append_child(&treatment_frame).unwrap();
+        Some(AbHarnessState::new(control_frame, treatment_frame))
+    } else {
+        None
+    };
+
     let bench_scenes = scenes::all_scenes();
     let defs = bench_defs();
     let backend_kind = current_backend_kind();
@@ -487,6 +743,7 @@ pub async fn run() {
         fps_tracker: FpsTracker::new(now),
         ui,
         harness: BenchHarness::new(),
+        ab_harness,
         bench_defs: defs,
         resources: ResourceStore::new(),
         pan_x: 0.0,
@@ -505,6 +762,8 @@ pub async fn run() {
         let mut st = state.borrow_mut();
         st.ui.set_mode(initial_mode);
         st.ui.set_benchmark_presentation(false);
+        st.ui
+            .set_ab_ready(st.ab_harness.as_ref().is_some_and(AbHarnessState::is_ready));
         st.ui.apply_saved_benches(&saved_state);
         st.ui.apply_saved_bench_preset(&saved_state);
         st.ui.apply_saved_params(&saved_state);
@@ -539,7 +798,7 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         let s = state.clone();
         let cb = Closure::wrap(Box::new(move || {
             let mut st = s.borrow_mut();
-            if st.harness.is_running() {
+            if st.benchmark_running() {
                 return;
             }
             let now = web_sys::window().unwrap().performance().unwrap().now();
@@ -559,7 +818,7 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         let s = state.clone();
         let cb = Closure::wrap(Box::new(move || {
             let mut st = s.borrow_mut();
-            if st.harness.is_running() {
+            if st.benchmark_running() {
                 return;
             }
             let now = web_sys::window().unwrap().performance().unwrap().now();
@@ -583,7 +842,7 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         let btn = state.borrow().ui.start_btn().clone();
         let cb = Closure::wrap(Box::new(move || {
             let mut st = s.borrow_mut();
-            if st.harness.is_running() {
+            if st.benchmark_running() {
                 return;
             }
             let selected = st.ui.selected_bench_indices();
@@ -610,6 +869,23 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
             let (w, h) = (st.width, st.height);
             let canvas = st.benchmark_canvas.clone();
             st.harness.start(selected, w, h, &canvas);
+        }) as Box<dyn FnMut()>);
+        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
+
+    // Start A/B benchmarks
+    if let Some(btn) = state.borrow().ui.ab_start_btn().cloned() {
+        let s = state.clone();
+        let cb = Closure::wrap(Box::new(move || {
+            let mut st = s.borrow_mut();
+            if st.benchmark_running() {
+                return;
+            }
+            let document = web_sys::window().unwrap().document().unwrap();
+            set_stage_shell_presentation(&document, true);
+            st.start_ab_benchmark();
         }) as Box<dyn FnMut()>);
         btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
             .unwrap();
@@ -695,7 +971,7 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         let select_for_cb = select.clone();
         let cb = Closure::wrap(Box::new(move || {
             let mut st = s.borrow_mut();
-            if st.harness.is_running() {
+            if st.benchmark_running() {
                 st.ui.set_renderer(st.backend.kind());
                 return;
             }
@@ -756,6 +1032,7 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
     wire_touch(state);
     wire_animation_loop(state);
     wire_resize(state);
+    wire_ab_messages(state);
 }
 
 /// Wire pan (mouse drag) and zoom (wheel/pinch) on the window.
@@ -1029,6 +1306,69 @@ fn wire_resize(state: &Rc<RefCell<AppState>>) {
     cb.forget();
 }
 
+fn wire_ab_messages(state: &Rc<RefCell<AppState>>) {
+    if !ab_mode_enabled() {
+        return;
+    }
+
+    let s = state.clone();
+    let cb = Closure::wrap(Box::new(move |event: web_sys::MessageEvent| {
+        let data = event.data();
+        let Some(obj) = data.dyn_ref::<js_sys::Object>() else {
+            return;
+        };
+        let msg_type = js_sys::Reflect::get(obj, &"type".into())
+            .ok()
+            .and_then(|v| v.as_string());
+        let variant = js_sys::Reflect::get(obj, &"variant".into())
+            .ok()
+            .and_then(|v| v.as_string())
+            .and_then(|s| parse_ab_variant(&s));
+        let Some(variant) = variant else {
+            return;
+        };
+
+        let mut st = s.borrow_mut();
+        match msg_type.as_deref() {
+            Some("ready") => st.handle_ab_ready(variant),
+            Some("bench_result") => {
+                let name = js_sys::Reflect::get(obj, &"name".into())
+                    .ok()
+                    .and_then(|v| v.as_string());
+                let ms_per_frame = js_sys::Reflect::get(obj, &"ms_per_frame".into())
+                    .ok()
+                    .and_then(|v| v.as_f64());
+                let iterations = js_sys::Reflect::get(obj, &"iterations".into())
+                    .ok()
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0) as usize;
+                let total_ms = js_sys::Reflect::get(obj, &"total_ms".into())
+                    .ok()
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let (Some(name), Some(ms_per_frame)) = (name, ms_per_frame) else {
+                    return;
+                };
+                st.handle_ab_bench_result(
+                    variant,
+                    harness::BenchResult {
+                        name: Box::leak(name.into_boxed_str()),
+                        ms_per_frame,
+                        iterations,
+                        total_ms,
+                    },
+                );
+            }
+            _ => {}
+        }
+    }) as Box<dyn FnMut(_)>);
+    web_sys::window()
+        .unwrap()
+        .add_event_listener_with_callback("message", cb.as_ref().unchecked_ref())
+        .unwrap();
+    cb.forget();
+}
+
 // ── Headless bench worker for interleaved A/B mode ──────────────────────────
 
 /// Headless worker entry point for interleaved A/B benchmarking.
@@ -1127,5 +1467,136 @@ pub fn bench_worker_init() {
     // Signal readiness to the parent orchestrator.
     let ready = js_sys::Object::new();
     js_sys::Reflect::set(&ready, &"type".into(), &"ready".into()).unwrap();
+    let _ = window.parent().unwrap().unwrap().post_message(&ready, "*");
+}
+
+#[derive(Debug)]
+struct AbChildState {
+    canvas: HtmlCanvasElement,
+    harness: BenchHarness,
+    defs: Vec<BenchDef>,
+}
+
+#[wasm_bindgen]
+pub fn ab_child_init() {
+    console_error_panic_hook::set_once();
+    let _ = console_log::init_with_level(log::Level::Warn);
+
+    let window = web_sys::window().unwrap();
+    let document = window.document().unwrap();
+    let body = document.body().unwrap();
+    body.set_class_name("m-0 overflow-hidden bg-slate-950");
+
+    let canvas = make_canvas(&document, 1, 1, AppMode::Benchmark);
+    let style = canvas.style();
+    style.set_property("position", "fixed").unwrap();
+    style.set_property("inset", "0").unwrap();
+    style.set_property("width", "100%").unwrap();
+    style.set_property("height", "100%").unwrap();
+    style.set_property("visibility", "visible").unwrap();
+    body.append_child(&canvas).unwrap();
+
+    let state = Rc::new(RefCell::new(AbChildState {
+        canvas: canvas.clone(),
+        harness: BenchHarness::new(),
+        defs: bench_defs(),
+    }));
+
+    {
+        let state = state.clone();
+        let cb = Closure::wrap(Box::new(move |event: web_sys::MessageEvent| {
+            let data = event.data();
+            let Some(obj) = data.dyn_ref::<js_sys::Object>() else {
+                return;
+            };
+            let msg_type = js_sys::Reflect::get(obj, &"type".into())
+                .ok()
+                .and_then(|v| v.as_string());
+            if msg_type.as_deref() != Some("run_bench") {
+                return;
+            }
+
+            let get_f64 = |key: &str| {
+                js_sys::Reflect::get(obj, &key.into())
+                    .ok()
+                    .and_then(|v| v.as_f64())
+            };
+            let idx = get_f64("idx").unwrap_or(0.0) as usize;
+            let preset = get_f64("preset").unwrap_or(10.0) as u32;
+            let width = get_f64("width").unwrap_or(800.0) as u32;
+            let height = get_f64("height").unwrap_or(600.0) as u32;
+
+            let mut st = state.borrow_mut();
+            st.canvas.set_width(width);
+            st.canvas.set_height(height);
+            st.harness.preset = preset;
+            let canvas = st.canvas.clone();
+            st.harness.start(vec![idx], width, height, &canvas);
+        }) as Box<dyn FnMut(_)>);
+        window
+            .add_event_listener_with_callback("message", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
+
+    {
+        let f: RafClosure = Rc::new(RefCell::new(None));
+        let g = f.clone();
+        let state = state.clone();
+        *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
+            let now = web_sys::window().unwrap().performance().unwrap().now();
+            let mut st = state.borrow_mut();
+            let width = st.canvas.width();
+            let height = st.canvas.height();
+            let defs = st.defs.clone();
+            let events = st.harness.tick(&defs, width, height, now);
+            for event in events {
+                if let HarnessEvent::BenchDone(result) = event {
+                    let reply = js_sys::Object::new();
+                    js_sys::Reflect::set(&reply, &"type".into(), &"bench_result".into()).unwrap();
+                    js_sys::Reflect::set(
+                        &reply,
+                        &"variant".into(),
+                        &js_sys::Reflect::get(&js_sys::global(), &"__vello_variant".into())
+                            .unwrap_or(JsValue::NULL),
+                    )
+                    .unwrap();
+                    js_sys::Reflect::set(&reply, &"name".into(), &result.name.into()).unwrap();
+                    js_sys::Reflect::set(
+                        &reply,
+                        &"ms_per_frame".into(),
+                        &result.ms_per_frame.into(),
+                    )
+                    .unwrap();
+                    js_sys::Reflect::set(
+                        &reply,
+                        &"iterations".into(),
+                        &(result.iterations as u32).into(),
+                    )
+                    .unwrap();
+                    js_sys::Reflect::set(&reply, &"total_ms".into(), &result.total_ms.into())
+                        .unwrap();
+                    let _ = web_sys::window()
+                        .unwrap()
+                        .parent()
+                        .unwrap()
+                        .unwrap()
+                        .post_message(&reply, "*");
+                }
+            }
+            request_animation_frame(f.borrow().as_ref().unwrap());
+        }) as Box<dyn FnMut()>));
+        request_animation_frame(g.borrow().as_ref().unwrap());
+    }
+
+    let ready = js_sys::Object::new();
+    js_sys::Reflect::set(&ready, &"type".into(), &"ready".into()).unwrap();
+    js_sys::Reflect::set(
+        &ready,
+        &"variant".into(),
+        &js_sys::Reflect::get(&js_sys::global(), &"__vello_variant".into())
+            .unwrap_or(JsValue::NULL),
+    )
+    .unwrap();
     let _ = window.parent().unwrap().unwrap().post_message(&ready, "*");
 }
