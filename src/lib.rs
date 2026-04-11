@@ -89,6 +89,7 @@ impl AppState {
         }
 
         crate::storage::save_backend_name(kind.as_str());
+        self.dragging = false;
 
         let old_params = if self.ui.mode == AppMode::Interactive {
             self.ui.read_params()
@@ -385,6 +386,7 @@ pub async fn run() {
         Some("interactive") => AppMode::Interactive,
         _ => AppMode::Benchmark,
     };
+    let initial_sidebar_collapsed = saved_state.sidebar_collapsed.unwrap_or(true);
     let initial_scene = saved_state
         .scene
         .filter(|&i| i < bench_scenes.len())
@@ -398,6 +400,7 @@ pub async fn run() {
         &defs,
         backend_caps,
         initial_scene,
+        initial_sidebar_collapsed,
         px_w,
         px_h,
     );
@@ -669,7 +672,6 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
 /// Wire pan (mouse drag) and zoom (wheel/pinch) on the window.
 fn wire_pan_zoom(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
     let s = state.clone();
-    let sidebar = state.borrow().ui.sidebar().clone();
     let cb = Closure::wrap(Box::new(move |e: web_sys::MouseEvent| {
         let mut st = s.borrow_mut();
         if st.ui.mode != AppMode::Interactive {
@@ -677,7 +679,7 @@ fn wire_pan_zoom(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         }
         if let Some(target) = e.target() {
             if let Ok(node) = target.dyn_into::<web_sys::Node>() {
-                if sidebar.contains(Some(&node)) {
+                if !st.canvas.contains(Some(&node)) {
                     return;
                 }
             }

@@ -41,8 +41,8 @@ impl BackendKind {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Hybrid => "Hybrid",
-            Self::Cpu => "CPU",
+            Self::Hybrid => "Vello Hybrid",
+            Self::Cpu => "Vello CPU",
             Self::Pathfinder => "Pathfinder",
             Self::Canvas2d => "Canvas 2D",
         }

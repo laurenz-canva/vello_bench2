@@ -76,6 +76,8 @@ const BACKEND_KEY: &str = "vello_bench_renderer";
 pub(crate) struct UiState {
     /// `"interactive"` or `"benchmark"`.
     pub(crate) mode: Option<String>,
+    /// Whether the interactive sidebar is collapsed.
+    pub(crate) sidebar_collapsed: Option<bool>,
     /// Selected scene index (interactive mode).
     pub(crate) scene: Option<usize>,
     /// Parameter values keyed by name (interactive mode).

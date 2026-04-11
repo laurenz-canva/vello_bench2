@@ -171,6 +171,7 @@ pub struct Ui {
     // Top bar
     tab_interactive: HtmlElement,
     tab_benchmark: HtmlElement,
+    top_timing_wrap: HtmlElement,
     top_timing_label: HtmlElement,
     top_timing_popup: HtmlElement,
     renderer_select: HtmlSelectElement,
@@ -244,6 +245,7 @@ impl Ui {
         bench_defs: &[BenchDef],
         capabilities: BackendCapabilities,
         current_scene: usize,
+        sidebar_collapsed: bool,
         vp_w: u32,
         vp_h: u32,
     ) -> Self {
@@ -255,15 +257,8 @@ impl Ui {
 
         let dirty = Rc::new(Cell::new(false));
 
-        let (
-            top_bar,
-            sidebar_toggle_btn,
-            tab_interactive,
-            tab_benchmark,
-            top_timing_label,
-            top_timing_popup,
-            renderer_select,
-        ) = build_top_bar(document, crate::backend::current_backend_kind());
+        let (top_bar, sidebar_toggle_btn, tab_interactive, tab_benchmark, renderer_select) =
+            build_top_bar(document, crate::backend::current_backend_kind());
         app_overlay.append_child(&top_bar).unwrap();
 
         let iv = build_interactive_view(
@@ -313,12 +308,13 @@ impl Ui {
             benchmark_view,
             tab_interactive,
             tab_benchmark,
-            top_timing_label,
-            top_timing_popup,
+            top_timing_wrap: iv.top_timing_wrap,
+            top_timing_label: iv.top_timing_label,
+            top_timing_popup: iv.top_timing_popup,
             renderer_select,
             sidebar: iv.sidebar,
             toggle_btn: sidebar_toggle_btn,
-            sidebar_collapsed: false,
+            sidebar_collapsed,
             viewport_label: iv.viewport_label,
             scene_select: iv.scene_select,
             controls: iv.controls,
@@ -343,6 +339,7 @@ impl Ui {
             mode: AppMode::Benchmark,
             dirty,
         };
+        ui.apply_sidebar_state();
         ui.set_mode(AppMode::Benchmark);
         ui
     }
@@ -365,9 +362,9 @@ impl Ui {
                     .unwrap();
                 style_tab(&self.tab_interactive, true);
                 style_tab(&self.tab_benchmark, false);
-                self.top_timing_label
+                self.top_timing_wrap
                     .style()
-                    .set_property("display", "block")
+                    .set_property("display", "flex")
                     .unwrap();
             }
             AppMode::Benchmark => {
@@ -381,7 +378,7 @@ impl Ui {
                     .unwrap();
                 style_tab(&self.tab_interactive, false);
                 style_tab(&self.tab_benchmark, true);
-                self.top_timing_label
+                self.top_timing_wrap
                     .style()
                     .set_property("display", "none")
                     .unwrap();
@@ -407,17 +404,8 @@ impl Ui {
     /// Toggle sidebar.
     pub fn toggle_sidebar(&mut self) {
         self.sidebar_collapsed = !self.sidebar_collapsed;
-        if self.sidebar_collapsed {
-            self.sidebar
-                .style()
-                .set_property("transform", "translateX(-100%)")
-                .unwrap();
-        } else {
-            self.sidebar
-                .style()
-                .set_property("transform", "translateX(0)")
-                .unwrap();
-        }
+        self.apply_sidebar_state();
+        self.dirty.set(true);
     }
 
     /// Toggle button for event binding.
@@ -428,6 +416,18 @@ impl Ui {
     /// Sidebar element (for hit-testing).
     pub fn sidebar(&self) -> &HtmlElement {
         &self.sidebar
+    }
+
+    fn apply_sidebar_state(&self) {
+        let transform = if self.sidebar_collapsed {
+            "translateX(-100%)"
+        } else {
+            "translateX(0)"
+        };
+        self.sidebar
+            .style()
+            .set_property("transform", transform)
+            .unwrap();
     }
 
     // ── Interactive displays ─────────────────────────────────────────────
@@ -1045,6 +1045,7 @@ impl Ui {
             .collect();
         crate::storage::save_ui_state(&UiState {
             mode: Some(mode_str.to_string()),
+            sidebar_collapsed: Some(self.sidebar_collapsed),
             scene: Some(scene),
             params,
             benches,
@@ -1182,6 +1183,9 @@ fn short_count(count: usize) -> String {
 struct InteractiveViewParts {
     view: HtmlElement,
     sidebar: HtmlElement,
+    top_timing_wrap: HtmlElement,
+    top_timing_label: HtmlElement,
+    top_timing_popup: HtmlElement,
     viewport_label: HtmlElement,
     scene_select: HtmlSelectElement,
     controls: Vec<(ParamCtrl, HtmlElement, ParamId)>,
@@ -1216,8 +1220,6 @@ fn build_top_bar(
     document: &Document,
     current_backend: BackendKind,
 ) -> (
-    HtmlElement,
-    HtmlElement,
     HtmlElement,
     HtmlElement,
     HtmlElement,
@@ -1263,63 +1265,6 @@ fn build_top_bar(
         &controls_group,
         "pointer-events-auto fixed right-3 top-3 flex h-11 items-center gap-4 border border-white/10 bg-slate-950/88 px-4 lg:right-4 lg:top-4",
     );
-
-    let timing_wrap = div(document);
-    class(&timing_wrap, "relative hidden shrink-0 lg:block");
-    let top_timing_label = div(document);
-    top_timing_label.set_text_content(Some("-- FPS  -- ms/f"));
-    class(
-        &top_timing_label,
-        "whitespace-nowrap border-l border-white/10 pl-4 text-xs font-semibold text-emerald-300",
-    );
-    let top_timing_popup = div(document);
-    top_timing_popup.set_inner_html(
-        "<div class=\"space-y-1 text-slate-300\"><div>Encode: --</div><div>Render: --</div><div>Blit: --</div><div>Total: --</div></div>",
-    );
-    class(
-        &top_timing_popup,
-        "pointer-events-none absolute left-0 top-full z-[90] mt-2 hidden min-w-[12rem] border border-white/10 bg-slate-950 px-4 py-3 text-xs text-slate-300",
-    );
-    {
-        let popup = top_timing_popup.clone();
-        let timeout_id = Rc::new(Cell::new(None::<i32>));
-        let enter_timeout = timeout_id.clone();
-        let enter = Closure::wrap(Box::new(move || {
-            let popup = popup.clone();
-            let cb = Closure::once_into_js(move || {
-                let _ = popup.style().set_property("display", "block");
-            });
-            let id = web_sys::window()
-                .unwrap()
-                .set_timeout_with_callback_and_timeout_and_arguments_0(
-                    cb.as_ref().unchecked_ref(),
-                    300,
-                )
-                .unwrap();
-            enter_timeout.set(Some(id));
-        }) as Box<dyn FnMut()>);
-        timing_wrap
-            .add_event_listener_with_callback("mouseenter", enter.as_ref().unchecked_ref())
-            .unwrap();
-        enter.forget();
-
-        let popup = top_timing_popup.clone();
-        let leave_timeout = timeout_id.clone();
-        let leave = Closure::wrap(Box::new(move || {
-            if let Some(id) = leave_timeout.get() {
-                web_sys::window().unwrap().clear_timeout_with_handle(id);
-                leave_timeout.set(None);
-            }
-            let _ = popup.style().set_property("display", "none");
-        }) as Box<dyn FnMut()>);
-        timing_wrap
-            .add_event_listener_with_callback("mouseleave", leave.as_ref().unchecked_ref())
-            .unwrap();
-        leave.forget();
-    }
-    timing_wrap.append_child(&top_timing_label).unwrap();
-    timing_wrap.append_child(&top_timing_popup).unwrap();
-    controls_group.append_child(&timing_wrap).unwrap();
 
     let has_toggle = js_sys::Reflect::get(&js_sys::global(), &"__vello_toggle_simd".into())
         .ok()
@@ -1420,8 +1365,6 @@ fn build_top_bar(
         sidebar_toggle_btn,
         tab_interactive,
         tab_benchmark,
-        top_timing_label,
-        top_timing_popup,
         renderer_select,
     )
 }
@@ -1437,6 +1380,9 @@ fn build_interactive_view(
 ) -> InteractiveViewParts {
     let view = div(document);
     class(&view, "fixed inset-0 z-20 pointer-events-none");
+
+    let (top_timing_wrap, top_timing_label, top_timing_popup) = build_timing_overlay(document);
+    view.append_child(&top_timing_wrap).unwrap();
 
     let sidebar = div(document);
     class(
@@ -1505,11 +1451,79 @@ fn build_interactive_view(
     InteractiveViewParts {
         view,
         sidebar,
+        top_timing_wrap,
+        top_timing_label,
+        top_timing_popup,
         viewport_label,
         scene_select,
         controls,
         reset_view_btn,
     }
+}
+
+fn build_timing_overlay(document: &Document) -> (HtmlElement, HtmlElement, HtmlElement) {
+    let timing_wrap = div(document);
+    class(
+        &timing_wrap,
+        "pointer-events-auto fixed right-3 top-[4.5rem] z-[70] hidden items-start lg:right-4 lg:top-24",
+    );
+
+    let top_timing_label = div(document);
+    top_timing_label.set_text_content(Some("-- FPS  -- ms/f"));
+    class(
+        &top_timing_label,
+        "whitespace-nowrap border border-white/10 bg-slate-950/88 px-3 py-2 text-xs font-semibold text-emerald-300",
+    );
+
+    let top_timing_popup = div(document);
+    top_timing_popup.set_inner_html(
+        "<div class=\"space-y-1 text-slate-300\"><div>Encode: --</div><div>Render: --</div><div>Blit: --</div><div>Total: --</div></div>",
+    );
+    class(
+        &top_timing_popup,
+        "pointer-events-none absolute right-0 top-full z-[90] mt-2 hidden min-w-[12rem] border border-white/10 bg-slate-950 px-4 py-3 text-xs text-slate-300",
+    );
+    {
+        let popup = top_timing_popup.clone();
+        let timeout_id = Rc::new(Cell::new(None::<i32>));
+        let enter_timeout = timeout_id.clone();
+        let enter = Closure::wrap(Box::new(move || {
+            let popup = popup.clone();
+            let cb = Closure::once_into_js(move || {
+                let _ = popup.style().set_property("display", "block");
+            });
+            let id = web_sys::window()
+                .unwrap()
+                .set_timeout_with_callback_and_timeout_and_arguments_0(
+                    cb.as_ref().unchecked_ref(),
+                    300,
+                )
+                .unwrap();
+            enter_timeout.set(Some(id));
+        }) as Box<dyn FnMut()>);
+        timing_wrap
+            .add_event_listener_with_callback("mouseenter", enter.as_ref().unchecked_ref())
+            .unwrap();
+        enter.forget();
+
+        let popup = top_timing_popup.clone();
+        let leave_timeout = timeout_id.clone();
+        let leave = Closure::wrap(Box::new(move || {
+            if let Some(id) = leave_timeout.get() {
+                web_sys::window().unwrap().clear_timeout_with_handle(id);
+                leave_timeout.set(None);
+            }
+            let _ = popup.style().set_property("display", "none");
+        }) as Box<dyn FnMut()>);
+        timing_wrap
+            .add_event_listener_with_callback("mouseleave", leave.as_ref().unchecked_ref())
+            .unwrap();
+        leave.forget();
+    }
+
+    timing_wrap.append_child(&top_timing_label).unwrap();
+    timing_wrap.append_child(&top_timing_popup).unwrap();
+    (timing_wrap, top_timing_label, top_timing_popup)
 }
 
 fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigParts {
