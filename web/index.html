@@ -31,6 +31,30 @@
         font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
       }
     }
+
+    @layer utilities {
+      .sidebar-scroll {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(103, 232, 249, 0.45) rgba(255, 255, 255, 0.06);
+      }
+
+      .sidebar-scroll::-webkit-scrollbar {
+        width: 10px;
+      }
+
+      .sidebar-scroll::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .sidebar-scroll::-webkit-scrollbar-thumb {
+        background: rgba(103, 232, 249, 0.4);
+        border: 2px solid rgba(2, 6, 23, 0.8);
+      }
+
+      .sidebar-scroll::-webkit-scrollbar-thumb:hover {
+        background: rgba(103, 232, 249, 0.58);
+      }
+    }
   </style>
 </head>
 
@@ -38,7 +62,7 @@
   <div id="dashboard-root" class="relative min-h-screen">
     <div
       id="canvas-stage-shell"
-      class="pointer-events-none fixed inset-x-0 top-16 bottom-0 overflow-hidden border-t border-white/10 bg-slate-950 lg:top-20"
+      class="fixed inset-x-0 top-16 bottom-0 overflow-hidden border-t border-white/10 bg-slate-950 lg:top-20"
     >
       <div id="canvas-host" class="absolute inset-0 overflow-hidden"></div>
     </div>

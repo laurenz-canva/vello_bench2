@@ -196,6 +196,7 @@ pub struct Ui {
     pub start_btn: HtmlElement,
     /// Per-benchmark-row DOM state (in order of `bench_defs`).
     bench_rows: Vec<BenchRowState>,
+    bench_rows_container: HtmlElement,
     screenshot_img: HtmlImageElement,
     /// Lightbox overlay for full-size screenshot viewing (kept alive for DOM ownership).
     #[allow(dead_code)]
@@ -325,6 +326,7 @@ impl Ui {
             run_input: cfg.run_input,
             start_btn: cfg.start_btn,
             bench_rows: rows.bench_rows,
+            bench_rows_container: rows.container.clone(),
             screenshot_img: cfg.screenshot_img,
             lightbox,
             lightbox_img,
@@ -502,14 +504,7 @@ impl Ui {
             }
         }
         let document = doc();
-        // Insert controls before the reset-view button so they don't end up below it.
-        self.controls = build_controls(
-            &document,
-            &self.sidebar,
-            params,
-            Some(&self.reset_view_btn),
-            Some(&self.dirty),
-        );
+        self.controls = build_controls(&document, &self.sidebar, params, None, Some(&self.dirty));
     }
 
     pub fn rebuild_scene_options(
@@ -760,26 +755,20 @@ impl Ui {
     }
 
     pub(crate) fn update_bench_support(
-        &self,
+        &mut self,
         bench_defs: &[BenchDef],
         scenes: &[Box<dyn BenchScene>],
         capabilities: BackendCapabilities,
     ) {
-        for (i, row) in self.bench_rows.iter().enumerate() {
-            let supported = bench_defs
-                .get(i)
-                .is_some_and(|def| bench_def_supported(def, scenes, capabilities));
-            row.supported.set(supported);
-            row.row
-                .style()
-                .set_property("display", if supported { "flex" } else { "none" })
-                .unwrap();
-            if !supported {
-                row.checkbox.set_checked(false);
-            }
-            row.checkbox.set_disabled(!supported);
-            row.row.style().set_property("opacity", "1").unwrap();
-        }
+        self.bench_rows = populate_bench_rows(
+            &self.bench_rows_container,
+            &doc(),
+            bench_defs,
+            scenes,
+            capabilities,
+            &self.screenshot_img,
+            &self.dirty,
+        );
     }
 
     // ── Save / Load / Compare ─────────────────────────────────────────
@@ -1387,7 +1376,7 @@ fn build_interactive_view(
     let sidebar = div(document);
     class(
         &sidebar,
-        "pointer-events-auto fixed bottom-0 left-0 top-28 z-20 flex w-[240px] flex-col overflow-y-auto border-r border-white/10 bg-slate-950/58 px-3 py-4 transition-transform duration-200 sm:top-16 lg:top-20 lg:w-[220px]",
+        "sidebar-scroll pointer-events-auto fixed bottom-0 left-0 top-28 z-20 flex w-[240px] flex-col overflow-y-auto border-r border-white/10 bg-slate-950/58 px-3 py-4 transition-transform duration-200 sm:top-16 lg:top-20 lg:w-[220px]",
     );
 
     let viewport_label = div(document);
@@ -1439,12 +1428,12 @@ fn build_interactive_view(
     );
 
     let reset_view_btn = div(document);
-    reset_view_btn.set_text_content(Some("Reset View"));
+    reset_view_btn.set_inner_html("<span class=\"text-sm leading-none\">&#10226;</span>");
     class(
         &reset_view_btn,
-        "mt-3 hidden border border-white/10 bg-white/5 px-3 py-1.5 text-center text-sm font-medium text-slate-100 transition hover:bg-white/10",
+        "pointer-events-auto fixed bottom-4 right-4 z-[75] hidden h-10 w-10 items-center justify-center border border-white/10 bg-slate-950/88 text-slate-100 transition hover:border-cyan-300/40 hover:bg-slate-900/95",
     );
-    sidebar.append_child(&reset_view_btn).unwrap();
+    view.append_child(&reset_view_btn).unwrap();
 
     view.append_child(&sidebar).unwrap();
 
@@ -1737,6 +1726,32 @@ fn build_bench_rows(
 ) -> BenchRowsParts {
     let container = div(document);
     class(&container, "min-w-0 flex-1 pr-1");
+    let bench_rows = populate_bench_rows(
+        &container,
+        document,
+        bench_defs,
+        scenes,
+        capabilities,
+        screenshot_img,
+        dirty,
+    );
+
+    BenchRowsParts {
+        container,
+        bench_rows,
+    }
+}
+
+fn populate_bench_rows(
+    container: &HtmlElement,
+    document: &Document,
+    bench_defs: &[BenchDef],
+    scenes: &[Box<dyn BenchScene>],
+    capabilities: BackendCapabilities,
+    screenshot_img: &HtmlImageElement,
+    dirty: &Rc<Cell<bool>>,
+) -> Vec<BenchRowState> {
+    container.set_inner_html("");
 
     // Global "Select All" toggle
     let select_all_row = div(document);
@@ -1840,10 +1855,7 @@ fn build_bench_rows(
         header.append_child(&cat_label).unwrap();
 
         let cat_block = div(document);
-        class(
-            &cat_block,
-            "overflow-hidden border border-white/10 bg-slate-950/90",
-        );
+        class(&cat_block, "border border-white/10 bg-slate-950/90");
         cat_block.append_child(&header).unwrap();
 
         let rows_wrap = div(document);
@@ -1933,11 +1945,7 @@ fn build_bench_rows(
     }
 
     container.append_child(&cat_grid).unwrap();
-
-    BenchRowsParts {
-        container,
-        bench_rows,
-    }
+    bench_rows
 }
 
 fn build_single_bench_row(

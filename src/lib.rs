@@ -206,7 +206,7 @@ impl AppState {
         let display = if self.is_view_default() {
             "none"
         } else {
-            "block"
+            "flex"
         };
         self.ui
             .reset_view_btn
@@ -362,6 +362,22 @@ fn client_delta_to_canvas_px(canvas: &HtmlCanvasElement, delta_x: f64, delta_y: 
     let scale_x = canvas.width() as f64 / rect.width().max(1.0);
     let scale_y = canvas.height() as f64 / rect.height().max(1.0);
     (delta_x * scale_x, delta_y * scale_y)
+}
+
+fn event_target_is_in_stage(target: &wasm_bindgen::JsValue) -> bool {
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+    let Some(document) = window.document() else {
+        return false;
+    };
+    let Some(stage) = document.get_element_by_id("canvas-host") else {
+        return false;
+    };
+    let Ok(node) = target.clone().dyn_into::<web_sys::Node>() else {
+        return false;
+    };
+    stage.contains(Some(&node))
 }
 
 /// Entry point.
@@ -679,10 +695,8 @@ fn wire_pan_zoom(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
             return;
         }
         if let Some(target) = e.target() {
-            if let Ok(node) = target.dyn_into::<web_sys::Node>() {
-                if !st.canvas.contains(Some(&node)) {
-                    return;
-                }
+            if !event_target_is_in_stage(&target) {
+                return;
             }
         }
         st.dragging = true;
