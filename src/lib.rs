@@ -48,6 +48,7 @@ struct AppState {
     backend_caps: BackendCapabilities,
     backend: Box<dyn Backend>,
     canvas: HtmlCanvasElement,
+    benchmark_canvas: HtmlCanvasElement,
     width: u32,
     height: u32,
     fps_tracker: FpsTracker,
@@ -136,6 +137,28 @@ impl AppState {
         self.reset_view();
         self.ui.mark_dirty();
         true
+    }
+
+    fn reset_interactive_state(&mut self, now: f64) {
+        self.dragging = false;
+        self.touch_count = 0;
+        self.pinch_dist = 0.0;
+        let kind = self.backend.kind();
+        self.backend = new_backend(&self.canvas, self.width, self.height, kind);
+        self.scenes = scenes::all_scenes();
+        let selected = self.ui.selected_scene();
+        if selected < self.scenes.len()
+            && self
+                .backend_caps
+                .supports_scene(self.scenes[selected].scene_id())
+        {
+            self.current_scene = selected;
+        }
+        for (param_id, value) in self.ui.read_params() {
+            self.scenes[self.current_scene].set_param(param_id, value);
+        }
+        self.fps_tracker.reset(now);
+        self.reset_view();
     }
 
     fn tick(&mut self, now: f64) {
@@ -232,7 +255,7 @@ impl AppState {
         self.update_reset_btn();
     }
 
-    fn tick_benchmark(&mut self, _now: f64) {
+    fn tick_benchmark(&mut self, now: f64) {
         if !self.harness.is_running() {
             return;
         }
@@ -243,17 +266,10 @@ impl AppState {
         }
 
         let (w, h) = (self.width, self.height);
-        let events = self.harness.tick(&self.bench_defs, w, h);
+        let events = self.harness.tick(&self.bench_defs, w, h, now);
 
         for event in events {
             match event {
-                HarnessEvent::ScreenshotReady => {
-                    if let (Some(idx), Ok(url)) =
-                        (self.harness.current_bench_idx(), self.canvas.to_data_url())
-                    {
-                        self.ui.set_screenshot(idx, &url);
-                    }
-                }
                 HarnessEvent::BenchDone(ref result) => {
                     // Find which def index this result belongs to
                     if let Some(idx) = self.bench_defs.iter().position(|d| d.name == result.name) {
@@ -262,25 +278,40 @@ impl AppState {
                 }
                 HarnessEvent::AllDone => {
                     self.ui.bench_all_done();
+                    self.ui.set_benchmark_presentation(false);
+                    set_canvas_visibility(&self.benchmark_canvas, false);
+                    if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                        set_stage_shell_presentation(&document, false);
+                    }
                 }
             }
         }
     }
 }
 
-pub(crate) fn gpu_sync(renderer: &vello_hybrid::WebGlRenderer) {
-    let gl = renderer.gl_context();
-    let mut pixel = [0_u8; 4];
-    gl.read_pixels_with_opt_u8_array(
-        0,
-        0,
-        1,
-        1,
-        web_sys::WebGl2RenderingContext::RGBA,
-        web_sys::WebGl2RenderingContext::UNSIGNED_BYTE,
-        Some(&mut pixel),
-    )
-    .unwrap();
+fn set_canvas_visibility(canvas: &HtmlCanvasElement, visible: bool) {
+    canvas
+        .style()
+        .set_property("visibility", if visible { "visible" } else { "hidden" })
+        .unwrap();
+}
+
+fn set_stage_shell_presentation(document: &web_sys::Document, active: bool) {
+    let benchmark_shell: web_sys::HtmlElement = document
+        .get_element_by_id("benchmark-stage-shell")
+        .expect("benchmark-stage-shell should exist in index.html")
+        .dyn_into()
+        .expect("benchmark-stage-shell should be an HtmlElement");
+    let style = benchmark_shell.style();
+    style
+        .set_property("display", if active { "block" } else { "none" })
+        .unwrap();
+    style
+        .set_property("top", if active { "0" } else { "" })
+        .unwrap();
+    style
+        .set_property("z-index", if active { "60" } else { "0" })
+        .unwrap();
 }
 
 fn configure_canvas(canvas: &HtmlCanvasElement, px_w: u32, px_h: u32, mode: AppMode) {
@@ -393,6 +424,14 @@ pub async fn run() {
         .expect("canvas-host should exist in index.html");
     canvas_host.append_child(&canvas).unwrap();
 
+    let benchmark_canvas = make_canvas(&document, px_w, px_h, AppMode::Benchmark);
+    let benchmark_canvas_host = document
+        .get_element_by_id("benchmark-canvas-host")
+        .expect("benchmark-canvas-host should exist in index.html");
+    benchmark_canvas_host
+        .append_child(&benchmark_canvas)
+        .unwrap();
+
     let bench_scenes = scenes::all_scenes();
     let defs = bench_defs();
     let backend_kind = current_backend_kind();
@@ -425,6 +464,8 @@ pub async fn run() {
     let now = performance.now();
 
     configure_canvas(&canvas, px_w, px_h, initial_mode);
+    configure_canvas(&benchmark_canvas, px_w, px_h, AppMode::Benchmark);
+    set_stage_shell_presentation(&document, false);
 
     let state = Rc::new(RefCell::new(AppState {
         scenes: bench_scenes,
@@ -432,6 +473,7 @@ pub async fn run() {
         backend_caps,
         backend,
         canvas,
+        benchmark_canvas,
         width: px_w,
         height: px_h,
         fps_tracker: FpsTracker::new(now),
@@ -453,6 +495,7 @@ pub async fn run() {
     {
         let mut st = state.borrow_mut();
         st.ui.set_mode(initial_mode);
+        st.ui.set_benchmark_presentation(false);
         st.ui.apply_saved_benches(&saved_state);
         st.ui.apply_saved_bench_preset(&saved_state);
         st.ui.apply_saved_params(&saved_state);
@@ -487,12 +530,18 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         let s = state.clone();
         let cb = Closure::wrap(Box::new(move || {
             let mut st = s.borrow_mut();
+            if st.harness.is_running() {
+                return;
+            }
+            let now = web_sys::window().unwrap().performance().unwrap().now();
+            st.reset_interactive_state(now);
             st.ui.set_mode(AppMode::Interactive);
+            st.ui.set_benchmark_presentation(false);
             st.ui.flush_state();
-            st.canvas
-                .style()
-                .set_property("visibility", "visible")
-                .unwrap();
+            set_canvas_visibility(&st.canvas, true);
+            set_canvas_visibility(&st.benchmark_canvas, false);
+            let document = web_sys::window().unwrap().document().unwrap();
+            set_stage_shell_presentation(&document, false);
         }) as Box<dyn FnMut()>);
         itab.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
             .unwrap();
@@ -501,12 +550,18 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         let s = state.clone();
         let cb = Closure::wrap(Box::new(move || {
             let mut st = s.borrow_mut();
+            if st.harness.is_running() {
+                return;
+            }
+            let now = web_sys::window().unwrap().performance().unwrap().now();
+            st.reset_interactive_state(now);
             st.ui.set_mode(AppMode::Benchmark);
+            st.ui.set_benchmark_presentation(false);
             st.ui.flush_state();
-            st.canvas
-                .style()
-                .set_property("visibility", "hidden")
-                .unwrap();
+            set_canvas_visibility(&st.canvas, false);
+            set_canvas_visibility(&st.benchmark_canvas, false);
+            let document = web_sys::window().unwrap().document().unwrap();
+            set_stage_shell_presentation(&document, false);
         }) as Box<dyn FnMut()>);
         btab.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
             .unwrap();
@@ -519,6 +574,9 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         let btn = state.borrow().ui.start_btn().clone();
         let cb = Closure::wrap(Box::new(move || {
             let mut st = s.borrow_mut();
+            if st.harness.is_running() {
+                return;
+            }
             let selected = st.ui.selected_bench_indices();
             if selected.is_empty() {
                 return;
@@ -527,16 +585,21 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
             if vp_w > 0 && vp_h > 0 && (vp_w != st.width || vp_h != st.height) {
                 st.canvas.set_width(vp_w);
                 st.canvas.set_height(vp_h);
+                st.benchmark_canvas.set_width(vp_w);
+                st.benchmark_canvas.set_height(vp_h);
                 st.width = vp_w;
                 st.height = vp_h;
                 st.backend.resize(vp_w, vp_h);
             }
-            st.harness.warmup_ms = st.ui.warmup_ms();
-            st.harness.run_ms = st.ui.run_ms();
             st.harness.preset = st.ui.bench_preset();
             st.ui.bench_started(&selected);
+            st.ui.set_benchmark_presentation(true);
+            set_canvas_visibility(&st.canvas, false);
+            set_canvas_visibility(&st.benchmark_canvas, true);
+            let document = web_sys::window().unwrap().document().unwrap();
+            set_stage_shell_presentation(&document, true);
             let (w, h) = (st.width, st.height);
-            let canvas = st.canvas.clone();
+            let canvas = st.benchmark_canvas.clone();
             st.harness.start(selected, w, h, &canvas);
         }) as Box<dyn FnMut()>);
         btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
@@ -943,6 +1006,8 @@ fn wire_resize(state: &Rc<RefCell<AppState>>) {
         let (_, _, px_w, px_h) = stage_physical_size(&document);
         st.canvas.set_width(px_w);
         st.canvas.set_height(px_h);
+        st.benchmark_canvas.set_width(px_w);
+        st.benchmark_canvas.set_height(px_h);
         st.width = px_w;
         st.height = px_h;
         st.backend.resize(px_w, px_h);
@@ -1009,8 +1074,6 @@ pub fn bench_worker_init() {
                 };
                 let idx = get_f64("idx").unwrap_or(0.0) as usize;
                 let preset = get_f64("preset").unwrap_or(10.0) as u32;
-                let warmup_ms = get_f64("warmup_ms").unwrap_or(250.0);
-                let run_ms = get_f64("run_ms").unwrap_or(1000.0);
                 let width = get_f64("width").unwrap_or(800.0) as u32;
                 let height = get_f64("height").unwrap_or(600.0) as u32;
 
@@ -1018,9 +1081,7 @@ pub fn bench_worker_init() {
                 js_sys::Reflect::set(&reply, &"type".into(), &"bench_result".into()).unwrap();
                 js_sys::Reflect::set(&reply, &"idx".into(), &(idx as u32).into()).unwrap();
 
-                if let Some(result) =
-                    harness::run_single_bench(idx, preset, warmup_ms, run_ms, width, height)
-                {
+                if let Some(result) = harness::run_single_bench(idx, preset, width, height) {
                     js_sys::Reflect::set(&reply, &"name".into(), &result.name.into()).unwrap();
                     js_sys::Reflect::set(
                         &reply,

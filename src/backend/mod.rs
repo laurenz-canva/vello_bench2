@@ -87,7 +87,6 @@ pub trait Backend {
     fn blit(&mut self);
     fn is_cpu(&self) -> bool;
     fn supports_encode_timing(&self) -> bool;
-    fn sync(&self);
     fn resize(&mut self, w: u32, h: u32);
     fn set_paint(&mut self, paint: PaintType);
     fn set_transform(&mut self, transform: Affine);

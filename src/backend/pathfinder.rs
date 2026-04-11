@@ -145,8 +145,6 @@ impl Backend for BackendImpl {
         false
     }
 
-    fn sync(&self) {}
-
     fn resize(&mut self, w: u32, h: u32) {
         self.ctx.resize(w as u16, h as u16);
         self.renderer.options_mut().dest = DestFramebuffer::full_window(vec2i(w as i32, h as i32));

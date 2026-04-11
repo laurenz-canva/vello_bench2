@@ -1,4 +1,4 @@
-//! Benchmark harness with warmup calibration and vsync-independent timing.
+//! Benchmark harness with fixed-size frame averaging.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -53,8 +53,6 @@ pub(crate) struct BenchResult {
 /// Events emitted by the harness after each tick.
 #[derive(Debug)]
 pub(crate) enum HarnessEvent {
-    /// The first warmup frame was just rendered — caller should capture a screenshot.
-    ScreenshotReady,
     /// A single benchmark finished.
     BenchDone(BenchResult),
     /// All benchmarks finished.
@@ -65,10 +63,19 @@ pub(crate) enum HarnessEvent {
 #[derive(Debug)]
 enum Phase {
     Idle,
-    PendingWarmup(usize),
-    PendingRun { idx: usize, target_iters: usize },
+    PendingBench(usize),
+    Running {
+        idx: usize,
+        last_now: f64,
+        warmup_remaining: usize,
+        total_ms: f64,
+        samples: usize,
+    },
     Complete,
 }
+
+const BENCH_WARMUP_SAMPLES: usize = 3;
+const BENCH_MEASURED_SAMPLES: usize = 15;
 
 /// Orchestrates running benchmarks.
 ///
@@ -77,8 +84,6 @@ enum Phase {
 /// and between test cases.
 pub(crate) struct BenchHarness {
     phase: Phase,
-    pub(crate) warmup_ms: f64,
-    pub(crate) run_ms: f64,
     pub(crate) preset: u32,
     pub(crate) results: Vec<BenchResult>,
     run_order: Vec<usize>,
@@ -92,8 +97,6 @@ impl std::fmt::Debug for BenchHarness {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BenchHarness")
             .field("phase", &self.phase)
-            .field("warmup_ms", &self.warmup_ms)
-            .field("run_ms", &self.run_ms)
             .finish_non_exhaustive()
     }
 }
@@ -102,8 +105,6 @@ impl BenchHarness {
     pub(crate) fn new() -> Self {
         Self {
             phase: Phase::Idle,
-            warmup_ms: 250.0,
-            run_ms: 1000.0,
             preset: 10,
             results: Vec::new(),
             run_order: Vec::new(),
@@ -131,7 +132,7 @@ impl BenchHarness {
         if self.run_order.is_empty() {
             self.phase = Phase::Complete;
         } else {
-            self.phase = Phase::PendingWarmup(self.run_order[0]);
+            self.phase = Phase::PendingBench(self.run_order[0]);
         }
     }
 
@@ -141,19 +142,24 @@ impl BenchHarness {
 
     pub(crate) fn current_bench_idx(&self) -> Option<usize> {
         match &self.phase {
-            Phase::PendingWarmup(i) | Phase::PendingRun { idx: i, .. } => Some(*i),
+            Phase::PendingBench(i) | Phase::Running { idx: i, .. } => Some(*i),
             _ => None,
         }
     }
 
     /// Drive one step. Returns events for the caller to act on.
-    pub(crate) fn tick(&mut self, defs: &[BenchDef], width: u32, height: u32) -> Vec<HarnessEvent> {
+    pub(crate) fn tick(
+        &mut self,
+        defs: &[BenchDef],
+        width: u32,
+        height: u32,
+        now: f64,
+    ) -> Vec<HarnessEvent> {
         let mut events = Vec::new();
-        let perf = web_sys::window().unwrap().performance().unwrap();
 
         match std::mem::replace(&mut self.phase, Phase::Idle) {
             Phase::Idle | Phase::Complete => {}
-            Phase::PendingWarmup(idx) => {
+            Phase::PendingBench(idx) => {
                 let def = &defs[idx];
                 let mut bench_scenes = scenes::all_scenes();
                 let scene = bench_scenes.swap_remove(scene_index(def.scene_id));
@@ -165,55 +171,64 @@ impl BenchHarness {
                 self.bench_backend =
                     Some(new_backend(canvas, width, height, current_backend_kind()));
                 let be = self.bench_backend.as_mut().unwrap();
-                render_one(scene, be.as_mut(), width, height, perf.now());
-                be.sync();
-                events.push(HarnessEvent::ScreenshotReady);
-
-                let t0 = perf.now();
-                let mut frames = 0_usize;
-                while perf.now() - t0 < self.warmup_ms {
-                    render_one(scene, be.as_mut(), width, height, perf.now());
-                    be.sync();
-                    frames += 1;
-                }
-                let elapsed = (perf.now() - t0).max(0.001);
-                let rate = frames as f64 / elapsed;
-                let target = (rate * self.run_ms).max(1.0) as usize;
-                self.phase = Phase::PendingRun {
+                render_one(scene, be.as_mut(), width, height, now);
+                self.phase = Phase::Running {
                     idx,
-                    target_iters: target,
+                    last_now: now,
+                    warmup_remaining: BENCH_WARMUP_SAMPLES,
+                    total_ms: 0.0,
+                    samples: 0,
                 };
             }
-            Phase::PendingRun { idx, target_iters } => {
+            Phase::Running {
+                idx,
+                last_now,
+                mut warmup_remaining,
+                mut total_ms,
+                mut samples,
+            } => {
                 let def = &defs[idx];
                 let scene = self.bench_scene.as_mut().unwrap().as_mut();
                 let be = self.bench_backend.as_mut().unwrap();
-                let t0 = perf.now();
-                for _ in 0..target_iters {
-                    render_one(scene, be.as_mut(), width, height, perf.now());
-                    be.sync();
-                }
-                let total_ms = (perf.now() - t0).max(0.0);
-                let result = BenchResult {
-                    name: def.name,
-                    ms_per_frame: total_ms / target_iters as f64,
-                    iterations: target_iters,
-                    total_ms,
-                };
-                self.results.push(result.clone());
-                events.push(HarnessEvent::BenchDone(result));
-
-                self.run_pos += 1;
-                if self.run_pos < self.run_order.len() {
-                    self.bench_scene = None;
-                    self.bench_backend = None;
-                    self.phase = Phase::PendingWarmup(self.run_order[self.run_pos]);
+                render_one(scene, be.as_mut(), width, height, now);
+                let dt = (now - last_now).max(0.0);
+                if warmup_remaining > 0 {
+                    warmup_remaining -= 1;
                 } else {
-                    self.phase = Phase::Complete;
-                    self.bench_scene = None;
-                    self.bench_canvas = None;
-                    self.bench_backend = None;
-                    events.push(HarnessEvent::AllDone);
+                    total_ms += dt;
+                    samples += 1;
+                }
+
+                if samples < BENCH_MEASURED_SAMPLES {
+                    self.phase = Phase::Running {
+                        idx,
+                        last_now: now,
+                        warmup_remaining,
+                        total_ms,
+                        samples,
+                    };
+                } else {
+                    let result = BenchResult {
+                        name: def.name,
+                        ms_per_frame: total_ms / BENCH_MEASURED_SAMPLES as f64,
+                        iterations: BENCH_MEASURED_SAMPLES,
+                        total_ms,
+                    };
+                    self.results.push(result.clone());
+                    events.push(HarnessEvent::BenchDone(result));
+
+                    self.run_pos += 1;
+                    if self.run_pos < self.run_order.len() {
+                        self.bench_scene = None;
+                        self.bench_backend = None;
+                        self.phase = Phase::PendingBench(self.run_order[self.run_pos]);
+                    } else {
+                        self.phase = Phase::Complete;
+                        self.bench_scene = None;
+                        self.bench_canvas = None;
+                        self.bench_backend = None;
+                        events.push(HarnessEvent::AllDone);
+                    }
                 }
             }
         }
@@ -265,14 +280,7 @@ fn render_one(
 
 /// Run a single benchmark by index, creating a temporary canvas and backend.
 /// Used by the headless worker mode for interleaved A/B testing.
-pub fn run_single_bench(
-    idx: usize,
-    preset: u32,
-    warmup_ms: f64,
-    run_ms: f64,
-    width: u32,
-    height: u32,
-) -> Option<BenchResult> {
+pub fn run_single_bench(idx: usize, preset: u32, width: u32, height: u32) -> Option<BenchResult> {
     let defs = bench_defs();
     let def = defs.get(idx)?;
 
@@ -293,37 +301,24 @@ pub fn run_single_bench(
 
     let mut be = new_backend(&canvas, width, height, current_backend_kind());
     let perf = web_sys::window().unwrap().performance().unwrap();
-
-    // Warmup: render frames for warmup_ms to calibrate iteration count.
-    render_one(scene, be.as_mut(), width, height, perf.now());
-    be.sync();
-
-    let t0 = perf.now();
-    let mut frames = 0_usize;
-    while perf.now() - t0 < warmup_ms {
-        render_one(scene, be.as_mut(), width, height, perf.now());
-        be.sync();
-        frames += 1;
+    let mut last = perf.now();
+    let mut total_ms = 0.0;
+    for i in 0..(BENCH_WARMUP_SAMPLES + BENCH_MEASURED_SAMPLES) {
+        let now = perf.now();
+        render_one(scene, be.as_mut(), width, height, now);
+        if i >= BENCH_WARMUP_SAMPLES {
+            total_ms += (now - last).max(0.0);
+        }
+        last = now;
     }
-    let elapsed = (perf.now() - t0).max(0.001);
-    let rate = frames as f64 / elapsed;
-    let target_iters = (rate * run_ms).max(1.0) as usize;
-
-    // Measurement.
-    let t0 = perf.now();
-    for _ in 0..target_iters {
-        render_one(scene, be.as_mut(), width, height, perf.now());
-        be.sync();
-    }
-    let total_ms = (perf.now() - t0).max(0.0);
 
     // Clean up the temporary canvas.
     document.body().unwrap().remove_child(&canvas).unwrap();
 
     Some(BenchResult {
         name: def.name,
-        ms_per_frame: total_ms / target_iters as f64,
-        iterations: target_iters,
+        ms_per_frame: total_ms / BENCH_MEASURED_SAMPLES as f64,
+        iterations: BENCH_MEASURED_SAMPLES,
         total_ms,
     })
 }

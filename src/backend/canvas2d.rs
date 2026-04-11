@@ -248,8 +248,6 @@ impl Backend for BackendImpl {
         false
     }
 
-    fn sync(&self) {}
-
     fn resize(&mut self, w: u32, h: u32) {
         self.width = w as f64;
         self.height = h as f64;

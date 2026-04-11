@@ -5,7 +5,7 @@
     reason = "truncation has no appreciable impact in this benchmark"
 )]
 
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::backend::{BackendCapabilities, BackendKind};
@@ -13,9 +13,7 @@ use crate::harness::{BenchDef, BenchResult, BenchScale};
 use crate::scenes::{BenchScene, Param, ParamId, ParamKind};
 use crate::storage::{BenchReport, UiState};
 use wasm_bindgen::prelude::*;
-use web_sys::{
-    Document, Element, HtmlElement, HtmlImageElement, HtmlInputElement, HtmlSelectElement,
-};
+use web_sys::{Document, Element, HtmlElement, HtmlInputElement, HtmlSelectElement};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -152,7 +150,6 @@ struct BenchRowState {
     name_el: HtmlElement,
     result_text: HtmlElement,
     result_line: HtmlElement,
-    screenshot_data: Rc<RefCell<String>>,
     delta_text: HtmlElement,
     name: &'static str,
     scale: Option<BenchScale>,
@@ -188,21 +185,13 @@ pub struct Ui {
     pub reset_view_btn: HtmlElement,
 
     // Benchmark
-    warmup_input: HtmlInputElement,
     preset_input: HtmlInputElement,
     preset_value_label: HtmlElement,
-    run_input: HtmlInputElement,
     /// Start button.
     pub start_btn: HtmlElement,
     /// Per-benchmark-row DOM state (in order of `bench_defs`).
     bench_rows: Vec<BenchRowState>,
     bench_rows_container: HtmlElement,
-    screenshot_img: HtmlImageElement,
-    /// Lightbox overlay for full-size screenshot viewing (kept alive for DOM ownership).
-    #[allow(dead_code)]
-    lightbox: HtmlElement,
-    #[allow(dead_code)]
-    lightbox_img: HtmlImageElement,
 
     // Viewport config
     vp_width_input: HtmlInputElement,
@@ -276,7 +265,7 @@ impl Ui {
         let benchmark_view = div(document);
         class(
             &benchmark_view,
-            "pointer-events-auto fixed inset-x-0 bottom-0 top-32 z-20 hidden overflow-y-auto px-3 pb-4 pt-2 sm:top-20 lg:top-24 lg:px-6 lg:pb-6",
+            "pointer-events-auto fixed inset-x-0 bottom-0 top-32 z-20 hidden overflow-y-auto bg-slate-950/96 px-3 pb-4 pt-2 sm:top-20 lg:top-24 lg:px-6 lg:pb-6",
         );
 
         let bench_layout = div(document);
@@ -288,20 +277,11 @@ impl Ui {
         let cfg = build_bench_config(document, vp_w, vp_h);
         bench_layout.append_child(&cfg.wrapper).unwrap();
 
-        let rows = build_bench_rows(
-            document,
-            bench_defs,
-            scenes,
-            capabilities,
-            &cfg.screenshot_img,
-            &dirty,
-        );
+        let rows = build_bench_rows(document, bench_defs, scenes, capabilities, &dirty);
         bench_layout.append_child(&rows.container).unwrap();
 
         benchmark_view.append_child(&bench_layout).unwrap();
         app_overlay.append_child(&benchmark_view).unwrap();
-
-        let (lightbox, lightbox_img) = build_lightbox(document, &body, &cfg.screenshot_img);
 
         let mut ui = Self {
             top_bar,
@@ -320,16 +300,11 @@ impl Ui {
             scene_select: iv.scene_select,
             controls: iv.controls,
             reset_view_btn: iv.reset_view_btn,
-            warmup_input: cfg.warmup_input,
             preset_input: cfg.preset_input,
             preset_value_label: cfg.preset_value_label,
-            run_input: cfg.run_input,
             start_btn: cfg.start_btn,
             bench_rows: rows.bench_rows,
             bench_rows_container: rows.container.clone(),
-            screenshot_img: cfg.screenshot_img,
-            lightbox,
-            lightbox_img,
             vp_width_input: cfg.vp_width_input,
             vp_height_input: cfg.vp_height_input,
             save_name_input: cfg.save_name_input,
@@ -385,6 +360,21 @@ impl Ui {
                     .set_property("display", "none")
                     .unwrap();
             }
+        }
+    }
+
+    pub fn set_benchmark_presentation(&self, active: bool) {
+        let top_bar_display = if active { "none" } else { "flex" };
+        let bench_display = if active { "none" } else { "block" };
+        self.top_bar
+            .style()
+            .set_property("display", top_bar_display)
+            .unwrap();
+        if self.mode == AppMode::Benchmark {
+            self.benchmark_view
+                .style()
+                .set_property("display", bench_display)
+                .unwrap();
         }
     }
 
@@ -542,16 +532,6 @@ impl Ui {
 
     // ── Benchmark displays ───────────────────────────────────────────────
 
-    /// Read warmup ms from input.
-    pub fn warmup_ms(&self) -> f64 {
-        self.warmup_input.value().parse().unwrap_or(250.0)
-    }
-
-    /// Read run ms from input.
-    pub fn run_ms(&self) -> f64 {
-        self.run_input.value().parse().unwrap_or(1000.0)
-    }
-
     /// Read benchmark preset from input.
     pub fn bench_preset(&self) -> u32 {
         self.preset_input
@@ -592,10 +572,6 @@ impl Ui {
 
     /// Reset all rows to idle state before a run.
     pub fn bench_started(&self, selected: &[usize]) {
-        self.screenshot_img
-            .style()
-            .set_property("display", "none")
-            .unwrap();
         for (i, r) in self.bench_rows.iter().enumerate() {
             if !r.supported.get() {
                 continue;
@@ -677,18 +653,6 @@ impl Ui {
         self.show_delta_for(idx, r.ms_per_frame);
     }
 
-    /// Show screenshot from data URL and store it for the given bench index.
-    pub fn set_screenshot(&self, bench_idx: usize, data_url: &str) {
-        self.screenshot_img.set_src(data_url);
-        self.screenshot_img
-            .style()
-            .set_property("display", "block")
-            .unwrap();
-        if let Some(br) = self.bench_rows.get(bench_idx) {
-            *br.screenshot_data.borrow_mut() = data_url.to_string();
-        }
-    }
-
     /// All benchmarks done — re-enable UI and show deltas if comparison loaded.
     pub fn bench_all_done(&mut self) {
         for r in &self.bench_rows {
@@ -766,7 +730,6 @@ impl Ui {
             bench_defs,
             scenes,
             capabilities,
-            &self.screenshot_img,
             &self.dirty,
         );
     }
@@ -1183,10 +1146,8 @@ struct InteractiveViewParts {
 
 struct BenchConfigParts {
     wrapper: HtmlElement,
-    warmup_input: HtmlInputElement,
     preset_input: HtmlInputElement,
     preset_value_label: HtmlElement,
-    run_input: HtmlInputElement,
     start_btn: HtmlElement,
     vp_width_input: HtmlInputElement,
     vp_height_input: HtmlInputElement,
@@ -1195,7 +1156,6 @@ struct BenchConfigParts {
     load_select: HtmlSelectElement,
     compare_select: HtmlSelectElement,
     delete_btn: HtmlElement,
-    screenshot_img: HtmlImageElement,
 }
 
 struct BenchRowsParts {
@@ -1543,20 +1503,12 @@ fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigP
         .set_property("margin-bottom", "6px")
         .unwrap();
     left_col.append_child(&preset_input.0).unwrap();
-    let warmup_input = num_input(document, "Warmup", "250");
-    warmup_input
-        .0
-        .style()
-        .set_property("margin-bottom", "6px")
-        .unwrap();
-    left_col.append_child(&warmup_input.0).unwrap();
-    let run_input = num_input(document, "Run", "1000");
-    run_input
-        .0
-        .style()
-        .set_property("margin-bottom", "12px")
-        .unwrap();
-    left_col.append_child(&run_input.0).unwrap();
+    let sample_note = div(document);
+    sample_note.set_text_content(Some(
+        "Each benchmark warms up for 3 frames, then averages 15 frames.",
+    ));
+    class(&sample_note, "mb-3 text-xs leading-5 text-slate-400");
+    left_col.append_child(&sample_note).unwrap();
 
     left_col
         .append_child(&section_label(document, "Viewport"))
@@ -1690,20 +1642,10 @@ fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigP
 
     wrapper.append_child(&left_col).unwrap();
 
-    let screenshot_img: HtmlImageElement =
-        document.create_element("img").unwrap().dyn_into().unwrap();
-    class(
-        &screenshot_img,
-        "mt-4 hidden w-full cursor-pointer border border-white/10 object-cover",
-    );
-    wrapper.append_child(&screenshot_img).unwrap();
-
     BenchConfigParts {
         wrapper,
-        warmup_input: warmup_input.1,
         preset_input: preset_input.1,
         preset_value_label: preset_input.2,
-        run_input: run_input.1,
         start_btn,
         vp_width_input,
         vp_height_input,
@@ -1712,7 +1654,6 @@ fn build_bench_config(document: &Document, vp_w: u32, vp_h: u32) -> BenchConfigP
         load_select,
         compare_select,
         delete_btn,
-        screenshot_img,
     }
 }
 
@@ -1721,7 +1662,6 @@ fn build_bench_rows(
     bench_defs: &[BenchDef],
     scenes: &[Box<dyn BenchScene>],
     capabilities: BackendCapabilities,
-    screenshot_img: &HtmlImageElement,
     dirty: &Rc<Cell<bool>>,
 ) -> BenchRowsParts {
     let container = div(document);
@@ -1732,7 +1672,6 @@ fn build_bench_rows(
         bench_defs,
         scenes,
         capabilities,
-        screenshot_img,
         dirty,
     );
 
@@ -1748,7 +1687,6 @@ fn populate_bench_rows(
     bench_defs: &[BenchDef],
     scenes: &[Box<dyn BenchScene>],
     capabilities: BackendCapabilities,
-    screenshot_img: &HtmlImageElement,
     dirty: &Rc<Cell<bool>>,
 ) -> Vec<BenchRowState> {
     container.set_inner_html("");
@@ -1794,8 +1732,6 @@ fn populate_bench_rows(
 
     let mut bench_row_states: Vec<Option<BenchRowState>> =
         (0..bench_defs.len()).map(|_| None).collect();
-    let screenshot_img_rc = Rc::new(screenshot_img.clone());
-
     let mut categories: Vec<&'static str> = Vec::new();
     for def in bench_defs {
         if !categories.contains(&def.category) {
@@ -1824,7 +1760,6 @@ fn populate_bench_rows(
                         document,
                         &bench_defs[i],
                         false,
-                        &screenshot_img_rc,
                         &hidden_rows,
                     ));
                 }
@@ -1868,7 +1803,6 @@ fn populate_bench_rows(
                 document,
                 def,
                 bench_def_supported(def, scenes, capabilities),
-                &screenshot_img_rc,
                 &rows_wrap,
             ));
         }
@@ -1879,7 +1813,6 @@ fn populate_bench_rows(
                     document,
                     &bench_defs[i],
                     false,
-                    &screenshot_img_rc,
                     &hidden_rows,
                 ));
             }
@@ -1952,7 +1885,6 @@ fn build_single_bench_row(
     document: &Document,
     def: &BenchDef,
     supported: bool,
-    screenshot_img_rc: &Rc<HtmlImageElement>,
     rows_wrap: &HtmlElement,
 ) -> BenchRowState {
     let row = div(document);
@@ -2070,27 +2002,6 @@ fn build_single_bench_row(
 
     row.append_child(&info_wrapper).unwrap();
 
-    // Screenshot storage + click handler
-    let screenshot_data: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
-    {
-        let sd = screenshot_data.clone();
-        let img = screenshot_img_rc.clone();
-        class(
-            &row,
-            "grid min-h-0 cursor-pointer grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 px-3 py-1.5 transition hover:bg-white/5 sm:grid-cols-[auto_auto_minmax(0,1fr)_auto_auto]",
-        );
-        let handler = Closure::wrap(Box::new(move || {
-            let url = sd.borrow();
-            if !url.is_empty() {
-                img.set_src(&url);
-                img.style().set_property("display", "block").unwrap();
-            }
-        }) as Box<dyn FnMut()>);
-        row.add_event_listener_with_callback("click", handler.as_ref().unchecked_ref())
-            .unwrap();
-        handler.forget();
-    }
-
     rows_wrap.append_child(&row).unwrap();
 
     BenchRowState {
@@ -2101,7 +2012,6 @@ fn build_single_bench_row(
         name_el,
         result_text,
         result_line,
-        screenshot_data,
         delta_text,
         name: def.name,
         scale: def.scale,
@@ -2125,91 +2035,6 @@ fn bench_def_supported(
     }) && def
         .scale
         .is_none_or(|scale| capabilities.supports_param(scene.scene_id(), scale.param))
-}
-
-fn build_lightbox(
-    document: &Document,
-    body: &HtmlElement,
-    screenshot_img: &HtmlImageElement,
-) -> (HtmlElement, HtmlImageElement) {
-    let lightbox = div(document);
-    let lightbox_img: HtmlImageElement =
-        document.create_element("img").unwrap().dyn_into().unwrap();
-    set(
-        &lightbox,
-        &[
-            ("position", "fixed"),
-            ("top", "0"),
-            ("left", "0"),
-            ("width", "100vw"),
-            ("height", "100vh"),
-            ("display", "none"),
-            ("align-items", "center"),
-            ("justify-content", "center"),
-            ("z-index", "9999"),
-            ("background", "rgba(0,0,0,0.75)"),
-            ("cursor", "pointer"),
-        ],
-    );
-    {
-        let s = lightbox_img.style();
-        s.set_property("max-width", "85vw").unwrap();
-        s.set_property("max-height", "85vh").unwrap();
-        s.set_property("cursor", "default").unwrap();
-    }
-    lightbox.append_child(&lightbox_img).unwrap();
-    body.append_child(&lightbox).unwrap();
-
-    {
-        let lb = lightbox.clone();
-        let lb_img = lightbox_img.clone();
-        let cb = Closure::wrap(Box::new(move |e: web_sys::MouseEvent| {
-            if let Some(target) = e.target() {
-                if let Ok(node) = target.dyn_into::<web_sys::Node>() {
-                    if !lb_img.contains(Some(&node)) {
-                        lb.style().set_property("display", "none").unwrap();
-                    }
-                }
-            }
-        }) as Box<dyn FnMut(_)>);
-        lightbox
-            .add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
-            .unwrap();
-        cb.forget();
-    }
-
-    {
-        let lb = lightbox.clone();
-        let cb = Closure::wrap(Box::new(move |e: web_sys::KeyboardEvent| {
-            if e.key() == "Escape" {
-                lb.style().set_property("display", "none").unwrap();
-            }
-        }) as Box<dyn FnMut(_)>);
-        web_sys::window()
-            .unwrap()
-            .add_event_listener_with_callback("keydown", cb.as_ref().unchecked_ref())
-            .unwrap();
-        cb.forget();
-    }
-
-    {
-        let thumb = screenshot_img.clone();
-        let lb = lightbox.clone();
-        let lb_img = lightbox_img.clone();
-        let cb = Closure::wrap(Box::new(move || {
-            let src = thumb.src();
-            if !src.is_empty() {
-                lb_img.set_src(&src);
-                lb.style().set_property("display", "flex").unwrap();
-            }
-        }) as Box<dyn FnMut()>);
-        screenshot_img
-            .add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
-            .unwrap();
-        cb.forget();
-    }
-
-    (lightbox, lightbox_img)
 }
 
 // ── Tab styling ──────────────────────────────────────────────────────────────
