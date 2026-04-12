@@ -11,6 +11,7 @@ use std::rc::Rc;
 use crate::backend::{BackendCapabilities, BackendKind};
 use crate::harness::{BenchDef, BenchResult, BenchScale};
 use crate::scenes::{BenchScene, Param, ParamId, ParamKind};
+use crate::storage::CalibrationProfile;
 use crate::storage::{BenchReport, UiState};
 use wasm_bindgen::prelude::*;
 use web_sys::{Document, Element, HtmlElement, HtmlInputElement, HtmlSelectElement};
@@ -154,7 +155,6 @@ struct BenchRowState {
     result_line: HtmlElement,
     delta_text: HtmlElement,
     name: &'static str,
-    scale: Option<BenchScale>,
 }
 
 // ── UI ───────────────────────────────────────────────────────────────────────
@@ -164,6 +164,7 @@ pub struct Ui {
     // Layout
     #[allow(dead_code, reason = "kept alive to prevent GC")]
     top_bar: HtmlElement,
+    calibration_overlay: HtmlElement,
     interactive_view: HtmlElement,
     benchmark_view: HtmlElement,
 
@@ -187,10 +188,11 @@ pub struct Ui {
     pub reset_view_btn: HtmlElement,
 
     // Benchmark
-    preset_input: HtmlInputElement,
-    preset_value_label: HtmlElement,
     warmup_input: HtmlInputElement,
     measured_input: HtmlInputElement,
+    calibrate_btn: HtmlElement,
+    reset_calibration_btn: HtmlElement,
+    calibration_status: HtmlElement,
     /// Start button.
     pub start_btn: HtmlElement,
     pub ab_start_btn: Option<HtmlElement>,
@@ -242,6 +244,7 @@ impl Ui {
         document: &Document,
         scenes: &[Box<dyn BenchScene>],
         bench_defs: &[BenchDef],
+        calibration: Option<&CalibrationProfile>,
         capabilities: BackendCapabilities,
         current_scene: usize,
         sidebar_collapsed: bool,
@@ -253,13 +256,23 @@ impl Ui {
         let app_overlay = document
             .get_element_by_id("app-overlay")
             .expect("app-overlay should exist in index.html");
+        let dashboard_root = document
+            .get_element_by_id("dashboard-root")
+            .expect("dashboard-root should exist in index.html");
 
         let dirty = Rc::new(Cell::new(false));
         let ab_mode = ab_mode_enabled();
 
-        let (top_bar, sidebar_toggle_btn, tab_interactive, tab_benchmark, renderer_select) =
-            build_top_bar(document, crate::backend::current_backend_kind());
+        let (
+            top_bar,
+            calibration_overlay,
+            sidebar_toggle_btn,
+            tab_interactive,
+            tab_benchmark,
+            renderer_select,
+        ) = build_top_bar(document, crate::backend::current_backend_kind());
         app_overlay.append_child(&top_bar).unwrap();
+        dashboard_root.append_child(&calibration_overlay).unwrap();
 
         let iv = build_interactive_view(
             document,
@@ -287,7 +300,14 @@ impl Ui {
         let cfg = build_bench_config(document, vp_w, vp_h, ab_mode);
         bench_layout.append_child(&cfg.wrapper).unwrap();
 
-        let rows = build_bench_rows(document, bench_defs, scenes, capabilities, &dirty);
+        let rows = build_bench_rows(
+            document,
+            bench_defs,
+            calibration,
+            scenes,
+            capabilities,
+            &dirty,
+        );
         bench_layout.append_child(&rows.container).unwrap();
 
         benchmark_view.append_child(&bench_layout).unwrap();
@@ -295,6 +315,7 @@ impl Ui {
 
         let mut ui = Self {
             top_bar,
+            calibration_overlay,
             interactive_view: iv.view,
             benchmark_view,
             tab_interactive,
@@ -310,10 +331,11 @@ impl Ui {
             scene_select: iv.scene_select,
             controls: iv.controls,
             reset_view_btn: iv.reset_view_btn,
-            preset_input: cfg.preset_input,
-            preset_value_label: cfg.preset_value_label,
             warmup_input: cfg.warmup_input,
             measured_input: cfg.measured_input,
+            calibrate_btn: cfg.calibrate_btn,
+            reset_calibration_btn: cfg.reset_calibration_btn,
+            calibration_status: cfg.calibration_status,
             start_btn: cfg.start_btn,
             ab_start_btn: cfg.ab_start_btn,
             ab_rounds_input: cfg.ab_rounds_input,
@@ -391,6 +413,12 @@ impl Ui {
             self.benchmark_view
                 .style()
                 .set_property("display", bench_display)
+                .unwrap();
+        }
+        if !active {
+            self.calibration_overlay
+                .style()
+                .set_property("display", "none")
                 .unwrap();
         }
     }
@@ -549,15 +577,6 @@ impl Ui {
 
     // ── Benchmark displays ───────────────────────────────────────────────
 
-    /// Read benchmark preset from input.
-    pub fn bench_preset(&self) -> u32 {
-        self.preset_input
-            .value()
-            .parse::<u32>()
-            .unwrap_or(10)
-            .clamp(1, 20)
-    }
-
     pub fn bench_warmup_samples(&self) -> usize {
         self.warmup_input
             .value()
@@ -580,16 +599,6 @@ impl Ui {
             .and_then(|input| input.value().parse::<usize>().ok())
             .unwrap_or(1)
             .clamp(1, 100)
-    }
-
-    pub fn update_bench_titles(&self) {
-        let preset = self.bench_preset();
-        self.preset_value_label
-            .set_text_content(Some(&preset.to_string()));
-        for row in &self.bench_rows {
-            let title = format_bench_title(row.name, row.scale, preset);
-            row.name_el.set_text_content(Some(&title));
-        }
     }
 
     /// Start button ref.
@@ -618,10 +627,6 @@ impl Ui {
         }
     }
 
-    pub fn preset_input(&self) -> &HtmlInputElement {
-        &self.preset_input
-    }
-
     pub fn warmup_input(&self) -> &HtmlInputElement {
         &self.warmup_input
     }
@@ -632,6 +637,71 @@ impl Ui {
 
     pub fn ab_rounds_input(&self) -> Option<&HtmlInputElement> {
         self.ab_rounds_input.as_ref()
+    }
+
+    pub fn calibrate_btn(&self) -> &HtmlElement {
+        &self.calibrate_btn
+    }
+
+    pub fn reset_calibration_btn(&self) -> &HtmlElement {
+        &self.reset_calibration_btn
+    }
+
+    pub fn set_calibration_status(&self, text: &str) {
+        self.calibration_status.set_text_content(Some(text));
+        self.calibration_overlay.set_text_content(Some(text));
+    }
+
+    pub fn set_calibration_ready(&self, ready: bool) {
+        self.start_btn
+            .style()
+            .set_property("opacity", if ready { "1" } else { "0.4" })
+            .unwrap();
+        self.start_btn
+            .style()
+            .set_property("pointer-events", if ready { "auto" } else { "none" })
+            .unwrap();
+        self.reset_calibration_btn
+            .style()
+            .set_property("opacity", if ready { "1" } else { "0.4" })
+            .unwrap();
+        self.reset_calibration_btn
+            .style()
+            .set_property("pointer-events", if ready { "auto" } else { "none" })
+            .unwrap();
+    }
+
+    pub fn set_calibration_running(&self, running: bool) {
+        self.calibrate_btn
+            .style()
+            .set_property("opacity", if running { "0.4" } else { "1" })
+            .unwrap();
+        self.calibrate_btn
+            .style()
+            .set_property("pointer-events", if running { "none" } else { "auto" })
+            .unwrap();
+        self.reset_calibration_btn
+            .style()
+            .set_property("pointer-events", if running { "none" } else { "auto" })
+            .unwrap();
+        self.calibration_overlay
+            .style()
+            .set_property("display", if running { "block" } else { "none" })
+            .unwrap();
+    }
+
+    pub(crate) fn update_bench_titles(
+        &self,
+        bench_defs: &[BenchDef],
+        calibration: Option<&CalibrationProfile>,
+    ) {
+        for (row, def) in self.bench_rows.iter().zip(bench_defs) {
+            row.name_el.set_text_content(Some(&format_bench_title(
+                def.name,
+                def.scale,
+                calibration,
+            )));
+        }
     }
 
     /// Return indices of checked benchmarks.
@@ -816,6 +886,7 @@ impl Ui {
     pub(crate) fn update_bench_support(
         &mut self,
         bench_defs: &[BenchDef],
+        calibration: Option<&CalibrationProfile>,
         scenes: &[Box<dyn BenchScene>],
         capabilities: BackendCapabilities,
     ) {
@@ -823,6 +894,7 @@ impl Ui {
             &self.bench_rows_container,
             &doc(),
             bench_defs,
+            calibration,
             scenes,
             capabilities,
             &self.dirty,
@@ -1069,6 +1141,14 @@ impl Ui {
         &self.compare_select
     }
 
+    pub fn vp_width_input(&self) -> &HtmlInputElement {
+        &self.vp_width_input
+    }
+
+    pub fn vp_height_input(&self) -> &HtmlInputElement {
+        &self.vp_height_input
+    }
+
     /// Mark state as needing a save.
     pub fn mark_dirty(&self) {
         self.dirty.set(true);
@@ -1120,7 +1200,6 @@ impl Ui {
             scene: Some(scene),
             params,
             benches,
-            bench_preset: Some(self.bench_preset()),
             bench_warmup_samples: Some(self.bench_warmup_samples() as u32),
             bench_measured_samples: Some(self.bench_measured_samples() as u32),
             ab_rounds: Some(self.ab_rounds() as u32),
@@ -1142,11 +1221,7 @@ impl Ui {
         self.sync_bench_checkbox_state();
     }
 
-    pub(crate) fn apply_saved_bench_preset(&self, saved: &UiState) {
-        if let Some(preset) = saved.bench_preset {
-            self.preset_input
-                .set_value(&preset.clamp(1, 20).to_string());
-        }
+    pub(crate) fn apply_saved_bench_config(&self, saved: &UiState) {
         if let Some(warmup) = saved.bench_warmup_samples {
             self.warmup_input.set_value(&warmup.to_string());
         }
@@ -1158,7 +1233,6 @@ impl Ui {
         {
             input.set_value(&rounds.max(1).to_string());
         }
-        self.update_bench_titles();
     }
 
     /// Apply saved interactive param values.
@@ -1215,16 +1289,19 @@ fn format_delta(el: &HtmlElement, cur_ms: Option<f64>, base_ms: Option<f64>) {
     el.style().set_property("display", "block").unwrap();
 }
 
-fn format_bench_title(name: &str, scale: Option<BenchScale>, preset: u32) -> String {
+fn format_bench_title(
+    name: &str,
+    scale: Option<BenchScale>,
+    calibration: Option<&CalibrationProfile>,
+) -> String {
     if let Some(scale) = scale {
-        format!(
-            "{} {}",
-            short_count(crate::harness::scaled_count(scale.calibrated_value, preset)),
-            name
-        )
+        if let Some(count) = crate::harness::resolved_count(scale, calibration) {
+            return format!("{} {}", short_count(count), name);
+        }
     } else {
-        name.to_string()
+        return name.to_string();
     }
+    name.to_string()
 }
 
 fn short_count(count: usize) -> String {
@@ -1268,10 +1345,11 @@ struct InteractiveViewParts {
 
 struct BenchConfigParts {
     wrapper: HtmlElement,
-    preset_input: HtmlInputElement,
-    preset_value_label: HtmlElement,
     warmup_input: HtmlInputElement,
     measured_input: HtmlInputElement,
+    calibrate_btn: HtmlElement,
+    reset_calibration_btn: HtmlElement,
+    calibration_status: HtmlElement,
     start_btn: HtmlElement,
     ab_start_btn: Option<HtmlElement>,
     ab_rounds_input: Option<HtmlInputElement>,
@@ -1298,6 +1376,7 @@ fn build_top_bar(
     document: &Document,
     current_backend: BackendKind,
 ) -> (
+    HtmlElement,
     HtmlElement,
     HtmlElement,
     HtmlElement,
@@ -1338,6 +1417,12 @@ fn build_top_bar(
     nav_group.append_child(&tab_interactive).unwrap();
     top_bar.append_child(&nav_group).unwrap();
 
+    let calibration_overlay = div(document);
+    calibration_overlay.set_text_content(Some("Starting calibration…"));
+    class(
+        &calibration_overlay,
+        "pointer-events-none fixed left-3 top-3 z-[85] hidden max-w-[22rem] border border-amber-300/30 bg-slate-950/92 px-3 py-2 text-xs font-medium text-amber-200 sm:left-3 sm:top-3 lg:left-4 lg:top-4",
+    );
     let controls_group = div(document);
     class(
         &controls_group,
@@ -1402,6 +1487,7 @@ fn build_top_bar(
 
     (
         top_bar,
+        calibration_overlay,
         sidebar_toggle_btn,
         tab_interactive,
         tab_benchmark,
@@ -1592,14 +1678,6 @@ fn build_bench_config(
         .append_child(&section_label(document, "Run Config"))
         .unwrap();
 
-    let preset_input = slider_input(document, "Preset", "10", "1", "20");
-    preset_input
-        .0
-        .style()
-        .set_property("margin-bottom", "6px")
-        .unwrap();
-    left_col.append_child(&preset_input.0).unwrap();
-
     let sample_row = div(document);
     class(&sample_row, "mb-3 grid grid-cols-2 gap-2");
 
@@ -1618,6 +1696,27 @@ fn build_bench_config(
         .unwrap();
 
     left_col.append_child(&sample_row).unwrap();
+
+    let calibration_status = div(document);
+    calibration_status.set_text_content(Some("Calibration required for this backend and viewport"));
+    class(&calibration_status, "mb-3 text-xs leading-5 text-slate-400");
+    left_col.append_child(&calibration_status).unwrap();
+
+    let calibrate_btn = div(document);
+    calibrate_btn.set_text_content(Some("Start Calibration"));
+    class(
+        &calibrate_btn,
+        "mb-2 border border-amber-300/30 bg-amber-300/10 px-4 py-2 text-center text-sm font-semibold text-amber-200 transition hover:bg-amber-300/15",
+    );
+    left_col.append_child(&calibrate_btn).unwrap();
+
+    let reset_calibration_btn = div(document);
+    reset_calibration_btn.set_text_content(Some("Reset Calibration"));
+    class(
+        &reset_calibration_btn,
+        "mb-3 border border-white/10 bg-slate-900 px-4 py-2 text-center text-sm font-medium text-slate-300 transition hover:bg-slate-800",
+    );
+    left_col.append_child(&reset_calibration_btn).unwrap();
 
     left_col
         .append_child(&section_label(document, "Viewport"))
@@ -1656,7 +1755,7 @@ fn build_bench_config(
     left_col.append_child(&start_btn).unwrap();
 
     let (ab_start_btn, ab_rounds_input, ab_status) = if ab_mode {
-        let rounds_input = sized_num_input(document, "3", "100%");
+        let rounds_input = sized_num_input(document, "1", "100%");
         rounds_input.set_type("number");
         rounds_input.set_min("1");
         left_col
@@ -1778,10 +1877,11 @@ fn build_bench_config(
 
     BenchConfigParts {
         wrapper,
-        preset_input: preset_input.1,
-        preset_value_label: preset_input.2,
         warmup_input,
         measured_input,
+        calibrate_btn,
+        reset_calibration_btn,
+        calibration_status,
         start_btn,
         ab_start_btn,
         ab_rounds_input,
@@ -1799,6 +1899,7 @@ fn build_bench_config(
 fn build_bench_rows(
     document: &Document,
     bench_defs: &[BenchDef],
+    calibration: Option<&CalibrationProfile>,
     scenes: &[Box<dyn BenchScene>],
     capabilities: BackendCapabilities,
     dirty: &Rc<Cell<bool>>,
@@ -1809,6 +1910,7 @@ fn build_bench_rows(
         &container,
         document,
         bench_defs,
+        calibration,
         scenes,
         capabilities,
         dirty,
@@ -1819,6 +1921,7 @@ fn populate_bench_rows(
     container: &HtmlElement,
     document: &Document,
     bench_defs: &[BenchDef],
+    calibration: Option<&CalibrationProfile>,
     scenes: &[Box<dyn BenchScene>],
     capabilities: BackendCapabilities,
     dirty: &Rc<Cell<bool>>,
@@ -1894,6 +1997,7 @@ fn populate_bench_rows(
                     bench_row_states[i] = Some(build_single_bench_row(
                         document,
                         &bench_defs[i],
+                        calibration,
                         false,
                         &hidden_rows,
                     ));
@@ -1938,6 +2042,7 @@ fn populate_bench_rows(
             bench_row_states[i] = Some(build_single_bench_row(
                 document,
                 def,
+                calibration,
                 bench_def_supported(def, scenes, capabilities),
                 &rows_wrap,
             ));
@@ -1948,6 +2053,7 @@ fn populate_bench_rows(
                 bench_row_states[i] = Some(build_single_bench_row(
                     document,
                     &bench_defs[i],
+                    calibration,
                     false,
                     &hidden_rows,
                 ));
@@ -2025,6 +2131,7 @@ fn populate_bench_rows(
 fn build_single_bench_row(
     document: &Document,
     def: &BenchDef,
+    calibration: Option<&CalibrationProfile>,
     supported: bool,
     rows_wrap: &HtmlElement,
 ) -> BenchRowState {
@@ -2067,7 +2174,7 @@ fn build_single_bench_row(
     class(&info, "min-w-0 border-l border-white/10 pl-2.5");
 
     let name_el = div(document);
-    name_el.set_text_content(Some(&format_bench_title(def.name, def.scale, 18)));
+    name_el.set_text_content(Some(&format_bench_title(def.name, def.scale, calibration)));
     class(
         &name_el,
         "truncate text-[13px] font-medium leading-5 text-slate-100",
@@ -2160,7 +2267,6 @@ fn build_single_bench_row(
         result_line,
         delta_text,
         name: def.name,
-        scale: def.scale,
     }
 }
 
@@ -2194,59 +2300,6 @@ fn style_tab(el: &HtmlElement, active: bool) {
             "shrink-0 cursor-pointer border-b-2 border-transparent px-1 py-2 text-sm font-medium text-slate-400 transition hover:text-slate-100"
         },
     );
-}
-
-fn slider_input(
-    document: &Document,
-    label: &str,
-    default: &str,
-    min: &str,
-    max: &str,
-) -> (HtmlElement, HtmlInputElement, HtmlElement) {
-    let wrapper = div(document);
-    class(&wrapper, "mb-2 flex flex-col gap-2");
-
-    let header = div(document);
-    class(&header, "flex items-center justify-between gap-3");
-
-    let lbl = div(document);
-    lbl.set_text_content(Some(label));
-    class(&lbl, "text-sm text-slate-300");
-    header.append_child(&lbl).unwrap();
-
-    let value = div(document);
-    value.set_text_content(Some(default));
-    class(&value, "text-sm font-semibold text-slate-100");
-    header.append_child(&value).unwrap();
-
-    wrapper.append_child(&header).unwrap();
-
-    let input: HtmlInputElement = document
-        .create_element("input")
-        .unwrap()
-        .dyn_into()
-        .unwrap();
-    input.set_type("range");
-    input.set_min(min);
-    input.set_max(max);
-    input.set_step("1");
-    input.set_value(default);
-    class(&input, "m-0 w-full accent-cyan-300");
-    wrapper.append_child(&input).unwrap();
-
-    {
-        let input_for_cb = input.clone();
-        let value = value.clone();
-        let cb = Closure::wrap(Box::new(move || {
-            value.set_text_content(Some(&input_for_cb.value()));
-        }) as Box<dyn FnMut()>);
-        input
-            .add_event_listener_with_callback("input", cb.as_ref().unchecked_ref())
-            .unwrap();
-        cb.forget();
-    }
-
-    (wrapper, input, value)
 }
 
 fn sized_num_input(document: &Document, default: &str, width: &str) -> HtmlInputElement {

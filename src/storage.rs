@@ -1,8 +1,11 @@
 //! Save/load benchmark reports to browser localStorage.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 const STORAGE_KEY: &str = "vello_bench_reports";
+const CALIBRATION_KEY: &str = "vello_bench_calibration";
 
 /// A single benchmark result within a report.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,8 +89,6 @@ pub(crate) struct UiState {
     /// Checked benchmark indices (benchmark mode).
     #[serde(default)]
     pub(crate) benches: Vec<usize>,
-    /// Benchmark preset scale (benchmark mode).
-    pub(crate) bench_preset: Option<u32>,
     /// Benchmark warmup frames.
     pub(crate) bench_warmup_samples: Option<u32>,
     /// Benchmark measured frames.
@@ -123,5 +124,77 @@ pub(crate) fn load_backend_name() -> Option<String> {
 pub(crate) fn save_backend_name(name: &str) {
     if let Some(storage) = local_storage() {
         let _ = storage.set_item(BACKEND_KEY, name);
+    }
+}
+
+// ── Benchmark calibration persistence ───────────────────────────────────────
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub(crate) struct CalibrationStore {
+    pub(crate) profiles: Vec<CalibrationProfile>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub(crate) struct CalibrationProfile {
+    pub(crate) key: String,
+    #[serde(default)]
+    pub(crate) counts: HashMap<crate::harness::ScaleGroup, usize>,
+}
+
+impl CalibrationProfile {
+    pub(crate) fn count_for(&self, group: crate::harness::ScaleGroup) -> Option<usize> {
+        self.counts.get(&group).copied()
+    }
+}
+
+pub(crate) fn calibration_key(backend: &str, simd: bool, width: u32, height: u32) -> String {
+    format!(
+        "backend={backend};simd={};width={width};height={height}",
+        if simd { 1 } else { 0 }
+    )
+}
+
+pub(crate) fn load_calibration_store() -> CalibrationStore {
+    let Some(storage) = local_storage() else {
+        return CalibrationStore::default();
+    };
+    let Some(json) = storage.get_item(CALIBRATION_KEY).ok().flatten() else {
+        return CalibrationStore::default();
+    };
+    serde_json::from_str(&json).unwrap_or_default()
+}
+
+pub(crate) fn load_calibration_profile(key: &str) -> Option<CalibrationProfile> {
+    load_calibration_store()
+        .profiles
+        .into_iter()
+        .find(|profile| profile.key == key)
+}
+
+pub(crate) fn save_calibration_profile(profile: CalibrationProfile) {
+    let mut store = load_calibration_store();
+    if let Some(existing) = store
+        .profiles
+        .iter_mut()
+        .find(|existing| existing.key == profile.key)
+    {
+        *existing = profile;
+    } else {
+        store.profiles.push(profile);
+    }
+    if let Some(storage) = local_storage()
+        && let Ok(json) = serde_json::to_string(&store)
+    {
+        let _ = storage.set_item(CALIBRATION_KEY, &json);
+    }
+}
+
+pub(crate) fn delete_calibration_profile(key: &str) {
+    let mut store = load_calibration_store();
+    store.profiles.retain(|profile| profile.key != key);
+    if let Some(storage) = local_storage()
+        && let Ok(json) = serde_json::to_string(&store)
+    {
+        let _ = storage.set_item(CALIBRATION_KEY, &json);
     }
 }

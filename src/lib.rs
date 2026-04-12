@@ -28,9 +28,12 @@ use backend::{
     new_backend,
 };
 use fps::FpsTracker;
-use harness::{BenchDef, BenchHarness, HarnessEvent, bench_defs};
+use harness::{
+    BenchDef, BenchHarness, CalibrationEvent, CalibrationHarness, HarnessEvent, bench_defs,
+};
 use resource_store::ResourceStore;
 use scenes::{BenchScene, scene_index};
+use storage::CalibrationProfile;
 use ui::{AppMode, Ui};
 use vello_common::kurbo::Affine;
 use wasm_bindgen::prelude::*;
@@ -56,8 +59,10 @@ struct AppState {
     fps_tracker: FpsTracker,
     ui: Ui,
     harness: BenchHarness,
+    calibration_harness: CalibrationHarness,
     ab_harness: Option<AbHarnessState>,
     bench_defs: Vec<BenchDef>,
+    calibration: Option<CalibrationProfile>,
     resources: ResourceStore,
     // View state (pan in physical pixels, zoom multiplier).
     pan_x: f64,
@@ -134,6 +139,13 @@ fn parse_ab_variant(value: &str) -> Option<AbVariant> {
     }
 }
 
+fn current_simd_enabled() -> bool {
+    js_sys::Reflect::get(&js_sys::global(), &"__vello_simd".into())
+        .ok()
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true)
+}
+
 impl std::fmt::Debug for AppState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AppState")
@@ -147,6 +159,7 @@ impl std::fmt::Debug for AppState {
 impl AppState {
     fn benchmark_running(&self) -> bool {
         self.harness.is_running()
+            || self.calibration_harness.is_running()
             || self
                 .ab_harness
                 .as_ref()
@@ -155,6 +168,57 @@ impl AppState {
 
     fn scene_params_for_ui(&self, scene_idx: usize) -> Vec<scenes::Param> {
         scenes::visible_params(self.scenes[scene_idx].as_ref(), self.backend_caps)
+    }
+
+    fn calibration_key_for(&self, width: u32, height: u32) -> String {
+        storage::calibration_key(
+            self.backend.kind().as_str(),
+            current_simd_enabled(),
+            width,
+            height,
+        )
+    }
+
+    fn refresh_calibration_state(&mut self) {
+        let (vp_w, vp_h) = self.ui.configured_viewport();
+        if vp_w == 0 || vp_h == 0 {
+            self.calibration = None;
+            self.ui
+                .set_calibration_status("Set a non-zero benchmark viewport to calibrate");
+            self.ui.set_calibration_ready(false);
+            self.ui.set_ab_ready(false);
+            self.ui.update_bench_titles(&self.bench_defs, None);
+            return;
+        }
+
+        let key = self.calibration_key_for(vp_w, vp_h);
+        self.calibration = storage::load_calibration_profile(&key);
+        self.ui
+            .update_bench_titles(&self.bench_defs, self.calibration.as_ref());
+        let ready = self.calibration.is_some();
+        if ready {
+            self.ui.set_calibration_status(&format!(
+                "Calibrated for {} at {}x{}",
+                self.backend.kind().label(),
+                vp_w,
+                vp_h
+            ));
+        } else {
+            self.ui.set_calibration_status(&format!(
+                "Calibration required for {} at {}x{}",
+                self.backend.kind().label(),
+                vp_w,
+                vp_h
+            ));
+        }
+        self.ui.set_calibration_ready(ready);
+        let ab_ready = ready
+            && self
+                .ab_harness
+                .as_ref()
+                .is_some_and(AbHarnessState::is_ready);
+        self.ui.set_ab_ready(ab_ready);
+        self.harness.set_calibration(self.calibration.clone());
     }
 
     fn switch_backend(&mut self, kind: BackendKind, now: f64) -> bool {
@@ -202,10 +266,15 @@ impl AppState {
         self.ui.set_renderer(kind);
         self.ui
             .rebuild_scene_options(&self.scenes, self.backend_caps, self.current_scene);
-        self.ui
-            .update_bench_support(&self.bench_defs, &self.scenes, self.backend_caps);
+        self.ui.update_bench_support(
+            &self.bench_defs,
+            self.calibration.as_ref(),
+            &self.scenes,
+            self.backend_caps,
+        );
         let params = self.scene_params_for_ui(self.current_scene);
         self.ui.rebuild_params(&params);
+        self.refresh_calibration_state();
         self.fps_tracker.reset(now);
         self.reset_view();
         self.ui.mark_dirty();
@@ -333,6 +402,45 @@ impl AppState {
     }
 
     fn tick_benchmark(&mut self, now: f64) {
+        if self.calibration_harness.is_running() {
+            if let Some(status) = self.calibration_harness.current_status() {
+                self.ui.set_calibration_status(&status);
+            }
+            let events = self.calibration_harness.tick(self.width, self.height, now);
+            for event in events {
+                match event {
+                    CalibrationEvent::AllDone(counts) => {
+                        let key = self.calibration_key_for(self.width, self.height);
+                        let profile = CalibrationProfile { key, counts };
+                        storage::save_calibration_profile(profile.clone());
+                        self.calibration = Some(profile);
+                        self.harness.set_calibration(self.calibration.clone());
+                        self.ui
+                            .update_bench_titles(&self.bench_defs, self.calibration.as_ref());
+                        self.ui.set_calibration_status(&format!(
+                            "Calibration complete for {} at {}x{}",
+                            self.backend.kind().label(),
+                            self.width,
+                            self.height
+                        ));
+                        self.ui.set_calibration_running(false);
+                        self.ui.set_calibration_ready(true);
+                        let ab_ready = self
+                            .ab_harness
+                            .as_ref()
+                            .is_some_and(AbHarnessState::is_ready);
+                        self.ui.set_ab_ready(ab_ready);
+                        self.ui.set_benchmark_presentation(false);
+                        set_canvas_visibility(&self.benchmark_canvas, false);
+                        if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                            set_stage_shell_presentation(&document, false);
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
         if !self.harness.is_running() {
             return;
         }
@@ -355,6 +463,14 @@ impl AppState {
                 }
                 HarnessEvent::AllDone => {
                     self.ui.bench_all_done();
+                    self.ui.set_calibration_ready(self.calibration.is_some());
+                    self.ui.set_calibration_running(false);
+                    let ab_ready = self.calibration.is_some()
+                        && self
+                            .ab_harness
+                            .as_ref()
+                            .is_some_and(AbHarnessState::is_ready);
+                    self.ui.set_ab_ready(ab_ready);
                     self.ui.set_benchmark_presentation(false);
                     set_canvas_visibility(&self.benchmark_canvas, false);
                     if let Some(document) = web_sys::window().and_then(|w| w.document()) {
@@ -366,6 +482,11 @@ impl AppState {
     }
 
     fn start_ab_benchmark(&mut self) {
+        if self.calibration.is_none() {
+            self.ui
+                .set_calibration_status("Calibration is required before running A/B benchmarks");
+            return;
+        }
         let ab_ready = self
             .ab_harness
             .as_ref()
@@ -410,6 +531,40 @@ impl AppState {
         ab.pending_control = None;
 
         self.send_ab_bench(AbVariant::Control);
+    }
+
+    fn start_calibration(&mut self) {
+        if self.benchmark_running() {
+            return;
+        }
+        let (vp_w, vp_h) = self.ui.configured_viewport();
+        if vp_w == 0 || vp_h == 0 {
+            self.ui
+                .set_calibration_status("Set a non-zero benchmark viewport before calibrating");
+            return;
+        }
+
+        self.width = vp_w;
+        self.height = vp_h;
+        self.canvas.set_width(vp_w);
+        self.canvas.set_height(vp_h);
+        self.benchmark_canvas.set_width(vp_w);
+        self.benchmark_canvas.set_height(vp_h);
+        self.backend.resize(vp_w, vp_h);
+        self.harness.set_calibration(None);
+
+        self.ui.set_calibration_running(true);
+        self.ui.set_calibration_ready(false);
+        self.ui.set_ab_ready(false);
+        self.ui.set_calibration_status("Starting calibration…");
+        self.ui.set_benchmark_presentation(true);
+        set_canvas_visibility(&self.canvas, false);
+        set_canvas_visibility(&self.benchmark_canvas, true);
+        if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+            set_stage_shell_presentation(&document, true);
+        }
+        self.calibration_harness
+            .start(&self.bench_defs, &self.benchmark_canvas, vp_w, vp_h);
     }
 
     fn show_ab_variant(&self, active: Option<AbVariant>) {
@@ -458,7 +613,6 @@ impl AppState {
         let msg = js_sys::Object::new();
         js_sys::Reflect::set(&msg, &"type".into(), &"run_bench".into()).unwrap();
         js_sys::Reflect::set(&msg, &"idx".into(), &(idx as u32).into()).unwrap();
-        js_sys::Reflect::set(&msg, &"preset".into(), &self.ui.bench_preset().into()).unwrap();
         js_sys::Reflect::set(
             &msg,
             &"warmup_samples".into(),
@@ -494,7 +648,8 @@ impl AppState {
             AbVariant::Control => ab.control_ready = true,
             AbVariant::Treatment => ab.treatment_ready = true,
         }
-        self.ui.set_ab_ready(ab.is_ready());
+        self.ui
+            .set_ab_ready(ab.is_ready() && self.calibration.is_some());
         if ab.is_ready() {
             self.ui.set_ab_status("A/B harness ready");
         } else {
@@ -774,6 +929,12 @@ pub async fn run() {
     let backend_caps = current_backend_capabilities(backend_kind);
 
     let saved_state = storage::load_ui_state();
+    let initial_calibration = storage::load_calibration_profile(&storage::calibration_key(
+        backend_kind.as_str(),
+        current_simd_enabled(),
+        px_w,
+        px_h,
+    ));
     let initial_mode = match saved_state.mode.as_deref() {
         Some("interactive") => AppMode::Interactive,
         _ => AppMode::Benchmark,
@@ -790,6 +951,7 @@ pub async fn run() {
         &document,
         &bench_scenes,
         &defs,
+        initial_calibration.as_ref(),
         backend_caps,
         initial_scene,
         initial_sidebar_collapsed,
@@ -815,8 +977,10 @@ pub async fn run() {
         fps_tracker: FpsTracker::new(now),
         ui,
         harness: BenchHarness::new(),
+        calibration_harness: CalibrationHarness::new(),
         ab_harness,
         bench_defs: defs,
+        calibration: initial_calibration,
         resources: ResourceStore::new(),
         pan_x: 0.0,
         pan_y: 0.0,
@@ -834,11 +998,10 @@ pub async fn run() {
         let mut st = state.borrow_mut();
         st.ui.set_mode(initial_mode);
         st.ui.set_benchmark_presentation(false);
-        st.ui
-            .set_ab_ready(st.ab_harness.as_ref().is_some_and(AbHarnessState::is_ready));
         st.ui.apply_saved_benches(&saved_state);
-        st.ui.apply_saved_bench_preset(&saved_state);
+        st.ui.apply_saved_bench_config(&saved_state);
         st.ui.apply_saved_params(&saved_state);
+        st.refresh_calibration_state();
         st.ui.save_state();
     }
 
@@ -896,6 +1059,7 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
             st.reset_interactive_state(now);
             st.ui.set_mode(AppMode::Benchmark);
             st.ui.set_benchmark_presentation(false);
+            st.refresh_calibration_state();
             st.ui.flush_state();
             set_canvas_visibility(&st.canvas, false);
             set_canvas_visibility(&st.benchmark_canvas, false);
@@ -916,6 +1080,11 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
             if st.benchmark_running() {
                 return;
             }
+            if st.calibration.is_none() {
+                st.ui
+                    .set_calibration_status("Calibration is required before running benchmarks");
+                return;
+            }
             let selected = st.ui.selected_bench_indices();
             if selected.is_empty() {
                 return;
@@ -930,7 +1099,6 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
                 st.height = vp_h;
                 st.backend.resize(vp_w, vp_h);
             }
-            st.harness.preset = st.ui.bench_preset();
             st.harness.warmup_samples = st.ui.bench_warmup_samples();
             st.harness.measured_samples = st.ui.bench_measured_samples();
             st.ui.bench_started(&selected);
@@ -942,6 +1110,44 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
             let (w, h) = (st.width, st.height);
             let canvas = st.benchmark_canvas.clone();
             st.harness.start(selected, w, h, &canvas);
+        }) as Box<dyn FnMut()>);
+        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
+
+    // Start calibration
+    {
+        let s = state.clone();
+        let btn = state.borrow().ui.calibrate_btn().clone();
+        let cb = Closure::wrap(Box::new(move || {
+            s.borrow_mut().start_calibration();
+        }) as Box<dyn FnMut()>);
+        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
+
+    // Reset calibration
+    {
+        let s = state.clone();
+        let btn = state.borrow().ui.reset_calibration_btn().clone();
+        let cb = Closure::wrap(Box::new(move || {
+            let mut st = s.borrow_mut();
+            if st.benchmark_running() {
+                return;
+            }
+            let (vp_w, vp_h) = st.ui.configured_viewport();
+            let key = st.calibration_key_for(vp_w, vp_h);
+            storage::delete_calibration_profile(&key);
+            st.calibration = None;
+            st.harness.set_calibration(None);
+            st.ui.update_bench_titles(&st.bench_defs, None);
+            st.ui.set_calibration_running(false);
+            st.ui.set_calibration_ready(false);
+            st.ui.set_ab_ready(false);
+            st.ui
+                .set_calibration_status("Calibration reset. Start a new calibration run.");
         }) as Box<dyn FnMut()>);
         btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
             .unwrap();
@@ -1088,21 +1294,6 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         }
     }
 
-    // Preset changes → mark dirty
-    {
-        let input = state.borrow().ui.preset_input().clone();
-        let s = state.clone();
-        let cb = Closure::wrap(Box::new(move || {
-            let st = s.borrow_mut();
-            st.ui.update_bench_titles();
-            st.ui.mark_dirty();
-        }) as Box<dyn FnMut()>);
-        input
-            .add_event_listener_with_callback("input", cb.as_ref().unchecked_ref())
-            .unwrap();
-        cb.forget();
-    }
-
     // Benchmark sample config changes → mark dirty
     for input in [
         state.borrow().ui.warmup_input().clone(),
@@ -1122,6 +1313,22 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         let dirty = state.borrow().ui.dirty_flag();
         let cb = Closure::wrap(Box::new(move || {
             dirty.set(true);
+        }) as Box<dyn FnMut()>);
+        input
+            .add_event_listener_with_callback("input", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
+
+    for input in [
+        state.borrow().ui.vp_width_input().clone(),
+        state.borrow().ui.vp_height_input().clone(),
+    ] {
+        let s = state.clone();
+        let dirty = state.borrow().ui.dirty_flag();
+        let cb = Closure::wrap(Box::new(move || {
+            dirty.set(true);
+            s.borrow_mut().refresh_calibration_state();
         }) as Box<dyn FnMut()>);
         input
             .add_event_listener_with_callback("input", cb.as_ref().unchecked_ref())
@@ -1522,18 +1729,24 @@ pub fn ab_child_init() {
                     .and_then(|v| v.as_f64())
             };
             let idx = get_f64("idx").unwrap_or(0.0) as usize;
-            let preset = get_f64("preset").unwrap_or(10.0) as u32;
             let warmup_samples = get_f64("warmup_samples").unwrap_or(3.0) as usize;
             let measured_samples = get_f64("measured_samples").unwrap_or(15.0) as usize;
             let width = get_f64("width").unwrap_or(800.0) as u32;
             let height = get_f64("height").unwrap_or(600.0) as u32;
+            let backend = js_sys::Reflect::get(obj, &"backend".into())
+                .ok()
+                .and_then(|v| v.as_string())
+                .unwrap_or_else(|| current_backend_kind().as_str().to_string());
 
             let mut st = state.borrow_mut();
             st.canvas.set_width(width);
             st.canvas.set_height(height);
-            st.harness.preset = preset;
             st.harness.warmup_samples = warmup_samples;
             st.harness.measured_samples = measured_samples.max(1);
+            st.harness
+                .set_calibration(storage::load_calibration_profile(
+                    &storage::calibration_key(&backend, current_simd_enabled(), width, height),
+                ));
             let canvas = st.canvas.clone();
             st.harness.start(vec![idx], width, height, &canvas);
         }) as Box<dyn FnMut(_)>);
