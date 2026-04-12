@@ -87,8 +87,7 @@ pub(crate) struct UiState {
     #[serde(default)]
     pub(crate) params: Vec<(String, f64)>,
     /// Checked benchmark indices (benchmark mode).
-    #[serde(default)]
-    pub(crate) benches: Vec<usize>,
+    pub(crate) benches: Option<Vec<usize>>,
     /// Benchmark warmup frames.
     pub(crate) bench_warmup_samples: Option<u32>,
     /// Benchmark measured frames.

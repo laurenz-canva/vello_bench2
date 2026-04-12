@@ -1191,7 +1191,7 @@ impl Ui {
             sidebar_collapsed: Some(self.sidebar_collapsed),
             scene: Some(scene),
             params,
-            benches,
+            benches: Some(benches),
             bench_warmup_samples: Some(self.bench_warmup_samples() as u32),
             bench_measured_samples: Some(self.bench_measured_samples() as u32),
             ab_rounds: Some(self.ab_rounds() as u32),
@@ -1200,11 +1200,11 @@ impl Ui {
 
     /// Apply saved bench checkbox selection.
     pub(crate) fn apply_saved_benches(&self, saved: &UiState) {
-        if saved.benches.is_empty() {
+        let Some(saved_benches) = &saved.benches else {
             self.sync_bench_checkbox_state();
             return;
-        }
-        let set: std::collections::HashSet<usize> = saved.benches.iter().copied().collect();
+        };
+        let set: std::collections::HashSet<usize> = saved_benches.iter().copied().collect();
         for (i, r) in self.bench_rows.iter().enumerate() {
             if r.supported.get() {
                 r.checkbox.set_checked(set.contains(&i));
