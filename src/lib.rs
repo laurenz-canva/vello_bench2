@@ -532,7 +532,7 @@ impl AppState {
         }
         set_canvas_visibility(&self.canvas, false);
         set_canvas_visibility(&self.benchmark_canvas, false);
-        self.show_ab_variant(Some(AbVariant::Control));
+        self.show_ab_variant(None);
 
         let ab = self.ab_harness.as_mut().unwrap();
         ab.running = true;
@@ -705,7 +705,7 @@ impl AppState {
                 );
                 self.ui.set_ab_status(&status);
                 self.ui.set_presentation_status(&status);
-                self.show_ab_variant(Some(AbVariant::Treatment));
+                self.show_ab_variant(None);
                 self.send_ab_bench(AbVariant::Treatment);
             }
             AbVariant::Treatment => {
@@ -723,7 +723,7 @@ impl AppState {
                     );
                     self.ui.set_ab_status(&status);
                     self.ui.set_presentation_status(&status);
-                    self.show_ab_variant(Some(AbVariant::Control));
+                    self.show_ab_variant(None);
                     self.send_ab_bench(AbVariant::Control);
                 } else {
                     let control_result = harness::BenchResult {
@@ -757,7 +757,7 @@ impl AppState {
                             format!("Running control: {} ({}/{})", next_name, 1, ab.total_rounds);
                         self.ui.set_ab_status(&status);
                         self.ui.set_presentation_status(&status);
-                        self.show_ab_variant(Some(AbVariant::Control));
+                        self.show_ab_variant(None);
                         self.send_ab_bench(AbVariant::Control);
                     } else {
                         ab.running = false;
@@ -1653,6 +1653,7 @@ fn wire_ab_messages(state: &Rc<RefCell<AppState>>) {
         let mut st = s.borrow_mut();
         match msg_type.as_deref() {
             Some("ready") => st.handle_ab_ready(variant),
+            Some("bench_started") => st.show_ab_variant(Some(variant)),
             Some("bench_result") => {
                 let name = js_sys::Reflect::get(obj, &"name".into())
                     .ok()
@@ -1763,6 +1764,23 @@ pub fn ab_child_init() {
                 ));
             let canvas = st.canvas.clone();
             st.harness.start(vec![idx], width, height, &canvas);
+            drop(st);
+
+            let started = js_sys::Object::new();
+            js_sys::Reflect::set(&started, &"type".into(), &"bench_started".into()).unwrap();
+            js_sys::Reflect::set(
+                &started,
+                &"variant".into(),
+                &js_sys::Reflect::get(&js_sys::global(), &"__vello_variant".into())
+                    .unwrap_or(JsValue::NULL),
+            )
+            .unwrap();
+            let _ = web_sys::window()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .unwrap()
+                .post_message(&started, "*");
         }) as Box<dyn FnMut(_)>);
         window
             .add_event_listener_with_callback("message", cb.as_ref().unchecked_ref())
