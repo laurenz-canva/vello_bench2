@@ -84,6 +84,7 @@ impl BenchScene for PolylineScene {
     fn set_param(&mut self, param: ParamId, value: f64) {
         match param {
             ParamId::NumVertices => self.num_vertices = (value as usize).max(3),
+            ParamId::Speed => self.speed = value,
             _ => {}
         }
     }

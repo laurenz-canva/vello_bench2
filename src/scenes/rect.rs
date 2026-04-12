@@ -361,6 +361,7 @@ impl BenchScene for RectScene {
     fn set_param(&mut self, param: ParamId, value: f64) {
         match param {
             ParamId::NumRects => self.num_rects = value as usize,
+            ParamId::Speed => self.speed = value,
             ParamId::PaintMode => self.paint_mode = value as u32,
             ParamId::RectSize => self.rect_size = value,
             ParamId::Rotated => self.rotated = value >= 0.5,

@@ -39,6 +39,12 @@ pub(crate) enum ScaleGroup {
     Rects50,
     Rects200,
     Images,
+    Blur50Low,
+    Blur50High,
+    Blur200Low,
+    Blur200High,
+    Blur800Low,
+    Blur800High,
     StrokesLines3,
     StrokesLines20,
     StrokesQuads3,
@@ -315,8 +321,6 @@ fn apply_params(
             resolved_or_default_count(scale, calibration) as f64,
         );
     }
-    // Always force speed=0 for deterministic benchmarks.
-    scene.set_param(ParamId::Speed, 0.0);
 }
 
 pub(crate) fn scaled_count(calibrated_value: usize) -> usize {
@@ -802,6 +806,7 @@ fn is_calibration_representative(def: &BenchDef) -> bool {
         def.category,
         "Rects (alpha)"
             | "Images (alpha)"
+            | "Blurs"
             | "Strokes (alpha)"
             | "Fills"
             | "Clip Paths (alpha)"
@@ -1101,6 +1106,109 @@ pub(crate) fn bench_defs() -> Vec<BenchDef> {
                 (ParamId::Rotated, 0.0),
                 (ParamId::ImageFilter, 1.0),
                 (ParamId::ImageOpaque, 1.0),
+            ],
+        },
+        // ── Blurs ────────────────────────────────────────────────────────
+        BenchDef {
+            name: "Filtered Rect - 50px - Blur σ5",
+            description: "rendering blurred filtered rects with 50px size and low sigma",
+            category: "Blurs",
+            scene_id: SceneId::FilterLayers,
+            scale: Some(BenchScale {
+                param: ParamId::NumRects,
+                group: ScaleGroup::Blur50Low,
+                default_calibrated_value: 1_200,
+            }),
+            params: &[
+                (ParamId::NumRects, 1_200.0),
+                (ParamId::RectSize, 50.0),
+                (ParamId::FilterKind, 1.0),
+                (ParamId::BlurStdDeviation, 5.0),
+            ],
+        },
+        BenchDef {
+            name: "Filtered Rect - 50px - Blur σ60",
+            description: "rendering blurred filtered rects with 50px size and high sigma",
+            category: "Blurs",
+            scene_id: SceneId::FilterLayers,
+            scale: Some(BenchScale {
+                param: ParamId::NumRects,
+                group: ScaleGroup::Blur50High,
+                default_calibrated_value: 220,
+            }),
+            params: &[
+                (ParamId::NumRects, 220.0),
+                (ParamId::RectSize, 50.0),
+                (ParamId::FilterKind, 1.0),
+                (ParamId::BlurStdDeviation, 60.0),
+            ],
+        },
+        BenchDef {
+            name: "Filtered Rect - 200px - Blur σ5",
+            description: "rendering blurred filtered rects with 200px size and low sigma",
+            category: "Blurs",
+            scene_id: SceneId::FilterLayers,
+            scale: Some(BenchScale {
+                param: ParamId::NumRects,
+                group: ScaleGroup::Blur200Low,
+                default_calibrated_value: 260,
+            }),
+            params: &[
+                (ParamId::NumRects, 260.0),
+                (ParamId::RectSize, 200.0),
+                (ParamId::FilterKind, 1.0),
+                (ParamId::BlurStdDeviation, 5.0),
+            ],
+        },
+        BenchDef {
+            name: "Filtered Rect - 200px - Blur σ60",
+            description: "rendering blurred filtered rects with 200px size and high sigma",
+            category: "Blurs",
+            scene_id: SceneId::FilterLayers,
+            scale: Some(BenchScale {
+                param: ParamId::NumRects,
+                group: ScaleGroup::Blur200High,
+                default_calibrated_value: 60,
+            }),
+            params: &[
+                (ParamId::NumRects, 60.0),
+                (ParamId::RectSize, 200.0),
+                (ParamId::FilterKind, 1.0),
+                (ParamId::BlurStdDeviation, 60.0),
+            ],
+        },
+        BenchDef {
+            name: "Filtered Rect - 800px - Blur σ5",
+            description: "rendering blurred filtered rects with 800px size and low sigma",
+            category: "Blurs",
+            scene_id: SceneId::FilterLayers,
+            scale: Some(BenchScale {
+                param: ParamId::NumRects,
+                group: ScaleGroup::Blur800Low,
+                default_calibrated_value: 24,
+            }),
+            params: &[
+                (ParamId::NumRects, 24.0),
+                (ParamId::RectSize, 800.0),
+                (ParamId::FilterKind, 1.0),
+                (ParamId::BlurStdDeviation, 5.0),
+            ],
+        },
+        BenchDef {
+            name: "Filtered Rect - 800px - Blur σ60",
+            description: "rendering blurred filtered rects with 800px size and high sigma",
+            category: "Blurs",
+            scene_id: SceneId::FilterLayers,
+            scale: Some(BenchScale {
+                param: ParamId::NumRects,
+                group: ScaleGroup::Blur800High,
+                default_calibrated_value: 8,
+            }),
+            params: &[
+                (ParamId::NumRects, 8.0),
+                (ParamId::RectSize, 800.0),
+                (ParamId::FilterKind, 1.0),
+                (ParamId::BlurStdDeviation, 60.0),
             ],
         },
         // BenchDef {

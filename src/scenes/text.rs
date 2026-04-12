@@ -171,6 +171,7 @@ impl BenchScene for TextScene {
     fn set_param(&mut self, param: ParamId, value: f64) {
         match param {
             ParamId::NumRuns => self.num_runs = value as usize,
+            ParamId::Speed => self.speed = value,
             ParamId::FontSize => {
                 let new_size = value as f32;
                 if (new_size - self.font_size).abs() > 0.01 {

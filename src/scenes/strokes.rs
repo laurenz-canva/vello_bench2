@@ -235,6 +235,7 @@ impl BenchScene for StrokesScene {
     fn set_param(&mut self, param: ParamId, value: f64) {
         match param {
             ParamId::NumStrokes => self.num_strokes = value as usize,
+            ParamId::Speed => self.speed = value,
             ParamId::CurveType => self.curve_type = value as u32,
             ParamId::Segments => self.segments = (value as usize).max(1),
             ParamId::StrokeWidth => self.stroke_width = value,

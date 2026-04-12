@@ -152,6 +152,7 @@ impl BenchScene for ClipScene {
     fn set_param(&mut self, param: ParamId, value: f64) {
         match param {
             ParamId::NumRects => self.num_rects = value as usize,
+            ParamId::Speed => self.speed = value,
             ParamId::RectSize => self.rect_size = value,
             ParamId::ClipMode => self.clip_mode = value as u32,
             ParamId::ClipMethod => self.clip_method = value as u32,
