@@ -20,11 +20,11 @@ smallvec = {version = "1.15.1" }
 skrifa = { version = "0.40.0" }
 usvg = { version = "0.45.1" }
 vello_common = { git = "https://github.com/linebender/vello", rev = "cca908f" }
-vello_hybrid = { git = "https://github.com/linebender/vello", rev = "cca908f", features = ["webgl", "text"] }
-vello_cpu = { git = "https://github.com/linebender/vello", rev = "cca908f", features = ["text"] }
+vello_hybrid = { git = "https://github.com/linebender/vello", rev = "cca908f", default-features = false, features = ["webgl", "text", "std"] }
+vello_cpu = { git = "https://github.com/linebender/vello", rev = "cca908f", default-features = false, features = ["text", "u8_pipeline", "png", "std"] }
 #vello_common = { path = "../vello/sparse_strips/vello_common" }
-#vello_hybrid = { path = "../vello/sparse_strips/vello_hybrid", features = ["webgl", "text"] }
-#vello_cpu = { path = "../vello/sparse_strips/vello_cpu", features = ["text"] }
+#vello_hybrid = { path = "../vello/sparse_strips/vello_hybrid", default-features = false, features = ["webgl", "text", "std"]  }
+#vello_cpu = { path = "../vello/sparse_strips/vello_cpu", default-features = false, features = ["text", "u8_pipeline", "png", "std"]  }
 pathfinder_canvas = { git = "https://github.com/servo/pathfinder", branch = "main" }
 pathfinder_color = { git = "https://github.com/servo/pathfinder", branch = "main" }
 pathfinder_content = { git = "https://github.com/servo/pathfinder", branch = "main" }
