@@ -18,7 +18,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.149" }
 smallvec = {version = "1.15.1" }
 skrifa = { version = "0.40.0" }
-usvg = { version = "0.45.1" }
+usvg = { version = "0.47.0" }
 vello_common = { git = "https://github.com/linebender/vello", rev = "8afc1c6b" }
 vello_hybrid = { git = "https://github.com/linebender/vello", rev = "8afc1c6b", default-features = false, features = ["webgl", "text", "std"] }
 vello_cpu = { git = "https://github.com/linebender/vello", rev = "8afc1c6b", default-features = false, features = ["text", "u8_pipeline", "png", "std"] }
