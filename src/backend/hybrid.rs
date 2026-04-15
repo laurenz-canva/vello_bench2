@@ -26,7 +26,7 @@ impl std::fmt::Debug for BackendImpl {
 
 impl BackendImpl {
     pub fn new(canvas: &HtmlCanvasElement, w: u32, h: u32) -> Self {
-        let atlas_dimension = query_max_texture_size().min(8_192).max(w.max(h).min(8_192));
+        let atlas_dimension = query_max_texture_size().min(16_384).max(w.max(h).min(16_384));
         let settings = vello_hybrid::RenderSettings {
             atlas_config: vello_hybrid::AtlasConfig {
                 max_atlases: 128,
