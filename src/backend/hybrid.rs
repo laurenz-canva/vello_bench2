@@ -29,7 +29,7 @@ impl BackendImpl {
         let atlas_dimension = query_max_texture_size().min(8_192).max(w.max(h).min(8_192));
         let settings = vello_hybrid::RenderSettings {
             atlas_config: vello_hybrid::AtlasConfig {
-                max_atlases: 32,
+                max_atlases: 128,
                 atlas_size: (atlas_dimension, atlas_dimension),
                 ..vello_hybrid::AtlasConfig::default()
             },
@@ -193,7 +193,8 @@ impl Backend for BackendImpl {
     }
 
     fn destroy_image(&mut self, image: &ImageSource) {
-        // TODO: Fix this!!!
-        let _ = uploaded_image_id(image);
+        if let Some(id) = uploaded_image_id(image) {
+            self.renderer.destroy_image(&mut self.resources, id);
+        }
     }
 }

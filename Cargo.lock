@@ -429,7 +429,7 @@ dependencies = [
 [[package]]
 name = "glifo"
 version = "0.0.0"
-source = "git+https://github.com/linebender/vello?rev=8afc1c6b#8afc1c6b1be8b4dff6bc93f95a4113e2db69d7cd"
+source = "git+https://github.com/linebender/vello?rev=589b474d#589b474da93cb56cafa53a5838e3b51ba02b3245"
 dependencies = [
  "bytemuck",
  "foldhash 0.1.5",
@@ -1381,7 +1381,7 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 [[package]]
 name = "vello_api"
 version = "0.0.7"
-source = "git+https://github.com/linebender/vello?rev=8afc1c6b#8afc1c6b1be8b4dff6bc93f95a4113e2db69d7cd"
+source = "git+https://github.com/linebender/vello?rev=589b474d#589b474da93cb56cafa53a5838e3b51ba02b3245"
 dependencies = [
  "bytemuck",
  "peniko",
@@ -1422,7 +1422,7 @@ dependencies = [
 [[package]]
 name = "vello_common"
 version = "0.0.7"
-source = "git+https://github.com/linebender/vello?rev=8afc1c6b#8afc1c6b1be8b4dff6bc93f95a4113e2db69d7cd"
+source = "git+https://github.com/linebender/vello?rev=589b474d#589b474da93cb56cafa53a5838e3b51ba02b3245"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -1438,7 +1438,7 @@ dependencies = [
 [[package]]
 name = "vello_cpu"
 version = "0.0.7"
-source = "git+https://github.com/linebender/vello?rev=8afc1c6b#8afc1c6b1be8b4dff6bc93f95a4113e2db69d7cd"
+source = "git+https://github.com/linebender/vello?rev=589b474d#589b474da93cb56cafa53a5838e3b51ba02b3245"
 dependencies = [
  "bytemuck",
  "glifo",
@@ -1451,7 +1451,7 @@ dependencies = [
 [[package]]
 name = "vello_hybrid"
 version = "0.0.7"
-source = "git+https://github.com/linebender/vello?rev=8afc1c6b#8afc1c6b1be8b4dff6bc93f95a4113e2db69d7cd"
+source = "git+https://github.com/linebender/vello?rev=589b474d#589b474da93cb56cafa53a5838e3b51ba02b3245"
 dependencies = [
  "bytemuck",
  "glifo",
@@ -1469,7 +1469,7 @@ dependencies = [
 [[package]]
 name = "vello_sparse_shaders"
 version = "0.0.7"
-source = "git+https://github.com/linebender/vello?rev=8afc1c6b#8afc1c6b1be8b4dff6bc93f95a4113e2db69d7cd"
+source = "git+https://github.com/linebender/vello?rev=589b474d#589b474da93cb56cafa53a5838e3b51ba02b3245"
 dependencies = [
  "naga",
 ]

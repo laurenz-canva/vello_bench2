@@ -97,14 +97,14 @@ if [ -n "$AB_VELLO_PATH" ]; then
     crate_dir=$(dirname "$cargo_toml")
     crate_name=$(grep '^name' "$cargo_toml" 2>/dev/null | head -1 | sed 's/.*= *"\(.*\)"/\1/' || true)
     case "$crate_name" in
-      vello_*)
+      vello_*|glifo)
         printf '%s|%s\n' "$crate_name" "$crate_dir" >> "$PATCH_FILE"
         ;;
     esac
   done
 
   if [ ! -s "$PATCH_FILE" ]; then
-    echo "Error: no vello_* crates found under $AB_VELLO_PATH" >&2
+    echo "Error: no vello_* crates or glifo found under $AB_VELLO_PATH" >&2
     exit 1
   fi
 
