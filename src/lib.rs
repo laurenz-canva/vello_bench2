@@ -47,6 +47,11 @@ extern "C" {
     fn request_animation_frame(f: &Closure<dyn FnMut()>);
 }
 
+pub fn init_logging() {
+    console_error_panic_hook::set_once();
+    let _ = console_log::init_with_level(log::Level::Info);
+}
+
 struct AppState {
     scenes: Vec<Box<dyn BenchScene>>,
     current_scene: usize,
@@ -899,6 +904,8 @@ fn event_target_is_in_stage(target: &wasm_bindgen::JsValue) -> bool {
 
 /// Entry point.
 pub async fn run() {
+    init_logging();
+
     let window = web_sys::window().unwrap();
     let document = window.document().unwrap();
     let performance = window.performance().unwrap();
@@ -1701,8 +1708,7 @@ struct AbChildState {
 
 #[wasm_bindgen]
 pub fn ab_child_init() {
-    console_error_panic_hook::set_once();
-    let _ = console_log::init_with_level(log::Level::Warn);
+    init_logging();
 
     let window = web_sys::window().unwrap();
     let document = window.document().unwrap();

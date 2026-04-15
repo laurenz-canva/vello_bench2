@@ -15,8 +15,7 @@ fn main() {
             return;
         }
 
-        console_error_panic_hook::set_once();
-        console_log::init_with_level(log::Level::Warn).unwrap();
+        vello_bench2::init_logging();
 
         wasm_bindgen_futures::spawn_local(async move {
             vello_bench2::run().await;
