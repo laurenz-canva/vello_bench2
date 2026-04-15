@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 
+use glifo::Glyph;
 use vello_common::filter_effects::Filter;
-use vello_common::glyph::Glyph;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::{Fill, FontData};
@@ -33,6 +33,7 @@ const FS: &str = "\
 
 pub struct BackendImpl {
     ctx: vello_cpu::RenderContext,
+    resources: vello_cpu::Resources,
     width: u16,
     height: u16,
     gl: GL,
@@ -97,6 +98,7 @@ impl BackendImpl {
 
         Self {
             ctx: vello_cpu::RenderContext::new(w as u16, h as u16),
+            resources: vello_cpu::Resources::new(),
             width: w as u16,
             height: h as u16,
             gl,
@@ -111,7 +113,7 @@ impl BackendImpl {
 
     fn draw_glyphs(&mut self, font: &FontData, font_size: f32, hint: bool, glyphs: &[Glyph]) {
         self.ctx
-            .glyph_run(font)
+            .glyph_run(&mut self.resources, font)
             .font_size(font_size)
             .hint(hint)
             .fill_glyphs(glyphs.iter().copied());
@@ -129,7 +131,8 @@ impl Backend for BackendImpl {
 
     fn render_offscreen(&mut self) {
         self.ctx.flush();
-        self.ctx.render_to_pixmap(&mut self.target);
+        self.ctx
+            .render_to_pixmap(&mut self.resources, &mut self.target);
     }
 
     fn blit(&mut self) {
@@ -175,6 +178,7 @@ impl Backend for BackendImpl {
         self.width = w as u16;
         self.height = h as u16;
         self.ctx = vello_cpu::RenderContext::new(w as u16, h as u16);
+        self.resources = vello_cpu::Resources::new();
         self.target = Pixmap::new(self.width, self.height);
     }
 

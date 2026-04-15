@@ -1,5 +1,5 @@
+use glifo::Glyph;
 use vello_common::filter_effects::Filter;
-use vello_common::glyph::Glyph;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::{Fill, FontData};
@@ -14,6 +14,7 @@ pub(crate) const CAPABILITIES: CapabilityProfile = CapabilityProfile::all();
 
 pub struct BackendImpl {
     ctx: vello_hybrid::Scene,
+    resources: vello_hybrid::Resources,
     renderer: vello_hybrid::WebGlRenderer,
 }
 
@@ -36,13 +37,14 @@ impl BackendImpl {
         };
         Self {
             ctx: vello_hybrid::Scene::new(w as u16, h as u16),
+            resources: vello_hybrid::Resources::new(),
             renderer: vello_hybrid::WebGlRenderer::new_with(canvas, settings),
         }
     }
 
     fn draw_glyphs(&mut self, font: &FontData, font_size: f32, hint: bool, glyphs: &[Glyph]) {
         self.ctx
-            .glyph_run(font)
+            .glyph_run(&mut self.resources, font)
             .font_size(font_size)
             .hint(hint)
             .fill_glyphs(glyphs.iter().copied());
@@ -89,7 +91,9 @@ impl Backend for BackendImpl {
             width: self.ctx.width() as u32,
             height: self.ctx.height() as u32,
         };
-        self.renderer.render(&mut self.ctx, &rs).unwrap();
+        self.renderer
+            .render(&mut self.ctx, &mut self.resources, &rs)
+            .unwrap();
     }
 
     fn blit(&mut self) {}
@@ -104,6 +108,7 @@ impl Backend for BackendImpl {
 
     fn resize(&mut self, w: u32, h: u32) {
         self.ctx = vello_hybrid::Scene::new(w as u16, h as u16);
+        self.resources = vello_hybrid::Resources::new();
     }
 
     fn set_paint(&mut self, paint: PaintType) {
@@ -182,13 +187,13 @@ impl Backend for BackendImpl {
     fn draw_image(&mut self, _image: ImageSource, _rect: &Rect, _bilinear: bool) {}
 
     fn upload_image(&mut self, pixmap: Pixmap) -> ImageSource {
-        let id = self.renderer.upload_image(&pixmap);
-        ImageSource::opaque_id_with_opacity_hint(id, pixmap.may_have_opacities())
+        let may_have_opacities = pixmap.may_have_opacities();
+        let id = self.renderer.upload_image(&mut self.resources, &pixmap);
+        ImageSource::opaque_id_with_opacity_hint(id, may_have_opacities)
     }
 
     fn destroy_image(&mut self, image: &ImageSource) {
-        if let Some(id) = uploaded_image_id(image) {
-            self.renderer.destroy_image(id);
-        }
+        // TODO: Fix this!!!
+        let _ = uploaded_image_id(image);
     }
 }

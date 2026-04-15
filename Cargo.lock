@@ -427,6 +427,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "glifo"
+version = "0.0.0"
+source = "git+https://github.com/linebender/vello?rev=8afc1c6b#8afc1c6b1be8b4dff6bc93f95a4113e2db69d7cd"
+dependencies = [
+ "bytemuck",
+ "foldhash 0.1.5",
+ "hashbrown 0.16.1",
+ "log",
+ "peniko",
+ "png",
+ "skrifa",
+ "smallvec",
+ "vello_common",
+]
+
+[[package]]
 name = "guillotiere"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1366,7 +1382,7 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 [[package]]
 name = "vello_api"
 version = "0.0.7"
-source = "git+https://github.com/linebender/vello?rev=cca908f#cca908fa1dec85dd9f391486057595328afa90c1"
+source = "git+https://github.com/linebender/vello?rev=8afc1c6b#8afc1c6b1be8b4dff6bc93f95a4113e2db69d7cd"
 dependencies = [
  "bytemuck",
  "peniko",
@@ -1380,6 +1396,7 @@ dependencies = [
  "cargo-run-wasm",
  "console_error_panic_hook",
  "console_log",
+ "glifo",
  "js-sys",
  "log",
  "pathfinder_canvas",
@@ -1406,7 +1423,7 @@ dependencies = [
 [[package]]
 name = "vello_common"
 version = "0.0.7"
-source = "git+https://github.com/linebender/vello?rev=cca908f#cca908fa1dec85dd9f391486057595328afa90c1"
+source = "git+https://github.com/linebender/vello?rev=8afc1c6b#8afc1c6b1be8b4dff6bc93f95a4113e2db69d7cd"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -1415,7 +1432,6 @@ dependencies = [
  "log",
  "peniko",
  "png",
- "skrifa",
  "smallvec",
  "thiserror",
 ]
@@ -1423,10 +1439,12 @@ dependencies = [
 [[package]]
 name = "vello_cpu"
 version = "0.0.7"
-source = "git+https://github.com/linebender/vello?rev=cca908f#cca908fa1dec85dd9f391486057595328afa90c1"
+source = "git+https://github.com/linebender/vello?rev=8afc1c6b#8afc1c6b1be8b4dff6bc93f95a4113e2db69d7cd"
 dependencies = [
  "bytemuck",
+ "glifo",
  "hashbrown 0.16.1",
+ "png",
  "vello_api",
  "vello_common",
 ]
@@ -1434,9 +1452,10 @@ dependencies = [
 [[package]]
 name = "vello_hybrid"
 version = "0.0.7"
-source = "git+https://github.com/linebender/vello?rev=cca908f#cca908fa1dec85dd9f391486057595328afa90c1"
+source = "git+https://github.com/linebender/vello?rev=8afc1c6b#8afc1c6b1be8b4dff6bc93f95a4113e2db69d7cd"
 dependencies = [
  "bytemuck",
+ "glifo",
  "hashbrown 0.16.1",
  "js-sys",
  "log",
@@ -1451,7 +1470,7 @@ dependencies = [
 [[package]]
 name = "vello_sparse_shaders"
 version = "0.0.7"
-source = "git+https://github.com/linebender/vello?rev=cca908f#cca908fa1dec85dd9f391486057595328afa90c1"
+source = "git+https://github.com/linebender/vello?rev=8afc1c6b#8afc1c6b1be8b4dff6bc93f95a4113e2db69d7cd"
 dependencies = [
  "naga",
 ]

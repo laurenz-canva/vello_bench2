@@ -5,10 +5,10 @@ mod cpu;
 mod hybrid;
 mod pathfinder;
 
+use glifo::Glyph;
 use skrifa::MetadataProvider;
 use skrifa::raw::FileRef;
 use vello_common::filter_effects::Filter;
-use vello_common::glyph::Glyph;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 pub use vello_common::paint::ImageSource;
 use vello_common::paint::{ImageId, PaintType};
