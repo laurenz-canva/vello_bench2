@@ -91,6 +91,7 @@ pub trait Backend {
     fn reset(&mut self);
     fn render_offscreen(&mut self);
     fn blit(&mut self);
+    fn probe(&mut self) -> bool;
     fn is_cpu(&self) -> bool;
     fn supports_encode_timing(&self) -> bool;
     fn resize(&mut self, w: u32, h: u32);
@@ -194,8 +195,6 @@ pub fn new_backend(
         BackendKind::Cpu => Box::new(cpu::BackendImpl::new(canvas, w, h)),
         BackendKind::Pathfinder => Box::new(pathfinder::BackendImpl::new(canvas, w, h)),
         BackendKind::Canvas2d => Box::new(canvas2d::BackendImpl::new(canvas, w, h, kind)),
-        BackendKind::Canvas2dCpu => {
-            Box::new(canvas2d::BackendImpl::new(canvas, w, h, kind))
-        }
+        BackendKind::Canvas2dCpu => Box::new(canvas2d::BackendImpl::new(canvas, w, h, kind)),
     }
 }

@@ -429,11 +429,10 @@ dependencies = [
 [[package]]
 name = "glifo"
 version = "0.0.0"
-source = "git+https://github.com/linebender/vello?rev=589b474d#589b474da93cb56cafa53a5838e3b51ba02b3245"
 dependencies = [
  "bytemuck",
- "foldhash 0.1.5",
- "hashbrown 0.16.1",
+ "foldhash 0.2.0",
+ "hashbrown 0.17.0",
  "log",
  "peniko",
  "png",
@@ -499,6 +498,15 @@ dependencies = [
  "foldhash 0.2.0",
  "serde",
  "serde_core",
+]
+
+[[package]]
+name = "hashbrown"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f467dd6dccf739c208452f8014c75c18bb8301b050ad1cfb27153803edb0f51"
+dependencies = [
+ "foldhash 0.2.0",
 ]
 
 [[package]]
@@ -1381,7 +1389,6 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 [[package]]
 name = "vello_api"
 version = "0.0.7"
-source = "git+https://github.com/linebender/vello?rev=589b474d#589b474da93cb56cafa53a5838e3b51ba02b3245"
 dependencies = [
  "bytemuck",
  "peniko",
@@ -1422,12 +1429,11 @@ dependencies = [
 [[package]]
 name = "vello_common"
 version = "0.0.7"
-source = "git+https://github.com/linebender/vello?rev=589b474d#589b474da93cb56cafa53a5838e3b51ba02b3245"
 dependencies = [
  "bytemuck",
  "fearless_simd",
  "guillotiere",
- "hashbrown 0.16.1",
+ "hashbrown 0.17.0",
  "log",
  "peniko",
  "png",
@@ -1438,11 +1444,10 @@ dependencies = [
 [[package]]
 name = "vello_cpu"
 version = "0.0.7"
-source = "git+https://github.com/linebender/vello?rev=589b474d#589b474da93cb56cafa53a5838e3b51ba02b3245"
 dependencies = [
  "bytemuck",
  "glifo",
- "hashbrown 0.16.1",
+ "hashbrown 0.17.0",
  "png",
  "vello_api",
  "vello_common",
@@ -1451,13 +1456,13 @@ dependencies = [
 [[package]]
 name = "vello_hybrid"
 version = "0.0.7"
-source = "git+https://github.com/linebender/vello?rev=589b474d#589b474da93cb56cafa53a5838e3b51ba02b3245"
 dependencies = [
  "bytemuck",
  "glifo",
- "hashbrown 0.16.1",
+ "hashbrown 0.17.0",
  "js-sys",
  "log",
+ "png",
  "thiserror",
  "vello_api",
  "vello_common",
@@ -1469,7 +1474,6 @@ dependencies = [
 [[package]]
 name = "vello_sparse_shaders"
 version = "0.0.7"
-source = "git+https://github.com/linebender/vello?rev=589b474d#589b474da93cb56cafa53a5838e3b51ba02b3245"
 dependencies = [
  "naga",
 ]

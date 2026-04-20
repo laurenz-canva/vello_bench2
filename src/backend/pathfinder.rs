@@ -137,6 +137,10 @@ impl Backend for BackendImpl {
 
     fn blit(&mut self) {}
 
+    fn probe(&mut self) -> bool {
+        false
+    }
+
     fn is_cpu(&self) -> bool {
         false
     }

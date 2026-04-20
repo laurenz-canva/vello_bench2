@@ -166,6 +166,10 @@ impl Backend for BackendImpl {
         self.gl.draw_arrays(GL::TRIANGLE_STRIP, 0, 4);
     }
 
+    fn probe(&mut self) -> bool {
+        false
+    }
+
     fn is_cpu(&self) -> bool {
         true
     }

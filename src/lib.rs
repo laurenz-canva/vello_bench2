@@ -277,6 +277,7 @@ impl AppState {
             &self.scenes,
             self.backend_caps,
         );
+        self.ui.set_probe_state(None);
         let params = self.scene_params_for_ui(self.current_scene);
         self.ui.rebuild_params(&params);
         self.refresh_calibration_state();
@@ -305,6 +306,7 @@ impl AppState {
         for (param_id, value) in self.ui.read_params() {
             self.scenes[self.current_scene].set_param(param_id, value);
         }
+        self.ui.set_probe_state(None);
         self.fps_tracker.reset(now);
         self.reset_view();
     }
@@ -327,6 +329,7 @@ impl AppState {
             let kind = self.backend.kind();
             self.backend = new_backend(&self.canvas, self.width, self.height, kind);
             self.scenes = scenes::all_scenes();
+            self.ui.set_probe_state(None);
             self.fps_tracker.reset(now);
             self.reset_view();
             let params = self.scene_params_for_ui(self.current_scene);
@@ -394,6 +397,25 @@ impl AppState {
         self.pan_y = 0.0;
         self.zoom = 1.0;
         self.update_reset_btn();
+    }
+
+    fn run_probe(&mut self) {
+        let elapsed_ms = web_sys::window()
+            .and_then(|window| window.performance())
+            .map(|performance| {
+                let start = performance.now();
+                let ok = self.backend.probe();
+                (ok, performance.now() - start)
+            })
+            .unwrap_or_else(|| (self.backend.probe(), 0.0));
+
+        let (ok, elapsed_ms) = elapsed_ms;
+        self.ui.set_probe_state(Some(ok));
+        log::info!(
+            "Probe {} in {:.2} ms",
+            if ok { "succeeded" } else { "failed" },
+            elapsed_ms
+        );
     }
 
     /// Zoom centered on a point in physical pixels.
@@ -1246,6 +1268,22 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         let btn = state.borrow().ui.reset_view_btn.clone();
         let cb = Closure::wrap(Box::new(move || {
             s.borrow_mut().reset_view();
+        }) as Box<dyn FnMut()>);
+        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
+
+    // Probe button
+    {
+        let s = state.clone();
+        let btn = state.borrow().ui.probe_btn.clone();
+        let cb = Closure::wrap(Box::new(move || {
+            let mut st = s.borrow_mut();
+            if st.benchmark_running() {
+                return;
+            }
+            st.run_probe();
         }) as Box<dyn FnMut()>);
         btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
             .unwrap();

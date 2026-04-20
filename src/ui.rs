@@ -37,6 +37,21 @@ fn set(el: &HtmlElement, props: &[(&str, &str)]) {
     }
 }
 
+fn style_probe_btn(btn: &HtmlElement, success: Option<bool>) {
+    let class_name = match success {
+        None => {
+            "mb-3 flex w-full cursor-pointer items-center justify-center border border-white/10 bg-slate-900/70 px-3 py-2 text-sm font-semibold text-slate-300 transition hover:border-slate-300/30 hover:bg-slate-900"
+        }
+        Some(true) => {
+            "mb-3 flex w-full cursor-pointer items-center justify-center border border-emerald-300/40 bg-emerald-300/10 px-3 py-2 text-sm font-semibold text-emerald-300 transition hover:bg-emerald-300/15"
+        }
+        Some(false) => {
+            "mb-3 flex w-full cursor-pointer items-center justify-center border border-rose-300/40 bg-rose-300/10 px-3 py-2 text-sm font-semibold text-rose-300 transition hover:bg-rose-300/15"
+        }
+    };
+    class(btn, class_name);
+}
+
 fn select_style(sel: &HtmlSelectElement) {
     class(
         sel,
@@ -181,6 +196,8 @@ pub struct Ui {
     toggle_btn: HtmlElement,
     sidebar_collapsed: bool,
     viewport_label: HtmlElement,
+    /// Probe button.
+    pub probe_btn: HtmlElement,
     /// Scene selector.
     pub scene_select: HtmlSelectElement,
     controls: Vec<(ParamCtrl, HtmlElement, ParamId)>,
@@ -327,6 +344,7 @@ impl Ui {
             toggle_btn: sidebar_toggle_btn,
             sidebar_collapsed,
             viewport_label: iv.viewport_label,
+            probe_btn: cfg.probe_btn,
             scene_select: iv.scene_select,
             controls: iv.controls,
             reset_view_btn: iv.reset_view_btn,
@@ -510,6 +528,10 @@ impl Ui {
     pub fn update_viewport(&self, w: u32, h: u32) {
         self.viewport_label
             .set_text_content(Some(&format!("Viewport: {w} x {h}")));
+    }
+
+    pub fn set_probe_state(&self, success: Option<bool>) {
+        style_probe_btn(&self.probe_btn, success);
     }
 
     /// Read interactive param values.
@@ -1350,6 +1372,7 @@ struct BenchConfigParts {
     calibrate_btn: HtmlElement,
     calibration_status: HtmlElement,
     start_btn: HtmlElement,
+    probe_btn: HtmlElement,
     ab_start_btn: Option<HtmlElement>,
     ab_rounds_input: Option<HtmlInputElement>,
     ab_status: Option<HtmlElement>,
@@ -1745,6 +1768,11 @@ fn build_bench_config(
     );
     left_col.append_child(&start_btn).unwrap();
 
+    let probe_btn = div(document);
+    probe_btn.set_text_content(Some("Probe"));
+    style_probe_btn(&probe_btn, None);
+    left_col.append_child(&probe_btn).unwrap();
+
     let (ab_start_btn, ab_rounds_input, ab_status) = if ab_mode {
         let rounds_input = sized_num_input(document, "1", "100%");
         rounds_input.set_type("number");
@@ -1873,6 +1901,7 @@ fn build_bench_config(
         calibrate_btn,
         calibration_status,
         start_btn,
+        probe_btn,
         ab_start_btn,
         ab_rounds_input,
         ab_status,
