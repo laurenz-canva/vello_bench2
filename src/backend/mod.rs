@@ -26,10 +26,17 @@ pub enum BackendKind {
     Cpu,
     Pathfinder,
     Canvas2d,
+    Canvas2dCpu,
 }
 
 impl BackendKind {
-    pub const ALL: [Self; 4] = [Self::Hybrid, Self::Cpu, Self::Pathfinder, Self::Canvas2d];
+    pub const ALL: [Self; 5] = [
+        Self::Hybrid,
+        Self::Cpu,
+        Self::Pathfinder,
+        Self::Canvas2d,
+        Self::Canvas2dCpu,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -37,6 +44,7 @@ impl BackendKind {
             Self::Cpu => "cpu",
             Self::Pathfinder => "pathfinder",
             Self::Canvas2d => "canvas2d",
+            Self::Canvas2dCpu => "canvas2d_cpu",
         }
     }
 
@@ -46,6 +54,7 @@ impl BackendKind {
             Self::Cpu => "Vello CPU",
             Self::Pathfinder => "Pathfinder",
             Self::Canvas2d => "Canvas 2D",
+            Self::Canvas2dCpu => "Canvas 2D (CPU)",
         }
     }
 
@@ -55,6 +64,7 @@ impl BackendKind {
             "cpu" => Some(Self::Cpu),
             "pathfinder" => Some(Self::Pathfinder),
             "canvas2d" => Some(Self::Canvas2d),
+            "canvas2d_cpu" | "canvas2d_software" => Some(Self::Canvas2dCpu),
             _ => None,
         }
     }
@@ -64,7 +74,7 @@ impl BackendKind {
             Self::Hybrid => &hybrid::CAPABILITIES,
             Self::Cpu => &cpu::CAPABILITIES,
             Self::Pathfinder => &pathfinder::CAPABILITIES,
-            Self::Canvas2d => &canvas2d::CAPABILITIES,
+            Self::Canvas2d | Self::Canvas2dCpu => &canvas2d::CAPABILITIES,
         }
     }
 }
@@ -183,6 +193,9 @@ pub fn new_backend(
         BackendKind::Hybrid => Box::new(hybrid::BackendImpl::new(canvas, w, h)),
         BackendKind::Cpu => Box::new(cpu::BackendImpl::new(canvas, w, h)),
         BackendKind::Pathfinder => Box::new(pathfinder::BackendImpl::new(canvas, w, h)),
-        BackendKind::Canvas2d => Box::new(canvas2d::BackendImpl::new(canvas, w, h)),
+        BackendKind::Canvas2d => Box::new(canvas2d::BackendImpl::new(canvas, w, h, kind)),
+        BackendKind::Canvas2dCpu => {
+            Box::new(canvas2d::BackendImpl::new(canvas, w, h, kind))
+        }
     }
 }

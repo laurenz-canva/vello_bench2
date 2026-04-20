@@ -1,4 +1,4 @@
-use js_sys::{Function, Reflect};
+use js_sys::{Function, Object, Reflect};
 use vello_common::filter::PreparedFilter;
 use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, PathEl, Rect, Stroke};
@@ -80,6 +80,7 @@ pub(crate) const CAPABILITIES: CapabilityProfile = CapabilityProfile::none()
     );
 
 pub struct BackendImpl {
+    kind: BackendKind,
     ctx: CanvasRenderingContext2d,
     current_paint: PaintState,
     fill_rule: CanvasWindingRule,
@@ -124,14 +125,24 @@ impl std::fmt::Debug for BackendImpl {
 }
 
 impl BackendImpl {
-    pub fn new(canvas: &HtmlCanvasElement, w: u32, h: u32) -> Self {
+    pub fn new(canvas: &HtmlCanvasElement, w: u32, h: u32, kind: BackendKind) -> Self {
+        let context_options = Object::new();
+        if matches!(kind, BackendKind::Canvas2dCpu) {
+            Reflect::set(
+                context_options.as_ref(),
+                &JsValue::from_str("willReadFrequently"),
+                &JsValue::TRUE,
+            )
+            .unwrap();
+        }
         let ctx: CanvasRenderingContext2d = canvas
-            .get_context("2d")
+            .get_context_with_context_options("2d", context_options.as_ref())
             .unwrap()
             .unwrap()
             .dyn_into()
             .unwrap();
         let mut out = Self {
+            kind,
             ctx,
             current_paint: PaintState::Solid([1.0, 1.0, 1.0, 1.0]),
             fill_rule: CanvasWindingRule::Nonzero,
@@ -219,7 +230,7 @@ impl BackendImpl {
 
 impl Backend for BackendImpl {
     fn kind(&self) -> BackendKind {
-        BackendKind::Canvas2d
+        self.kind
     }
 
     fn reset(&mut self) {
@@ -232,8 +243,6 @@ impl Backend for BackendImpl {
         }
         self.ctx.reset_transform().unwrap();
         self.ctx.clear_rect(0.0, 0.0, self.width, self.height);
-        self.ctx.set_fill_style_str("#11111b");
-        self.ctx.fill_rect(0.0, 0.0, self.width, self.height);
         self.ctx.set_filter("none");
         self.fill_rule = CanvasWindingRule::Nonzero;
         self.current_transform = Affine::IDENTITY;
