@@ -26,7 +26,10 @@ impl std::fmt::Debug for BackendImpl {
 
 impl BackendImpl {
     pub fn new(canvas: &HtmlCanvasElement, w: u32, h: u32) -> Self {
-        let atlas_dimension = query_max_texture_size().min(16_384).max(w.max(h).min(16_384));
+        // Turns out that, at least on MacOS, using texture sizes larger tahan 4096 comes at a very steep
+        // price when rendering filter layers, presumably due to the frequent framebuffer switches becoming
+        // much more expensive.
+        let atlas_dimension = query_max_texture_size().min(4_096).max(w.max(h).min(4_096));
         let settings = vello_hybrid::RenderSettings {
             atlas_config: vello_hybrid::AtlasConfig {
                 max_atlases: 128,
