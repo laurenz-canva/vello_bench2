@@ -27,6 +27,7 @@ glifo = {  git = "https://github.com/linebender/vello", rev = "589b474d" }
 #vello_hybrid = { path = "../vello/sparse_strips/vello_hybrid", default-features = false, features = ["webgl", "text", "std"]  }
 #vello_cpu = { path = "../vello/sparse_strips/vello_cpu", default-features = false, features = ["text", "u8_pipeline", "png", "std"]  }
 #glifo = { path = "../vello/glifo" }
+image = { version = "0.25.10", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 pathfinder_canvas = { git = "https://github.com/servo/pathfinder", branch = "main" }
 pathfinder_color = { git = "https://github.com/servo/pathfinder", branch = "main" }
 pathfinder_content = { git = "https://github.com/servo/pathfinder", branch = "main" }
