@@ -6,12 +6,18 @@
 )]
 
 use super::{BenchScene, Param, ParamId, ParamKind, SceneId};
-use crate::backend::Backend;
+use crate::backend::{Backend, Pixmap};
 use crate::resource_store::ResourceStore;
+use std::collections::HashMap;
+use std::io::Cursor;
+use std::sync::Arc;
 use usvg::tiny_skia_path::PathSegment;
-use usvg::{Group, Node};
-use vello_common::kurbo::{Affine, BezPath, Stroke};
-use vello_common::peniko::Color;
+use usvg::{Group, ImageRendering, Node};
+use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
+use vello_common::paint::Image;
+use vello_common::peniko::{
+    Color, Extend, ImageQuality, ImageSampler, color::PremulRgba8,
+};
 
 /// A single draw command in document order.
 enum DrawCmd {
@@ -26,6 +32,11 @@ enum DrawCmd {
         color: Color,
         width: f64,
     },
+    Image {
+        raster_index: usize,
+        transform: Affine,
+        bilinear: bool,
+    },
     PushClip {
         path: BezPath,
         transform: Affine,
@@ -33,10 +44,31 @@ enum DrawCmd {
     PopClip,
 }
 
+#[derive(Clone)]
+struct SvgRasterImage {
+    cache_key: u64,
+    pixmap: Pixmap,
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+enum SvgRasterFormat {
+    Jpeg,
+    Png,
+    Gif,
+    Webp,
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct RasterImageKey {
+    format: SvgRasterFormat,
+    data: Arc<Vec<u8>>,
+}
+
 /// A pre-parsed SVG asset ready for rendering.
 struct SvgAsset {
     name: &'static str,
     commands: Vec<DrawCmd>,
+    raster_images: Vec<SvgRasterImage>,
     width: f64,
     height: f64,
 }
@@ -62,10 +94,19 @@ impl SvgScene {
             let tree = usvg::Tree::from_data(data, &usvg::Options::default())
                 .unwrap_or_else(|e| panic!("Failed to parse {name}: {e}"));
             let mut commands = Vec::new();
-            convert_group(&mut commands, tree.root(), Affine::IDENTITY);
+            let mut raster_images = Vec::new();
+            let mut raster_cache = HashMap::new();
+            convert_group(
+                &mut commands,
+                &mut raster_images,
+                &mut raster_cache,
+                tree.root(),
+                Affine::IDENTITY,
+            );
             SvgAsset {
                 name,
                 commands,
+                raster_images,
                 width: tree.size().width() as f64,
                 height: tree.size().height() as f64,
             }
@@ -80,6 +121,8 @@ impl SvgScene {
                 include_bytes!("../../assets/coat_of_arms.svg"),
             ),
             load("Heraldry", include_bytes!("../../assets/heraldry.svg")),
+            load("Design 1", include_bytes!("../../assets/design1.svg")),
+            load("Design 2", include_bytes!("../../assets/design2.svg")),
         ];
         Self {
             assets,
@@ -90,7 +133,13 @@ impl SvgScene {
 
 // ── usvg → draw command conversion ──────────────────────────────────────────
 
-fn convert_group(commands: &mut Vec<DrawCmd>, g: &Group, parent_transform: Affine) {
+fn convert_group(
+    commands: &mut Vec<DrawCmd>,
+    raster_images: &mut Vec<SvgRasterImage>,
+    raster_cache: &mut HashMap<RasterImageKey, usize>,
+    g: &Group,
+    parent_transform: Affine,
+) {
     let transform = parent_transform * convert_transform(&g.transform());
 
     // Handle clip path on this group.
@@ -110,7 +159,9 @@ fn convert_group(commands: &mut Vec<DrawCmd>, g: &Group, parent_transform: Affin
 
     for child in g.children() {
         match child {
-            Node::Group(group) => convert_group(commands, group, transform),
+            Node::Group(group) => {
+                convert_group(commands, raster_images, raster_cache, group, transform)
+            }
             Node::Path(p) => {
                 let bez = convert_path(p);
 
@@ -133,7 +184,10 @@ fn convert_group(commands: &mut Vec<DrawCmd>, g: &Group, parent_transform: Affin
                     });
                 }
             }
-            Node::Image(_) | Node::Text(_) => {}
+            Node::Image(image) => {
+                convert_image(commands, raster_images, raster_cache, image, transform);
+            }
+            Node::Text(_) => {}
         }
     }
 
@@ -174,6 +228,160 @@ fn flatten_group_to_path(g: &Group) -> BezPath {
         }
     }
     bp
+}
+
+fn convert_image(
+    commands: &mut Vec<DrawCmd>,
+    raster_images: &mut Vec<SvgRasterImage>,
+    raster_cache: &mut HashMap<RasterImageKey, usize>,
+    image: &usvg::Image,
+    transform: Affine,
+) {
+    if !image.is_visible() {
+        return;
+    }
+
+    match image.kind() {
+        usvg::ImageKind::SVG(tree) => {
+            convert_group(commands, raster_images, raster_cache, tree.root(), transform);
+        }
+        usvg::ImageKind::JPEG(data) => {
+            push_raster_image(
+                commands,
+                raster_images,
+                raster_cache,
+                SvgRasterFormat::Jpeg,
+                data,
+                transform,
+                prefers_bilinear(image.rendering_mode()),
+            );
+        }
+        usvg::ImageKind::PNG(data) => {
+            push_raster_image(
+                commands,
+                raster_images,
+                raster_cache,
+                SvgRasterFormat::Png,
+                data,
+                transform,
+                prefers_bilinear(image.rendering_mode()),
+            );
+        }
+        usvg::ImageKind::GIF(data) => {
+            push_raster_image(
+                commands,
+                raster_images,
+                raster_cache,
+                SvgRasterFormat::Gif,
+                data,
+                transform,
+                prefers_bilinear(image.rendering_mode()),
+            );
+        }
+        usvg::ImageKind::WEBP(data) => {
+            push_raster_image(
+                commands,
+                raster_images,
+                raster_cache,
+                SvgRasterFormat::Webp,
+                data,
+                transform,
+                prefers_bilinear(image.rendering_mode()),
+            );
+        }
+    }
+}
+
+fn push_raster_image(
+    commands: &mut Vec<DrawCmd>,
+    raster_images: &mut Vec<SvgRasterImage>,
+    raster_cache: &mut HashMap<RasterImageKey, usize>,
+    format: SvgRasterFormat,
+    data: &Arc<Vec<u8>>,
+    transform: Affine,
+    bilinear: bool,
+) {
+    let key = RasterImageKey {
+        format,
+        data: Arc::clone(data),
+    };
+    let raster_index = if let Some(&idx) = raster_cache.get(&key) {
+        idx
+    } else {
+        let pixmap = match decode_svg_raster_image(format, data) {
+            Ok(pixmap) => pixmap,
+            Err(err) => {
+                log::warn!("Skipping SVG image: {err}");
+                return;
+            }
+        };
+        let idx = raster_images.len();
+        raster_images.push(SvgRasterImage {
+            cache_key: idx as u64,
+            pixmap,
+        });
+        raster_cache.insert(key, idx);
+        idx
+    };
+
+    commands.push(DrawCmd::Image {
+        raster_index,
+        transform,
+        bilinear,
+    });
+}
+
+fn decode_svg_raster_image(format: SvgRasterFormat, data: &[u8]) -> Result<Pixmap, String> {
+    match format {
+        SvgRasterFormat::Png => Pixmap::from_png(Cursor::new(data))
+            .map_err(|err| format!("failed to decode embedded PNG: {err}")),
+        SvgRasterFormat::Jpeg | SvgRasterFormat::Gif | SvgRasterFormat::Webp => {
+            decode_image_with_image_crate(data)
+        }
+    }
+}
+
+fn decode_image_with_image_crate(data: &[u8]) -> Result<Pixmap, String> {
+    let image = image::load_from_memory(data)
+        .map_err(|err| format!("failed to decode embedded raster image: {err}"))?
+        .into_rgba8();
+    let width: u16 = image
+        .width()
+        .try_into()
+        .map_err(|_| "embedded image width exceeds u16".to_string())?;
+    let height: u16 = image
+        .height()
+        .try_into()
+        .map_err(|_| "embedded image height exceeds u16".to_string())?;
+
+    let mut may_have_opacities = false;
+    let pixels = image
+        .into_vec()
+        .chunks_exact(4)
+        .map(|rgba| {
+            let alpha = u16::from(rgba[3]);
+            may_have_opacities |= alpha != 255;
+            let premultiply = |component| ((alpha * u16::from(component)) / 255) as u8;
+            PremulRgba8 {
+                r: premultiply(rgba[0]),
+                g: premultiply(rgba[1]),
+                b: premultiply(rgba[2]),
+                a: alpha as u8,
+            }
+        })
+        .collect();
+
+    Ok(Pixmap::from_parts_with_opacity(
+        pixels,
+        width,
+        height,
+        may_have_opacities,
+    ))
+}
+
+fn prefers_bilinear(rendering: ImageRendering) -> bool {
+    let _ = rendering;
+    true
 }
 
 fn convert_transform(t: &usvg::Transform) -> Affine {
@@ -257,7 +465,7 @@ impl BenchScene for SvgScene {
     fn render(
         &mut self,
         backend: &mut dyn Backend,
-        _resources: &mut ResourceStore,
+        resources: &mut ResourceStore,
         width: u32,
         height: u32,
         _time: f64,
@@ -292,6 +500,44 @@ impl BenchScene for SvgScene {
                     backend.set_paint((*color).into());
                     backend.set_stroke(Stroke::new(*width));
                     backend.stroke_path(path);
+                }
+                DrawCmd::Image {
+                    raster_index,
+                    transform,
+                    bilinear,
+                } => {
+                    let raster = &asset.raster_images[*raster_index];
+                    let source = resources.get_or_upload_image(
+                        SceneId::Svg,
+                        self.selected as u64,
+                        raster.cache_key,
+                        backend,
+                        || raster.pixmap.clone(),
+                    );
+                    backend.set_transform(base * *transform);
+                    backend.reset_paint_transform();
+                    backend.set_paint(
+                        Image {
+                            image: source,
+                            sampler: ImageSampler {
+                                x_extend: Extend::Pad,
+                                y_extend: Extend::Pad,
+                                quality: if *bilinear {
+                                    ImageQuality::Medium
+                                } else {
+                                    ImageQuality::Low
+                                },
+                                alpha: 1.0,
+                            },
+                        }
+                        .into(),
+                    );
+                    backend.fill_rect(&Rect::new(
+                        0.0,
+                        0.0,
+                        raster.pixmap.width() as f64,
+                        raster.pixmap.height() as f64,
+                    ));
                 }
                 DrawCmd::PushClip { path, transform } => {
                     backend.set_transform(base * *transform);
