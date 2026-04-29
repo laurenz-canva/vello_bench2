@@ -13,7 +13,7 @@ use crate::harness::{BenchDef, BenchResult, BenchScale};
 use crate::scenes::{BenchScene, Param, ParamId, ParamKind};
 use crate::storage::CalibrationProfile;
 use crate::storage::{BenchReport, UiState};
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::{JsCast, prelude::*};
 use web_sys::{Document, Element, HtmlElement, HtmlInputElement, HtmlSelectElement};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -34,6 +34,20 @@ fn set(el: &HtmlElement, props: &[(&str, &str)]) {
     let s = el.style();
     for &(k, v) in props {
         s.set_property(k, v).unwrap();
+    }
+}
+
+const PROBE_BUTTON_NEUTRAL_CLASS: &str = "mb-3 border border-slate-300/20 bg-slate-300/10 px-4 py-2 text-center text-sm font-semibold text-slate-200 transition hover:bg-slate-300/15";
+const PROBE_STATUS_NEUTRAL_CLASS: &str = "mb-3 text-xs leading-5 text-slate-400";
+const PROBE_STATUS_SUCCESS_CLASS: &str = "mb-3 text-xs leading-5 text-emerald-300";
+const PROBE_STATUS_FAILURE_CLASS: &str = "mb-3 text-xs leading-5 text-rose-300";
+
+fn set_probe_button_state(button: &HtmlElement, class_name: &str, text: &str, title: Option<&str>) {
+    class(button, class_name);
+    button.set_text_content(Some(text));
+    match title {
+        Some(title) => button.set_attribute("title", title).unwrap(),
+        None => button.remove_attribute("title").unwrap(),
     }
 }
 
@@ -194,6 +208,8 @@ pub struct Ui {
     calibration_status: HtmlElement,
     /// Start button.
     pub start_btn: HtmlElement,
+    probe_btn: HtmlElement,
+    probe_timing: HtmlElement,
     pub ab_start_btn: Option<HtmlElement>,
     ab_rounds_input: Option<HtmlInputElement>,
     ab_status: Option<HtmlElement>,
@@ -335,6 +351,8 @@ impl Ui {
             calibrate_btn: cfg.calibrate_btn,
             calibration_status: cfg.calibration_status,
             start_btn: cfg.start_btn,
+            probe_btn: cfg.probe_btn,
+            probe_timing: cfg.probe_timing,
             ab_start_btn: cfg.ab_start_btn,
             ab_rounds_input: cfg.ab_rounds_input,
             ab_status: cfg.ab_status,
@@ -353,6 +371,7 @@ impl Ui {
             mode: AppMode::Benchmark,
             dirty,
         };
+        ui.set_renderer(crate::backend::current_backend_kind());
         ui.apply_sidebar_state();
         ui.set_mode(AppMode::Benchmark);
         ui
@@ -432,6 +451,7 @@ impl Ui {
 
     pub fn set_renderer(&self, kind: BackendKind) {
         self.renderer_select.set_value(kind.as_str());
+        self.sync_probe_button(kind);
     }
 
     // ── Sidebar toggle ───────────────────────────────────────────────────
@@ -604,6 +624,10 @@ impl Ui {
         &self.start_btn
     }
 
+    pub fn probe_btn(&self) -> &HtmlElement {
+        &self.probe_btn
+    }
+
     pub fn ab_start_btn(&self) -> Option<&HtmlElement> {
         self.ab_start_btn.as_ref()
     }
@@ -639,6 +663,80 @@ impl Ui {
 
     pub fn calibrate_btn(&self) -> &HtmlElement {
         &self.calibrate_btn
+    }
+
+    pub fn set_probe_running(&self, running: bool) {
+        self.probe_btn
+            .style()
+            .set_property("opacity", if running { "0.7" } else { "1" })
+            .unwrap();
+        self.probe_btn
+            .style()
+            .set_property("pointer-events", if running { "none" } else { "auto" })
+            .unwrap();
+        if running {
+            set_probe_button_state(
+                &self.probe_btn,
+                PROBE_BUTTON_NEUTRAL_CLASS,
+                "Probing...",
+                None,
+            );
+            class(&self.probe_timing, PROBE_STATUS_NEUTRAL_CLASS);
+            self.probe_timing.set_text_content(Some("Running probe..."));
+        } else {
+            set_probe_button_state(&self.probe_btn, PROBE_BUTTON_NEUTRAL_CLASS, "Probe", None);
+        }
+    }
+
+    pub fn set_probe_success(&self, elapsed_ms: f64) {
+        self.probe_btn.style().set_property("opacity", "1").unwrap();
+        self.probe_btn
+            .style()
+            .set_property("pointer-events", "auto")
+            .unwrap();
+        set_probe_button_state(&self.probe_btn, PROBE_BUTTON_NEUTRAL_CLASS, "Probe", None);
+        class(&self.probe_timing, PROBE_STATUS_SUCCESS_CLASS);
+        self.probe_timing.set_text_content(Some(&format!(
+            "Probe finished successfully in {:.1}ms",
+            elapsed_ms
+        )));
+    }
+
+    pub fn set_probe_failure(&self, message: &str) {
+        self.probe_btn.style().set_property("opacity", "1").unwrap();
+        self.probe_btn
+            .style()
+            .set_property("pointer-events", "auto")
+            .unwrap();
+        set_probe_button_state(
+            &self.probe_btn,
+            PROBE_BUTTON_NEUTRAL_CLASS,
+            "Probe",
+            Some(message),
+        );
+        class(&self.probe_timing, PROBE_STATUS_FAILURE_CLASS);
+        self.probe_timing
+            .set_text_content(Some(&format!("Probe failed with error: {message}")));
+    }
+
+    fn sync_probe_button(&self, kind: BackendKind) {
+        let visible = kind == BackendKind::Hybrid;
+        self.probe_btn
+            .style()
+            .set_property("display", if visible { "block" } else { "none" })
+            .unwrap();
+        self.probe_btn.style().set_property("opacity", "1").unwrap();
+        self.probe_btn
+            .style()
+            .set_property("pointer-events", "auto")
+            .unwrap();
+        self.probe_timing
+            .style()
+            .set_property("display", if visible { "block" } else { "none" })
+            .unwrap();
+        set_probe_button_state(&self.probe_btn, PROBE_BUTTON_NEUTRAL_CLASS, "Probe", None);
+        class(&self.probe_timing, PROBE_STATUS_NEUTRAL_CLASS);
+        self.probe_timing.set_text_content(Some(""));
     }
 
     pub fn set_calibration_status(&self, text: &str) {
@@ -1350,6 +1448,8 @@ struct BenchConfigParts {
     calibrate_btn: HtmlElement,
     calibration_status: HtmlElement,
     start_btn: HtmlElement,
+    probe_btn: HtmlElement,
+    probe_timing: HtmlElement,
     ab_start_btn: Option<HtmlElement>,
     ab_rounds_input: Option<HtmlInputElement>,
     ab_status: Option<HtmlElement>,
@@ -1745,6 +1845,19 @@ fn build_bench_config(
     );
     left_col.append_child(&start_btn).unwrap();
 
+    let probe_btn = div(document);
+    set_probe_button_state(&probe_btn, PROBE_BUTTON_NEUTRAL_CLASS, "Probe", None);
+    probe_btn.style().set_property("display", "none").unwrap();
+    left_col.append_child(&probe_btn).unwrap();
+
+    let probe_timing = div(document);
+    class(&probe_timing, PROBE_STATUS_NEUTRAL_CLASS);
+    probe_timing
+        .style()
+        .set_property("display", "none")
+        .unwrap();
+    left_col.append_child(&probe_timing).unwrap();
+
     let (ab_start_btn, ab_rounds_input, ab_status) = if ab_mode {
         let rounds_input = sized_num_input(document, "1", "100%");
         rounds_input.set_type("number");
@@ -1873,6 +1986,8 @@ fn build_bench_config(
         calibrate_btn,
         calibration_status,
         start_btn,
+        probe_btn,
+        probe_timing,
         ab_start_btn,
         ab_rounds_input,
         ab_status,

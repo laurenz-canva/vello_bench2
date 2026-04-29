@@ -121,6 +121,9 @@ pub trait Backend {
     fn draw_image(&mut self, image: ImageSource, rect: &Rect, bilinear: bool);
     fn upload_image(&mut self, pixmap: Pixmap) -> ImageSource;
     fn destroy_image(&mut self, image: &ImageSource);
+    fn probe(&mut self) -> Result<(), String> {
+        Err("Backend probing is only supported for Vello Hybrid".to_string())
+    }
 }
 
 pub fn uploaded_image_id(image: &ImageSource) -> Option<ImageId> {
@@ -194,8 +197,6 @@ pub fn new_backend(
         BackendKind::Cpu => Box::new(cpu::BackendImpl::new(canvas, w, h)),
         BackendKind::Pathfinder => Box::new(pathfinder::BackendImpl::new(canvas, w, h)),
         BackendKind::Canvas2d => Box::new(canvas2d::BackendImpl::new(canvas, w, h, kind)),
-        BackendKind::Canvas2dCpu => {
-            Box::new(canvas2d::BackendImpl::new(canvas, w, h, kind))
-        }
+        BackendKind::Canvas2dCpu => Box::new(canvas2d::BackendImpl::new(canvas, w, h, kind)),
     }
 }

@@ -586,6 +586,31 @@ impl AppState {
             .start(&self.bench_defs, &self.benchmark_canvas, vp_w, vp_h);
     }
 
+    fn run_backend_probe(&mut self) {
+        if self.benchmark_running() || self.backend.kind() != BackendKind::Hybrid {
+            return;
+        }
+        let started_at = web_sys::window()
+            .and_then(|window| window.performance())
+            .map(|performance| performance.now())
+            .unwrap_or(0.0);
+        self.ui.set_probe_running(true);
+        match self.backend.probe() {
+            Ok(()) => {
+                let elapsed_ms = web_sys::window()
+                    .and_then(|window| window.performance())
+                    .map(|performance| performance.now() - started_at)
+                    .unwrap_or(0.0);
+                log::info!("Vello Hybrid probe succeeded");
+                self.ui.set_probe_success(elapsed_ms);
+            }
+            Err(error) => {
+                log::warn!("Vello Hybrid probe failed: {error}");
+                self.ui.set_probe_failure(&error);
+            }
+        }
+    }
+
     fn show_ab_variant(&self, active: Option<AbVariant>) {
         let Some(document) = web_sys::window().and_then(|w| w.document()) else {
             return;
@@ -1169,6 +1194,18 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         let btn = state.borrow().ui.calibrate_btn().clone();
         let cb = Closure::wrap(Box::new(move || {
             s.borrow_mut().start_calibration();
+        }) as Box<dyn FnMut()>);
+        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
+
+    // Probe Vello Hybrid
+    {
+        let s = state.clone();
+        let btn = state.borrow().ui.probe_btn().clone();
+        let cb = Closure::wrap(Box::new(move || {
+            s.borrow_mut().run_backend_probe();
         }) as Box<dyn FnMut()>);
         btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
             .unwrap();

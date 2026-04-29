@@ -200,4 +200,16 @@ impl Backend for BackendImpl {
             self.renderer.destroy_image(&mut self.resources, id);
         }
     }
+
+    fn probe(&mut self) -> Result<(), String> {
+        match self.renderer.probe() {
+            vello_common::probe::Probe::Success => Ok(()),
+            vello_common::probe::Probe::Error(_) => {
+                Err("Probe output did not match the bundled reference".to_string())
+            }
+            vello_common::probe::Probe::RenderError(error) => {
+                Err(format!("Probe render failed: {error:?}"))
+            }
+        }
+    }
 }
