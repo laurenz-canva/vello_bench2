@@ -17,6 +17,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      WASM_BINDGEN_VERSION: 0.2.118
     steps:
       - uses: actions/checkout@v4
 
@@ -39,13 +41,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cargo/bin/wasm-bindgen
-          key: wasm-bindgen-${{ hashFiles('Cargo.lock') }}
-          restore-keys: wasm-bindgen-
+          key: wasm-bindgen-${{ runner.os }}-${{ env.WASM_BINDGEN_VERSION }}
 
       - name: Install wasm-bindgen-cli
         run: |
-          if ! command -v wasm-bindgen &> /dev/null; then
-            cargo install wasm-bindgen-cli --version 0.2.118
+          if ! command -v wasm-bindgen > /dev/null || ! wasm-bindgen --version | grep -q "${WASM_BINDGEN_VERSION}"; then
+            cargo install wasm-bindgen-cli --version "${WASM_BINDGEN_VERSION}" --force
           fi
 
       # SIMD
