@@ -24,7 +24,7 @@ vello_hybrid = { git = "https://github.com/linebender/vello", rev = "02c25017", 
 vello_cpu = { git = "https://github.com/linebender/vello", rev = "02c25017", default-features = false, features = ["text", "u8_pipeline", "png", "std"] }
 glifo = {  git = "https://github.com/linebender/vello", rev = "02c25017" }
 #vello_common = { path = "../vello/sparse_strips/vello_common" }
-#vello_hybrid = { path = "../vello/sparse_strips/vello_hybrid", default-features = false, features = ["webgl", "text", "std"]  }
+#vello_hybrid = { path = "../vello/sparse_strips/vello_hybrid", default-features = false, features = ["webgl", "text", "std", "probe"]  }
 #vello_cpu = { path = "../vello/sparse_strips/vello_cpu", default-features = false, features = ["text", "u8_pipeline", "png", "std"]  }
 #glifo = { path = "../vello/glifo" }
 pathfinder_canvas = { git = "https://github.com/servo/pathfinder", branch = "main" }
