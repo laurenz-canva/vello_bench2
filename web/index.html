@@ -86,7 +86,10 @@
     // assets present, the dashboard enables its built-in A/B harness.
     let abMode = false;
     try {
-      const probe = await fetch("./control/vello_bench2.js", { method: "HEAD" });
+      const probe = await fetch("./control/vello_bench2.js", {
+        method: "GET",
+        cache: "no-store",
+      });
       abMode = probe.ok;
     } catch (_) {}
 
