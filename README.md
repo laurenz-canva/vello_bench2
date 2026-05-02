@@ -33,6 +33,12 @@ Builds both SIMD and non-SIMD variants and serves them with a toggle button in t
 
 Then open http://localhost:8080. Requires `wasm-bindgen-cli` (`cargo install wasm-bindgen-cli --version 0.2.118`).
 
+Pass `--debug` to keep debug symbols while still using an optimized build:
+
+```
+./serve.sh --debug
+```
+
 ### A/B testing a local Vello branch
 
 Use the same server script, but pass a local Vello checkout:

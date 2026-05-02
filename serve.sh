@@ -51,17 +51,6 @@ copy_svg_assets() {
   done
 }
 
-compress_dist_assets() {
-  if ! command -v brotli >/dev/null 2>&1; then
-    echo "Error: brotli is required to package compressed assets" >&2
-    exit 1
-  fi
-
-  find "$DIST" -type f -name '*.wasm' | while IFS= read -r asset; do
-    brotli -f -q 11 "$asset" -o "$asset.br"
-  done
-}
-
 cleanup() {
   if [ -n "$AB_VELLO_PATH" ]; then
     echo "==> Restoring Cargo.toml and Cargo.lock..."
@@ -73,6 +62,10 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --global)
       BIND_ADDR=0.0.0.0
+      shift
+      ;;
+    --debug)
+      BUILD_PROFILE=instrument
       shift
       ;;
     --ab)
@@ -174,7 +167,6 @@ else
 fi
 
 copy_svg_assets
-compress_dist_assets
 
 echo "==> Serving at http://localhost:8080"
 if [ "$BIND_ADDR" = "0.0.0.0" ]; then
@@ -183,37 +175,13 @@ if [ "$BIND_ADDR" = "0.0.0.0" ]; then
 fi
 python3 -c "
 import http.server, os
-from pathlib import Path
 
 os.chdir('$DIST')
 
 class Handler(http.server.SimpleHTTPRequestHandler):
-    def guess_type(self, path):
-        if path.endswith('.wasm.br'):
-            path = path[:-3]
-        return super().guess_type(path)
-
-    def send_head(self):
-        self._serving_encoded_br = False
-        original_path = self.path
-        accepts_br = 'br' in self.headers.get('Accept-Encoding', '')
-        if accepts_br and self.path.endswith('.wasm'):
-            fs_path = Path(self.translate_path(self.path))
-            br_path = fs_path.with_name(fs_path.name + '.br')
-            if br_path.is_file():
-                self.path = original_path + '.br'
-                self._serving_encoded_br = True
-                response = super().send_head()
-                self.path = original_path
-                return response
-        return super().send_head()
-
     def end_headers(self):
         self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
         self.send_header('Cross-Origin-Embedder-Policy', 'require-corp')
-        if getattr(self, '_serving_encoded_br', False):
-            self.send_header('Content-Encoding', 'br')
-            self.send_header('Vary', 'Accept-Encoding')
         if self.path.startswith('/assets/'):
             self.send_header('Cache-Control', 'public, max-age=31536000, immutable')
         else:
