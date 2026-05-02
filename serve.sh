@@ -3,7 +3,7 @@ set -eu
 
 DIST=dist
 TARGET=wasm32-unknown-unknown
-BUILD_PROFILE=dist
+BUILD_PROFILE=release
 RUSTFLAGS_SIMD="-Ctarget-feature=+simd128"
 
 FILTER=all
