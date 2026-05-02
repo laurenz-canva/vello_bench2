@@ -39,6 +39,12 @@ Pass `--debug` to keep debug symbols while still using an optimized build:
 ./serve.sh --debug
 ```
 
+Pass `--brotli-wasm` to compress local Wasm outputs and serve normal `.wasm` requests from the `.wasm.br` files:
+
+```
+./serve.sh --brotli-wasm
+```
+
 ### A/B testing a local Vello branch
 
 Use the same server script, but pass a local Vello checkout:

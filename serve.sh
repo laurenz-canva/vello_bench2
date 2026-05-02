@@ -10,6 +10,7 @@ FILTER=all
 BIND_ADDR=127.0.0.1
 AB_VELLO_PATH=
 CONTROL_REV=
+SERVE_BROTLI_WASM=0
 
 build_variant() {
   rustflags=$1
@@ -51,6 +52,15 @@ copy_svg_assets() {
   done
 }
 
+compress_wasm_assets() {
+  if ! command -v brotli >/dev/null 2>&1; then
+    echo "Error: brotli is required to compress Wasm assets" >&2
+    exit 1
+  fi
+
+  find "$DIST" -type f -name '*.wasm' -exec brotli -f -q 11 {} \;
+}
+
 cleanup() {
   if [ -n "$AB_VELLO_PATH" ]; then
     echo "==> Restoring Cargo.toml and Cargo.lock..."
@@ -66,6 +76,10 @@ while [ $# -gt 0 ]; do
       ;;
     --debug)
       BUILD_PROFILE=instrument
+      shift
+      ;;
+    --brotli-wasm)
+      SERVE_BROTLI_WASM=1
       shift
       ;;
     --ab)
@@ -167,6 +181,10 @@ else
 fi
 
 copy_svg_assets
+if [ "$SERVE_BROTLI_WASM" = 1 ]; then
+  echo "==> Compressing Wasm assets..."
+  compress_wasm_assets
+fi
 
 echo "==> Serving at http://localhost:8080"
 if [ "$BIND_ADDR" = "0.0.0.0" ]; then
@@ -174,14 +192,43 @@ if [ "$BIND_ADDR" = "0.0.0.0" ]; then
   echo "==> On your tablet, open http://$LOCAL_IP:8080"
 fi
 python3 -c "
-import http.server, os
+import http.server, os, urllib.parse
 
 os.chdir('$DIST')
+serve_brotli_wasm = '$SERVE_BROTLI_WASM' == '1'
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        if serve_brotli_wasm:
+            url_path = urllib.parse.urlparse(self.path).path
+            if url_path.endswith('.wasm') and 'br' in self.headers.get('Accept-Encoding', ''):
+                br_path = self.translate_path(url_path + '.br')
+                if os.path.isfile(br_path):
+                    self.path = url_path + '.br'
+                    self._serving_brotli_wasm = True
+        super().do_GET()
+
+    def do_HEAD(self):
+        if serve_brotli_wasm:
+            url_path = urllib.parse.urlparse(self.path).path
+            if url_path.endswith('.wasm') and 'br' in self.headers.get('Accept-Encoding', ''):
+                br_path = self.translate_path(url_path + '.br')
+                if os.path.isfile(br_path):
+                    self.path = url_path + '.br'
+                    self._serving_brotli_wasm = True
+        super().do_HEAD()
+
+    def guess_type(self, path):
+        if getattr(self, '_serving_brotli_wasm', False):
+            return 'application/wasm'
+        return super().guess_type(path)
+
     def end_headers(self):
         self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
         self.send_header('Cross-Origin-Embedder-Policy', 'require-corp')
+        if getattr(self, '_serving_brotli_wasm', False):
+            self.send_header('Content-Encoding', 'br')
+            self.send_header('Vary', 'Accept-Encoding')
         if self.path.startswith('/assets/'):
             self.send_header('Cache-Control', 'public, max-age=31536000, immutable')
         else:
