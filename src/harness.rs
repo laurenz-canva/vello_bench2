@@ -204,8 +204,14 @@ impl BenchHarness {
             Phase::Idle | Phase::Complete => {}
             Phase::PendingBench(idx) => {
                 let def = &defs[idx];
-                self.prepare_bench(def, width, height);
+                if self.bench_scene.is_none() {
+                    self.prepare_bench(def, width, height);
+                }
                 let scene = self.bench_scene.as_mut().unwrap().as_mut();
+                if !scene.is_ready() {
+                    self.phase = Phase::PendingBench(idx);
+                    return events;
+                }
                 let be = self.bench_backend.as_mut().unwrap();
                 render_one(scene, be.as_mut(), &mut self.resources, width, height, now);
                 self.phase = Phase::Running {
@@ -522,6 +528,17 @@ impl CalibrationHarness {
                 self.prepare_probe(target_idx, probe_count, width, height);
                 let target = self.targets[target_idx];
                 let scene = self.bench_scene.as_mut().unwrap().as_mut();
+                if !scene.is_ready() {
+                    self.phase = CalibrationPhase::PendingProbe {
+                        target_idx,
+                        probe_count,
+                        lower,
+                        upper,
+                        best,
+                        binary_steps_left,
+                    };
+                    return events;
+                }
                 let backend = self.bench_backend.as_mut().unwrap();
                 render_calibration_probe(
                     scene,

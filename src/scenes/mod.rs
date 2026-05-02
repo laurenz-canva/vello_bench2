@@ -197,6 +197,10 @@ pub trait BenchScene {
     fn params(&self) -> Vec<Param>;
     /// Update a parameter by name.
     fn set_param(&mut self, param: ParamId, value: f64);
+    /// Return whether this scene has loaded any external resources needed to render.
+    fn is_ready(&mut self) -> bool {
+        true
+    }
     /// Render one frame into the scene.
     ///
     /// `view` is a view transform (e.g. pan/zoom) applied by the interactive mode.

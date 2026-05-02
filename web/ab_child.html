@@ -18,6 +18,7 @@
   <script type="module">
     window.__vello_ab_child = true;
     window.__vello_variant = location.pathname.includes("/treatment/") ? "treatment" : "control";
+    window.__vello_asset_base = new URL("../assets/", location.href).href;
     const { default: init, ab_child_init } = await import("./vello_bench2.js");
     await init();
     ab_child_init();

@@ -8,10 +8,48 @@
 use super::{BenchScene, Param, ParamId, ParamKind, SceneId};
 use crate::backend::Backend;
 use crate::resource_store::ResourceStore;
+use std::cell::RefCell;
+use std::io::{Cursor, Read};
+use std::rc::Rc;
 use usvg::tiny_skia_path::PathSegment;
 use usvg::{Group, Node};
 use vello_common::kurbo::{Affine, BezPath, Stroke};
 use vello_common::peniko::Color;
+use wasm_bindgen::JsCast;
+use wasm_bindgen_futures::{JsFuture, spawn_local};
+
+#[derive(Clone, Copy)]
+struct SvgAssetDesc {
+    name: &'static str,
+    path: &'static str,
+}
+
+const SVG_ASSETS: &[SvgAssetDesc] = &[
+    SvgAssetDesc {
+        name: "Ghostscript Tiger",
+        path: "Ghostscript_Tiger.svg.br",
+    },
+    SvgAssetDesc {
+        name: "Coat of Arms",
+        path: "coat_of_arms.svg.br",
+    },
+    SvgAssetDesc {
+        name: "Heraldry",
+        path: "heraldry.svg.br",
+    },
+];
+
+thread_local! {
+    static ASSET_CACHE: RefCell<Vec<AssetState>> =
+        RefCell::new((0..SVG_ASSETS.len()).map(|_| AssetState::NotLoaded).collect());
+}
+
+enum AssetState {
+    NotLoaded,
+    Loading,
+    Ready(Rc<SvgAsset>),
+    Failed(String),
+}
 
 /// A single draw command in document order.
 enum DrawCmd {
@@ -35,7 +73,6 @@ enum DrawCmd {
 
 /// A pre-parsed SVG asset ready for rendering.
 struct SvgAsset {
-    name: &'static str,
     commands: Vec<DrawCmd>,
     width: f64,
     height: f64,
@@ -43,7 +80,6 @@ struct SvgAsset {
 
 /// Benchmark scene that renders one of several SVG assets.
 pub struct SvgScene {
-    assets: Vec<SvgAsset>,
     selected: usize,
 }
 
@@ -56,35 +92,107 @@ impl std::fmt::Debug for SvgScene {
 }
 
 impl SvgScene {
-    /// Create a new SVG scene with all bundled assets.
+    /// Create a new SVG scene. The selected asset is fetched and parsed on demand.
     pub fn new() -> Self {
-        let load = |name: &'static str, data: &[u8]| {
-            let tree = usvg::Tree::from_data(data, &usvg::Options::default())
-                .unwrap_or_else(|e| panic!("Failed to parse {name}: {e}"));
-            let mut commands = Vec::new();
-            convert_group(&mut commands, tree.root(), Affine::IDENTITY);
-            SvgAsset {
-                name,
-                commands,
-                width: tree.size().width() as f64,
-                height: tree.size().height() as f64,
+        Self { selected: 0 }
+    }
+
+    fn selected_asset(&mut self) -> Option<Rc<SvgAsset>> {
+        self.ensure_selected_loading();
+        ASSET_CACHE.with(|cache| match &cache.borrow()[self.selected] {
+            AssetState::Ready(asset) => Some(asset.clone()),
+            AssetState::Failed(err) => {
+                log::error!(
+                    "Failed to load SVG asset {}: {err}",
+                    SVG_ASSETS[self.selected].name
+                );
+                None
             }
-        };
-        let assets = vec![
-            load(
-                "Ghostscript Tiger",
-                include_bytes!("../../assets/Ghostscript_Tiger.svg"),
-            ),
-            load(
-                "Coat of Arms",
-                include_bytes!("../../assets/coat_of_arms.svg"),
-            ),
-            load("Heraldry", include_bytes!("../../assets/heraldry.svg")),
-        ];
-        Self {
-            assets,
-            selected: 0,
+            AssetState::NotLoaded | AssetState::Loading => None,
+        })
+    }
+
+    fn ensure_selected_loading(&mut self) {
+        let idx = self.selected;
+        let should_load = ASSET_CACHE.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            match cache.get_mut(idx) {
+                Some(state @ AssetState::NotLoaded) => {
+                    *state = AssetState::Loading;
+                    true
+                }
+                _ => false,
+            }
+        });
+        if !should_load {
+            return;
         }
+
+        spawn_local(async move {
+            let desc = SVG_ASSETS[idx];
+            let result = load_asset(desc).await.map(Rc::new);
+            ASSET_CACHE.with(|cache| {
+                cache.borrow_mut()[idx] = match result {
+                    Ok(asset) => AssetState::Ready(asset),
+                    Err(err) => AssetState::Failed(err),
+                };
+            });
+        });
+    }
+}
+
+fn parse_asset(desc: SvgAssetDesc, data: &[u8]) -> Result<SvgAsset, String> {
+    let tree = usvg::Tree::from_data(data, &usvg::Options::default())
+        .map_err(|e| format!("failed to parse {}: {e}", desc.name))?;
+    let mut commands = Vec::new();
+    convert_group(&mut commands, tree.root(), Affine::IDENTITY);
+    Ok(SvgAsset {
+        commands,
+        width: tree.size().width() as f64,
+        height: tree.size().height() as f64,
+    })
+}
+
+async fn load_asset(desc: SvgAssetDesc) -> Result<SvgAsset, String> {
+    let compressed = fetch_asset(desc.path).await?;
+    let mut decompressed = Vec::new();
+    let mut decoder = brotli_decompressor::Decompressor::new(Cursor::new(compressed), 4096);
+    decoder
+        .read_to_end(&mut decompressed)
+        .map_err(|e| format!("failed to decompress {}: {e}", desc.name))?;
+    parse_asset(desc, &decompressed)
+}
+
+async fn fetch_asset(path: &str) -> Result<Vec<u8>, String> {
+    let window = web_sys::window().ok_or("window is unavailable")?;
+    let url = format!("{}{}", asset_base_url(), path);
+    let response = JsFuture::from(window.fetch_with_str(&url))
+        .await
+        .map_err(|e| format!("failed to fetch {url}: {e:?}"))?
+        .dyn_into::<web_sys::Response>()
+        .map_err(|_| format!("fetch did not return a Response for {url}"))?;
+    if !response.ok() {
+        return Err(format!("fetch failed for {url}: HTTP {}", response.status()));
+    }
+    let buffer = JsFuture::from(
+        response
+            .array_buffer()
+            .map_err(|e| format!("failed to read {url}: {e:?}"))?,
+    )
+    .await
+    .map_err(|e| format!("failed to read {url}: {e:?}"))?;
+    Ok(js_sys::Uint8Array::new(&buffer).to_vec())
+}
+
+fn asset_base_url() -> String {
+    let base = js_sys::Reflect::get(&js_sys::global(), &"__vello_asset_base".into())
+        .ok()
+        .and_then(|value| value.as_string())
+        .unwrap_or_else(|| "./assets/".to_string());
+    if base.ends_with('/') {
+        base
+    } else {
+        format!("{base}/")
     }
 }
 
@@ -235,10 +343,10 @@ impl BenchScene for SvgScene {
             id: ParamId::SvgAsset,
             label: "SVG Asset",
             kind: ParamKind::Select(
-                self.assets
+                SVG_ASSETS
                     .iter()
                     .enumerate()
-                    .map(|(i, a)| (a.name, i as f64))
+                    .map(|(i, desc)| (desc.name, i as f64))
                     .collect(),
             ),
             value: self.selected as f64,
@@ -248,10 +356,14 @@ impl BenchScene for SvgScene {
     fn set_param(&mut self, param: ParamId, value: f64) {
         if param == ParamId::SvgAsset {
             let idx = value as usize;
-            if idx < self.assets.len() {
+            if idx < SVG_ASSETS.len() {
                 self.selected = idx;
             }
         }
+    }
+
+    fn is_ready(&mut self) -> bool {
+        self.selected_asset().is_some()
     }
 
     fn render(
@@ -263,7 +375,9 @@ impl BenchScene for SvgScene {
         _time: f64,
         view: Affine,
     ) {
-        let asset = &self.assets[self.selected];
+        let Some(asset) = self.selected_asset() else {
+            return;
+        };
 
         // Scale to fit viewport, center.
         let s = (width as f64 / asset.width).min(height as f64 / asset.height);

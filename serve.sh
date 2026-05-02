@@ -32,9 +32,22 @@ should_build() {
     return 0
   fi
   case "$out_dir" in
-    *"$FILTER"*) return 0 ;;
+    "$FILTER") return 0 ;;
     *) return 1 ;;
   esac
+}
+
+copy_svg_assets() {
+  if ! command -v brotli >/dev/null 2>&1; then
+    echo "Error: brotli is required to package SVG assets" >&2
+    exit 1
+  fi
+
+  mkdir -p "$DIST/assets"
+  for asset in assets/*.svg; do
+    out="$DIST/assets/$(basename "$asset").br"
+    brotli -f -q 11 "$asset" -o "$out"
+  done
 }
 
 cleanup() {
@@ -148,6 +161,8 @@ else
   cp web/index.html "$DIST/index.html"
 fi
 
+copy_svg_assets
+
 echo "==> Serving at http://localhost:8080"
 if [ "$BIND_ADDR" = "0.0.0.0" ]; then
   LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || echo "<your-ip>")
@@ -162,7 +177,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
         self.send_header('Cross-Origin-Embedder-Policy', 'require-corp')
-        self.send_header('Cache-Control', 'no-store')
+        if self.path.startswith('/assets/'):
+            self.send_header('Cache-Control', 'public, max-age=31536000, immutable')
+        else:
+            self.send_header('Cache-Control', 'no-store')
         super().end_headers()
 
 http.server.ThreadingHTTPServer(('$BIND_ADDR', 8080), Handler).serve_forever()

@@ -11,6 +11,7 @@ default = []
 
 [dependencies]
 bytemuck = "1.25"
+brotli-decompressor = "4.0.3"
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
 log = "0.4.29"
@@ -61,6 +62,7 @@ web-sys = { version = "0.3.83", features = [
     "CanvasWindingRule",
     "ImageData",
     "Performance",
+    "Response",
     "Storage",
     "Event",
     "InputEvent",

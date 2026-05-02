@@ -117,6 +117,8 @@
       }
     }
 
+    window.__vello_asset_base = new URL(abMode && abChild ? "../assets/" : "./assets/", location.href).href;
+
     const { default: init } = await import(mod_path);
     if (document.readyState === "complete") {
       init();

@@ -27,6 +27,9 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
+      - name: Install Brotli
+        run: sudo apt-get update && sudo apt-get install -y brotli
+
       - name: Cache Cargo registry & build
         uses: actions/cache@v4
         with:
@@ -73,6 +76,13 @@ jobs:
 
       - name: Copy index.html
         run: cp web/index.html dist/index.html
+
+      - name: Compress SVG assets
+        run: |
+          mkdir -p dist/assets
+          for asset in assets/*.svg; do
+            brotli -f -q 11 "$asset" -o "dist/assets/$(basename "$asset").br"
+          done
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
