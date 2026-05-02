@@ -1316,6 +1316,10 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
                 st.ui.set_renderer(st.backend.kind());
                 return;
             };
+            if !kind.is_available() {
+                st.ui.set_renderer(st.backend.kind());
+                return;
+            }
             let now = web_sys::window().unwrap().performance().unwrap().now();
             let replaced_canvas = st.switch_backend(kind, now);
             drop(st);

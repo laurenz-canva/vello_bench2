@@ -1574,7 +1574,7 @@ fn build_top_bar(
         &renderer_select,
         "w-auto max-w-[9rem] shrink border border-white/10 bg-slate-950/80 px-3 py-1 text-sm text-slate-100 sm:ml-2 sm:max-w-none sm:shrink-0",
     );
-    for kind in BackendKind::ALL {
+    for kind in BackendKind::available() {
         let opt = document.create_element("option").unwrap();
         opt.set_text_content(Some(kind.label()));
         opt.set_attribute("value", kind.as_str()).unwrap();

@@ -50,6 +50,16 @@ impl CapabilityProfile {
         self
     }
 
+    #[cfg(feature = "vello")]
+    pub(crate) const fn deny_scenes(mut self, scenes: &[SceneId]) -> Self {
+        let mut i = 0;
+        while i < scenes.len() {
+            self.scene_mask &= !scenes[i].bit();
+            i += 1;
+        }
+        self
+    }
+
     pub(crate) const fn allow_params(mut self, scene_id: SceneId, params: &[ParamId]) -> Self {
         let row = scene_id.index();
         let mut i = 0;

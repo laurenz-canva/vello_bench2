@@ -5,6 +5,8 @@ mod cpu;
 mod hybrid;
 #[cfg(feature = "pathfinder")]
 mod pathfinder;
+#[cfg(feature = "vello")]
+mod vello;
 
 use glifo::Glyph;
 use skrifa::MetadataProvider;
@@ -24,6 +26,8 @@ pub use vello_common::pixmap::Pixmap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendKind {
     Hybrid,
+    #[cfg(feature = "vello")]
+    Vello,
     Cpu,
     #[cfg(feature = "pathfinder")]
     Pathfinder,
@@ -32,7 +36,16 @@ pub enum BackendKind {
 }
 
 impl BackendKind {
-    #[cfg(feature = "pathfinder")]
+    #[cfg(all(feature = "pathfinder", feature = "vello"))]
+    pub const ALL: [Self; 6] = [
+        Self::Hybrid,
+        Self::Vello,
+        Self::Cpu,
+        Self::Pathfinder,
+        Self::Canvas2d,
+        Self::Canvas2dCpu,
+    ];
+    #[cfg(all(feature = "pathfinder", not(feature = "vello")))]
     pub const ALL: [Self; 5] = [
         Self::Hybrid,
         Self::Cpu,
@@ -40,12 +53,22 @@ impl BackendKind {
         Self::Canvas2d,
         Self::Canvas2dCpu,
     ];
-    #[cfg(not(feature = "pathfinder"))]
+    #[cfg(all(not(feature = "pathfinder"), feature = "vello"))]
+    pub const ALL: [Self; 5] = [
+        Self::Hybrid,
+        Self::Vello,
+        Self::Cpu,
+        Self::Canvas2d,
+        Self::Canvas2dCpu,
+    ];
+    #[cfg(all(not(feature = "pathfinder"), not(feature = "vello")))]
     pub const ALL: [Self; 4] = [Self::Hybrid, Self::Cpu, Self::Canvas2d, Self::Canvas2dCpu];
 
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Hybrid => "hybrid",
+            #[cfg(feature = "vello")]
+            Self::Vello => "vello",
             Self::Cpu => "cpu",
             #[cfg(feature = "pathfinder")]
             Self::Pathfinder => "pathfinder",
@@ -57,6 +80,8 @@ impl BackendKind {
     pub fn label(self) -> &'static str {
         match self {
             Self::Hybrid => "Vello Hybrid",
+            #[cfg(feature = "vello")]
+            Self::Vello => "Vello",
             Self::Cpu => "Vello CPU",
             #[cfg(feature = "pathfinder")]
             Self::Pathfinder => "Pathfinder",
@@ -68,6 +93,8 @@ impl BackendKind {
     pub fn from_str(value: &str) -> Option<Self> {
         match value {
             "hybrid" => Some(Self::Hybrid),
+            #[cfg(feature = "vello")]
+            "vello" | "webgpu" => Some(Self::Vello),
             "cpu" => Some(Self::Cpu),
             #[cfg(feature = "pathfinder")]
             "pathfinder" => Some(Self::Pathfinder),
@@ -80,11 +107,25 @@ impl BackendKind {
     fn capabilities(self) -> &'static CapabilityProfile {
         match self {
             Self::Hybrid => &hybrid::CAPABILITIES,
+            #[cfg(feature = "vello")]
+            Self::Vello => &vello::CAPABILITIES,
             Self::Cpu => &cpu::CAPABILITIES,
             #[cfg(feature = "pathfinder")]
             Self::Pathfinder => &pathfinder::CAPABILITIES,
             Self::Canvas2d | Self::Canvas2dCpu => &canvas2d::CAPABILITIES,
         }
+    }
+
+    pub fn is_available(self) -> bool {
+        match self {
+            #[cfg(feature = "vello")]
+            Self::Vello => webgpu_supported(),
+            _ => true,
+        }
+    }
+
+    pub fn available() -> impl Iterator<Item = Self> {
+        Self::ALL.into_iter().filter(|kind| kind.is_available())
     }
 }
 
@@ -92,7 +133,21 @@ pub fn current_backend_kind() -> BackendKind {
     crate::storage::load_backend_name()
         .as_deref()
         .and_then(BackendKind::from_str)
+        .filter(|kind| kind.is_available())
         .unwrap_or(BackendKind::Hybrid)
+}
+
+#[cfg(feature = "vello")]
+pub fn webgpu_supported() -> bool {
+    web_sys::window()
+        .and_then(|window| {
+            js_sys::Reflect::get(window.as_ref(), &wasm_bindgen::JsValue::from_str("navigator"))
+                .ok()
+        })
+        .and_then(|navigator| {
+            js_sys::Reflect::get(&navigator, &wasm_bindgen::JsValue::from_str("gpu")).ok()
+        })
+        .is_some_and(|gpu| !gpu.is_undefined() && !gpu.is_null())
 }
 
 pub trait Backend {
@@ -203,6 +258,8 @@ pub fn new_backend(
 ) -> Box<dyn Backend> {
     match kind {
         BackendKind::Hybrid => Box::new(hybrid::BackendImpl::new(canvas, w, h)),
+        #[cfg(feature = "vello")]
+        BackendKind::Vello => Box::new(vello::BackendImpl::new(canvas, w, h)),
         BackendKind::Cpu => Box::new(cpu::BackendImpl::new(canvas, w, h)),
         #[cfg(feature = "pathfinder")]
         BackendKind::Pathfinder => Box::new(pathfinder::BackendImpl::new(canvas, w, h)),
