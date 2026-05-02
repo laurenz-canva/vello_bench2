@@ -70,6 +70,7 @@ impl CapabilityProfile {
         self
     }
 
+    #[cfg(feature = "pathfinder")]
     pub(crate) const fn with_unsupported_values(
         mut self,
         unsupported_values: &'static [UnsupportedParamValue],

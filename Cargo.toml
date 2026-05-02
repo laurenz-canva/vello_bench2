@@ -8,6 +8,16 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
+pathfinder = [
+    "dep:pathfinder_canvas",
+    "dep:pathfinder_color",
+    "dep:pathfinder_content",
+    "dep:pathfinder_geometry",
+    "dep:pathfinder_renderer",
+    "dep:pathfinder_resources",
+    "dep:pathfinder_simd",
+    "dep:pathfinder_webgl",
+]
 
 [dependencies]
 bytemuck = "1.25"
@@ -28,14 +38,14 @@ glifo = {  git = "https://github.com/linebender/vello", rev = "11206ba7" }
 #vello_hybrid = { path = "../vello/sparse_strips/vello_hybrid", default-features = false, features = ["webgl", "text", "std", "probe"]  }
 #vello_cpu = { path = "../vello/sparse_strips/vello_cpu", default-features = false, features = ["text", "u8_pipeline", "png", "std"]  }
 #glifo = { path = "../vello/glifo" }
-pathfinder_canvas = { git = "https://github.com/servo/pathfinder", branch = "main" }
-pathfinder_color = { git = "https://github.com/servo/pathfinder", branch = "main" }
-pathfinder_content = { git = "https://github.com/servo/pathfinder", branch = "main" }
-pathfinder_geometry = { git = "https://github.com/servo/pathfinder", branch = "main" }
-pathfinder_renderer = { git = "https://github.com/servo/pathfinder", branch = "main" }
-pathfinder_resources = { git = "https://github.com/servo/pathfinder", branch = "main" }
-pathfinder_simd = { git = "https://github.com/servo/pathfinder", branch = "main" }
-pathfinder_webgl = { git = "https://github.com/servo/pathfinder", branch = "main" }
+pathfinder_canvas = { git = "https://github.com/servo/pathfinder", branch = "main", optional = true }
+pathfinder_color = { git = "https://github.com/servo/pathfinder", branch = "main", optional = true }
+pathfinder_content = { git = "https://github.com/servo/pathfinder", branch = "main", optional = true }
+pathfinder_geometry = { git = "https://github.com/servo/pathfinder", branch = "main", optional = true }
+pathfinder_renderer = { git = "https://github.com/servo/pathfinder", branch = "main", optional = true }
+pathfinder_resources = { git = "https://github.com/servo/pathfinder", branch = "main", optional = true }
+pathfinder_simd = { git = "https://github.com/servo/pathfinder", branch = "main", optional = true }
+pathfinder_webgl = { git = "https://github.com/servo/pathfinder", branch = "main", optional = true }
 js-sys = "0.3.83"
 wasm-bindgen = "=0.2.118"
 wasm-bindgen-futures = "0.4.56"
@@ -85,3 +95,10 @@ cargo-run-wasm = "0.4.0"
 inherits = "release"
 debug = true
 strip = "none"
+
+[profile.dist]
+inherits = "release"
+debug = false
+strip = "symbols"
+lto = "fat"
+codegen-units = 1

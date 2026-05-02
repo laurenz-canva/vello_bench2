@@ -3,6 +3,7 @@ set -eu
 
 DIST=dist
 TARGET=wasm32-unknown-unknown
+BUILD_PROFILE=dist
 RUSTFLAGS_SIMD="-Ctarget-feature=+simd128"
 
 FILTER=all
@@ -15,7 +16,7 @@ build_variant() {
   out_dir=$2
 
   echo "==> Building $out_dir..."
-  RUSTFLAGS="$rustflags" cargo build --target "$TARGET" --profile instrument
+  RUSTFLAGS="$rustflags" cargo build --target "$TARGET" --profile "$BUILD_PROFILE"
 
   echo "==> Running wasm-bindgen ($out_dir)..."
   mkdir -p "$DIST/$out_dir"
@@ -23,7 +24,7 @@ build_variant() {
     --target web \
     --out-dir "$DIST/$out_dir" \
     --no-typescript \
-    "target/$TARGET/instrument/vello_bench2.wasm"
+    "target/$TARGET/$BUILD_PROFILE/vello_bench2.wasm"
 }
 
 should_build() {

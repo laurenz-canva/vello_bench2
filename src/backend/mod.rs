@@ -3,6 +3,7 @@
 mod canvas2d;
 mod cpu;
 mod hybrid;
+#[cfg(feature = "pathfinder")]
 mod pathfinder;
 
 use glifo::Glyph;
@@ -24,12 +25,14 @@ pub use vello_common::pixmap::Pixmap;
 pub enum BackendKind {
     Hybrid,
     Cpu,
+    #[cfg(feature = "pathfinder")]
     Pathfinder,
     Canvas2d,
     Canvas2dCpu,
 }
 
 impl BackendKind {
+    #[cfg(feature = "pathfinder")]
     pub const ALL: [Self; 5] = [
         Self::Hybrid,
         Self::Cpu,
@@ -37,11 +40,14 @@ impl BackendKind {
         Self::Canvas2d,
         Self::Canvas2dCpu,
     ];
+    #[cfg(not(feature = "pathfinder"))]
+    pub const ALL: [Self; 4] = [Self::Hybrid, Self::Cpu, Self::Canvas2d, Self::Canvas2dCpu];
 
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Hybrid => "hybrid",
             Self::Cpu => "cpu",
+            #[cfg(feature = "pathfinder")]
             Self::Pathfinder => "pathfinder",
             Self::Canvas2d => "canvas2d",
             Self::Canvas2dCpu => "canvas2d_cpu",
@@ -52,6 +58,7 @@ impl BackendKind {
         match self {
             Self::Hybrid => "Vello Hybrid",
             Self::Cpu => "Vello CPU",
+            #[cfg(feature = "pathfinder")]
             Self::Pathfinder => "Pathfinder",
             Self::Canvas2d => "Canvas 2D",
             Self::Canvas2dCpu => "Canvas 2D (CPU)",
@@ -62,6 +69,7 @@ impl BackendKind {
         match value {
             "hybrid" => Some(Self::Hybrid),
             "cpu" => Some(Self::Cpu),
+            #[cfg(feature = "pathfinder")]
             "pathfinder" => Some(Self::Pathfinder),
             "canvas2d" => Some(Self::Canvas2d),
             "canvas2d_cpu" | "canvas2d_software" => Some(Self::Canvas2dCpu),
@@ -73,6 +81,7 @@ impl BackendKind {
         match self {
             Self::Hybrid => &hybrid::CAPABILITIES,
             Self::Cpu => &cpu::CAPABILITIES,
+            #[cfg(feature = "pathfinder")]
             Self::Pathfinder => &pathfinder::CAPABILITIES,
             Self::Canvas2d | Self::Canvas2dCpu => &canvas2d::CAPABILITIES,
         }
@@ -195,6 +204,7 @@ pub fn new_backend(
     match kind {
         BackendKind::Hybrid => Box::new(hybrid::BackendImpl::new(canvas, w, h)),
         BackendKind::Cpu => Box::new(cpu::BackendImpl::new(canvas, w, h)),
+        #[cfg(feature = "pathfinder")]
         BackendKind::Pathfinder => Box::new(pathfinder::BackendImpl::new(canvas, w, h)),
         BackendKind::Canvas2d => Box::new(canvas2d::BackendImpl::new(canvas, w, h, kind)),
         BackendKind::Canvas2dCpu => Box::new(canvas2d::BackendImpl::new(canvas, w, h, kind)),
