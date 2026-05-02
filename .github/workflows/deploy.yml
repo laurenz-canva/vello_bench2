@@ -84,6 +84,11 @@ jobs:
             brotli -f -q 11 "$asset" -o "dist/assets/$(basename "$asset").br"
           done
 
+      - name: Compress Wasm assets
+        run: |
+          find dist -type f -name '*.wasm' -print0 \
+            | xargs -0 -n1 brotli -f -q 11
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
