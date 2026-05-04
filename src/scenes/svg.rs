@@ -6,17 +6,20 @@
 )]
 
 use super::{BenchScene, Param, ParamId, ParamKind, SceneId};
-use crate::backend::Backend;
+use crate::backend::{Backend, Pixmap};
 use crate::resource_store::ResourceStore;
 use std::cell::RefCell;
 use std::io::{Cursor, Read};
 use std::rc::Rc;
 use usvg::tiny_skia_path::PathSegment;
-use usvg::{Group, Node};
-use vello_common::kurbo::{Affine, BezPath, Stroke};
-use vello_common::peniko::Color;
+use usvg::{Group, ImageKind, ImageRendering, Node};
+use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
+use vello_common::paint::Image as PaintImage;
+use vello_common::peniko::{Color, Extend, ImageQuality, ImageSampler, color::PremulRgba8};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{JsFuture, spawn_local};
+
+const SVG_IMAGE_EPOCH: u64 = 0;
 
 #[derive(Clone, Copy)]
 struct SvgAssetDesc {
@@ -68,12 +71,26 @@ enum DrawCmd {
         path: BezPath,
         transform: Affine,
     },
+    Image {
+        image_idx: usize,
+        transform: Affine,
+        width: f64,
+        height: f64,
+        bilinear: bool,
+    },
     PopClip,
+}
+
+/// A decoded raster image embedded in an SVG asset.
+struct SvgImage {
+    cache_key: u64,
+    pixmap: Pixmap,
 }
 
 /// A pre-parsed SVG asset ready for rendering.
 struct SvgAsset {
     commands: Vec<DrawCmd>,
+    images: Vec<SvgImage>,
     width: f64,
     height: f64,
 }
@@ -130,7 +147,7 @@ impl SvgScene {
 
         spawn_local(async move {
             let desc = SVG_ASSETS[idx];
-            let result = load_asset(desc).await.map(Rc::new);
+            let result = load_asset(idx, desc).await.map(Rc::new);
             ASSET_CACHE.with(|cache| {
                 cache.borrow_mut()[idx] = match result {
                     Ok(asset) => AssetState::Ready(asset),
@@ -141,26 +158,34 @@ impl SvgScene {
     }
 }
 
-fn parse_asset(desc: SvgAssetDesc, data: &[u8]) -> Result<SvgAsset, String> {
+fn parse_asset(asset_idx: usize, desc: SvgAssetDesc, data: &[u8]) -> Result<SvgAsset, String> {
     let tree = usvg::Tree::from_data(data, &usvg::Options::default())
         .map_err(|e| format!("failed to parse {}: {e}", desc.name))?;
     let mut commands = Vec::new();
-    convert_group(&mut commands, tree.root(), Affine::IDENTITY);
+    let mut images = Vec::new();
+    convert_group(
+        &mut commands,
+        &mut images,
+        tree.root(),
+        Affine::IDENTITY,
+        (asset_idx as u64) << 32,
+    )?;
     Ok(SvgAsset {
         commands,
+        images,
         width: tree.size().width() as f64,
         height: tree.size().height() as f64,
     })
 }
 
-async fn load_asset(desc: SvgAssetDesc) -> Result<SvgAsset, String> {
+async fn load_asset(asset_idx: usize, desc: SvgAssetDesc) -> Result<SvgAsset, String> {
     let compressed = fetch_asset(desc.path).await?;
     let mut decompressed = Vec::new();
     let mut decoder = brotli_decompressor::Decompressor::new(Cursor::new(compressed), 4096);
     decoder
         .read_to_end(&mut decompressed)
         .map_err(|e| format!("failed to decompress {}: {e}", desc.name))?;
-    parse_asset(desc, &decompressed)
+    parse_asset(asset_idx, desc, &decompressed)
 }
 
 async fn fetch_asset(path: &str) -> Result<Vec<u8>, String> {
@@ -172,7 +197,10 @@ async fn fetch_asset(path: &str) -> Result<Vec<u8>, String> {
         .dyn_into::<web_sys::Response>()
         .map_err(|_| format!("fetch did not return a Response for {url}"))?;
     if !response.ok() {
-        return Err(format!("fetch failed for {url}: HTTP {}", response.status()));
+        return Err(format!(
+            "fetch failed for {url}: HTTP {}",
+            response.status()
+        ));
     }
     let buffer = JsFuture::from(
         response
@@ -198,7 +226,13 @@ fn asset_base_url() -> String {
 
 // ── usvg → draw command conversion ──────────────────────────────────────────
 
-fn convert_group(commands: &mut Vec<DrawCmd>, g: &Group, parent_transform: Affine) {
+fn convert_group(
+    commands: &mut Vec<DrawCmd>,
+    images: &mut Vec<SvgImage>,
+    g: &Group,
+    parent_transform: Affine,
+    image_key_base: u64,
+) -> Result<(), String> {
     let transform = parent_transform * convert_transform(&g.transform());
 
     // Handle clip path on this group.
@@ -218,7 +252,9 @@ fn convert_group(commands: &mut Vec<DrawCmd>, g: &Group, parent_transform: Affin
 
     for child in g.children() {
         match child {
-            Node::Group(group) => convert_group(commands, group, transform),
+            Node::Group(group) => {
+                convert_group(commands, images, group, transform, image_key_base)?;
+            }
             Node::Path(p) => {
                 let bez = convert_path(p);
 
@@ -241,13 +277,110 @@ fn convert_group(commands: &mut Vec<DrawCmd>, g: &Group, parent_transform: Affin
                     });
                 }
             }
-            Node::Image(_) | Node::Text(_) => {}
+            Node::Image(image) => {
+                convert_image(commands, images, image, transform, image_key_base)?;
+            }
+            Node::Text(_) => {}
         }
     }
 
     if has_clip {
         commands.push(DrawCmd::PopClip);
     }
+
+    Ok(())
+}
+
+fn convert_image(
+    commands: &mut Vec<DrawCmd>,
+    images: &mut Vec<SvgImage>,
+    image: &usvg::Image,
+    transform: Affine,
+    image_key_base: u64,
+) -> Result<(), String> {
+    if !image.is_visible() {
+        return Ok(());
+    }
+
+    match image.kind() {
+        ImageKind::SVG(tree) => {
+            convert_group(commands, images, tree.root(), transform, image_key_base)?;
+        }
+        kind => {
+            let Some(pixmap) = decode_raster_image(kind)? else {
+                return Ok(());
+            };
+            let image_idx = images.len();
+            let size = image.size();
+            commands.push(DrawCmd::Image {
+                image_idx,
+                transform,
+                width: size.width() as f64,
+                height: size.height() as f64,
+                bilinear: image_bilinear(image.rendering_mode()),
+            });
+            images.push(SvgImage {
+                cache_key: image_key_base | image_idx as u64,
+                pixmap,
+            });
+        }
+    }
+
+    Ok(())
+}
+
+fn decode_raster_image(kind: &ImageKind) -> Result<Option<Pixmap>, String> {
+    let (data, format) = match kind {
+        ImageKind::JPEG(data) => (data.as_slice(), image::ImageFormat::Jpeg),
+        ImageKind::PNG(data) => (data.as_slice(), image::ImageFormat::Png),
+        ImageKind::GIF(data) => (data.as_slice(), image::ImageFormat::Gif),
+        ImageKind::WEBP(data) => (data.as_slice(), image::ImageFormat::WebP),
+        ImageKind::SVG(_) => return Ok(None),
+    };
+    let rgba = image::load_from_memory_with_format(data, format)
+        .map_err(|e| format!("failed to decode embedded SVG image: {e}"))?
+        .into_rgba8();
+    let (width, height) = rgba.dimensions();
+    let width: u16 = width
+        .try_into()
+        .map_err(|_| format!("embedded SVG image width {width} exceeds u16::MAX"))?;
+    let height: u16 = height
+        .try_into()
+        .map_err(|_| format!("embedded SVG image height {height} exceeds u16::MAX"))?;
+
+    let mut may_have_opacities = false;
+    let pixels = rgba
+        .into_raw()
+        .chunks_exact(4)
+        .map(|rgba| {
+            let [r, g, b, a]: [u8; 4] = rgba.try_into().unwrap();
+            if a != 255 {
+                may_have_opacities = true;
+            }
+            let alpha = u16::from(a);
+            let premultiply = |channel: u8| ((u16::from(channel) * alpha) / 255) as u8;
+            PremulRgba8 {
+                r: premultiply(r),
+                g: premultiply(g),
+                b: premultiply(b),
+                a,
+            }
+        })
+        .collect();
+
+    Ok(Some(Pixmap::from_parts_with_opacity(
+        pixels,
+        width,
+        height,
+        may_have_opacities,
+    )))
+}
+
+fn image_bilinear(rendering: ImageRendering) -> bool {
+    !matches!(
+        rendering,
+        ImageRendering::OptimizeSpeed | ImageRendering::CrispEdges | ImageRendering::Pixelated
+    )
 }
 
 /// Flatten all paths in a group into a single BezPath (for clip paths).
@@ -369,7 +502,7 @@ impl BenchScene for SvgScene {
     fn render(
         &mut self,
         backend: &mut dyn Backend,
-        _resources: &mut ResourceStore,
+        resources: &mut ResourceStore,
         width: u32,
         height: u32,
         _time: f64,
@@ -410,6 +543,40 @@ impl BenchScene for SvgScene {
                 DrawCmd::PushClip { path, transform } => {
                     backend.set_transform(base * *transform);
                     backend.push_clip_path(path);
+                }
+                DrawCmd::Image {
+                    image_idx,
+                    transform,
+                    width,
+                    height,
+                    bilinear,
+                } => {
+                    let Some(image) = asset.images.get(*image_idx) else {
+                        continue;
+                    };
+                    let source = resources.get_or_upload_image(
+                        SceneId::Svg,
+                        SVG_IMAGE_EPOCH,
+                        image.cache_key,
+                        backend,
+                        || image.pixmap.clone(),
+                    );
+                    let image = PaintImage {
+                        image: source,
+                        sampler: ImageSampler {
+                            x_extend: Extend::Pad,
+                            y_extend: Extend::Pad,
+                            quality: if *bilinear {
+                                ImageQuality::Medium
+                            } else {
+                                ImageQuality::Low
+                            },
+                            alpha: 1.0,
+                        },
+                    };
+                    backend.set_transform(base * *transform);
+                    backend.set_paint(image.into());
+                    backend.fill_rect(&Rect::new(0.0, 0.0, *width, *height));
                 }
                 DrawCmd::PopClip => {
                     backend.pop_clip_path();
