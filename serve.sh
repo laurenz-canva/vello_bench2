@@ -48,6 +48,9 @@ copy_svg_assets() {
   mkdir -p "$DIST/assets"
   for asset in assets/*.svg; do
     out="$DIST/assets/$(basename "$asset").br"
+    if [ -f "$out" ]; then
+      continue
+    fi
     brotli -q11 -c "$asset" > "$out"
   done
 }
