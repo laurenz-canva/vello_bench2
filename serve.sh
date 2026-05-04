@@ -48,7 +48,7 @@ copy_svg_assets() {
   mkdir -p "$DIST/assets"
   for asset in assets/*.svg; do
     out="$DIST/assets/$(basename "$asset").br"
-    brotli -f -q 11 "$asset" -o "$out"
+    brotli -q11 -c "$asset" > "$out"
   done
 }
 
@@ -58,7 +58,7 @@ compress_wasm_assets() {
     exit 1
   fi
 
-  find "$DIST" -type f -name '*.wasm' -exec brotli -f -q 11 {} \;
+  find "$DIST" -type f -name '*.wasm' -exec sh -c 'brotli -q11 -c "$1" > "$1.br"' _ {} \;
 }
 
 cleanup() {
