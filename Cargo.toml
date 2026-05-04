@@ -7,7 +7,7 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["pathfinder", "vello"]
+default = []
 pathfinder = [
     "dep:pathfinder_canvas",
     "dep:pathfinder_color",
