@@ -79,7 +79,24 @@
   </div>
 
   <script type="module">
-    const simd = localStorage.getItem("vello_bench_simd") !== "0";
+    function supportsWasmSimd() {
+      try {
+        return WebAssembly.validate(
+          new Uint8Array([
+            0, 97, 115, 109, 1, 0, 0, 0,
+            1, 5, 1, 96, 0, 1, 123,
+            3, 2, 1, 0,
+            10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11,
+          ]),
+        );
+      } catch (_) {
+        return false;
+      }
+    }
+
+    const simdSupported = supportsWasmSimd();
+    const simdPreferred = localStorage.getItem("vello_bench_simd") !== "0";
+    const simd = simdSupported && simdPreferred;
     const simdStr = simd ? "simd" : "nosimd";
 
     // Optional integrated A/B support: when served with control/ and treatment/
@@ -102,11 +119,14 @@
       : `./${simdStr}/vello_bench2.js`;
 
     if (!abMode) {
+      window.__vello_simd_supported = simdSupported;
       window.__vello_simd = simd;
-      window.__vello_toggle_simd = () => {
-        localStorage.setItem("vello_bench_simd", simd ? "0" : "1");
-        location.reload();
-      };
+      if (simdSupported) {
+        window.__vello_toggle_simd = () => {
+          localStorage.setItem("vello_bench_simd", simd ? "0" : "1");
+          location.reload();
+        };
+      }
     }
 
     if (abMode) {

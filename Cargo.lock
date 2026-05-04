@@ -530,6 +530,7 @@ dependencies = [
 [[package]]
 name = "glifo"
 version = "0.0.0"
+source = "git+https://github.com/linebender/vello?rev=11206ba7#11206ba7b7cacaa5e3b5af707fb585b08799c24d"
 dependencies = [
  "bytemuck",
  "foldhash 0.2.0",
@@ -1729,6 +1730,7 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 [[package]]
 name = "vello"
 version = "0.8.0"
+source = "git+https://github.com/linebender/vello?rev=11206ba7#11206ba7b7cacaa5e3b5af707fb585b08799c24d"
 dependencies = [
  "bytemuck",
  "futures-intrusive",
@@ -1780,6 +1782,7 @@ dependencies = [
 [[package]]
 name = "vello_common"
 version = "0.0.7"
+source = "git+https://github.com/linebender/vello?rev=11206ba7#11206ba7b7cacaa5e3b5af707fb585b08799c24d"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -1795,6 +1798,7 @@ dependencies = [
 [[package]]
 name = "vello_cpu"
 version = "0.0.7"
+source = "git+https://github.com/linebender/vello?rev=11206ba7#11206ba7b7cacaa5e3b5af707fb585b08799c24d"
 dependencies = [
  "bytemuck",
  "glifo",
@@ -1806,6 +1810,7 @@ dependencies = [
 [[package]]
 name = "vello_encoding"
 version = "0.8.0"
+source = "git+https://github.com/linebender/vello?rev=11206ba7#11206ba7b7cacaa5e3b5af707fb585b08799c24d"
 dependencies = [
  "bytemuck",
  "guillotiere",
@@ -1817,6 +1822,7 @@ dependencies = [
 [[package]]
 name = "vello_hybrid"
 version = "0.0.7"
+source = "git+https://github.com/linebender/vello?rev=11206ba7#11206ba7b7cacaa5e3b5af707fb585b08799c24d"
 dependencies = [
  "bytemuck",
  "glifo",
@@ -1827,12 +1833,12 @@ dependencies = [
  "vello_common",
  "vello_sparse_shaders",
  "web-sys",
- "wgpu",
 ]
 
 [[package]]
 name = "vello_shaders"
 version = "0.8.0"
+source = "git+https://github.com/linebender/vello?rev=11206ba7#11206ba7b7cacaa5e3b5af707fb585b08799c24d"
 dependencies = [
  "bytemuck",
  "log",
@@ -1844,6 +1850,7 @@ dependencies = [
 [[package]]
 name = "vello_sparse_shaders"
 version = "0.0.7"
+source = "git+https://github.com/linebender/vello?rev=11206ba7#11206ba7b7cacaa5e3b5af707fb585b08799c24d"
 dependencies = [
  "naga",
 ]
