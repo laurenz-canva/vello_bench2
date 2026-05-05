@@ -190,9 +190,9 @@ impl Backend for BackendImpl {
     fn draw_image(&mut self, _image: ImageSource, _rect: &Rect, _bilinear: bool) {}
 
     fn upload_image(&mut self, pixmap: Pixmap) -> ImageSource {
-        let may_have_opacities = pixmap.may_have_opacities();
+        let may_have_transparency = pixmap.may_have_transparency();
         let id = self.renderer.upload_image(&mut self.resources, &pixmap);
-        ImageSource::opaque_id_with_opacity_hint(id, may_have_opacities)
+        ImageSource::opaque_id_with_transparency_hint(id, may_have_transparency)
     }
 
     fn destroy_image(&mut self, image: &ImageSource) {
