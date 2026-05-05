@@ -281,7 +281,7 @@ impl AppState {
         self.ui.rebuild_params(&params);
         self.refresh_calibration_state();
         self.fps_tracker.reset(now);
-        self.reset_view();
+        self.update_reset_btn();
         self.ui.mark_dirty();
         true
     }
