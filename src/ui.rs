@@ -702,7 +702,7 @@ impl Ui {
         )));
     }
 
-    pub fn set_probe_failure(&self, message: &str) {
+    pub fn set_probe_failure(&self, message: &str, elapsed_ms: f64) {
         self.probe_btn.style().set_property("opacity", "1").unwrap();
         self.probe_btn
             .style()
@@ -715,8 +715,10 @@ impl Ui {
             Some(message),
         );
         class(&self.probe_timing, PROBE_STATUS_FAILURE_CLASS);
-        self.probe_timing
-            .set_text_content(Some(&format!("Probe failed with error: {message}")));
+        self.probe_timing.set_text_content(Some(&format!(
+            "Probe failed in {:.1}ms with error: {message}",
+            elapsed_ms
+        )));
     }
 
     fn sync_probe_button(&self, kind: BackendKind) {

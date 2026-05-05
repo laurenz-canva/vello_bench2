@@ -52,6 +52,13 @@ pub fn init_logging() {
     let _ = console_log::init_with_level(log::Level::Info);
 }
 
+fn probe_elapsed_ms(started_at: f64) -> f64 {
+    web_sys::window()
+        .and_then(|window| window.performance())
+        .map(|performance| performance.now() - started_at)
+        .unwrap_or(0.0)
+}
+
 struct AppState {
     scenes: Vec<Box<dyn BenchScene>>,
     current_scene: usize,
@@ -597,16 +604,14 @@ impl AppState {
         self.ui.set_probe_running(true);
         match self.backend.probe() {
             Ok(()) => {
-                let elapsed_ms = web_sys::window()
-                    .and_then(|window| window.performance())
-                    .map(|performance| performance.now() - started_at)
-                    .unwrap_or(0.0);
-                log::info!("Vello Hybrid probe succeeded");
+                let elapsed_ms = probe_elapsed_ms(started_at);
+                log::info!("Vello Hybrid probe succeeded in {elapsed_ms:.1}ms");
                 self.ui.set_probe_success(elapsed_ms);
             }
             Err(error) => {
-                log::warn!("Vello Hybrid probe failed: {error}");
-                self.ui.set_probe_failure(&error);
+                let elapsed_ms = probe_elapsed_ms(started_at);
+                log::warn!("Vello Hybrid probe failed in {elapsed_ms:.1}ms: {error}");
+                self.ui.set_probe_failure(&error, elapsed_ms);
             }
         }
     }
