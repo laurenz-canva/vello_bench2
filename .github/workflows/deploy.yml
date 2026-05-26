@@ -18,7 +18,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      WASM_BINDGEN_VERSION: 0.2.118
+      WASM_BINDGEN_VERSION: 0.2.121
     steps:
       - uses: actions/checkout@v4
 
