@@ -688,7 +688,15 @@ impl Ui {
         }
     }
 
-    pub fn set_probe_success(&self, elapsed_ms: f64) {
+    pub fn set_probe_sync_complete(&self, synchronous_ms: f64) {
+        class(&self.probe_timing, PROBE_STATUS_NEUTRAL_CLASS);
+        self.probe_timing.set_text_content(Some(&format!(
+            "start_probe: {:.1}ms\nreadback: pending\nfull: pending",
+            synchronous_ms
+        )));
+    }
+
+    pub fn set_probe_success(&self, start_probe_ms: f64, readback_ms: f64, full_ms: f64) {
         self.probe_btn.style().set_property("opacity", "1").unwrap();
         self.probe_btn
             .style()
@@ -697,12 +705,18 @@ impl Ui {
         set_probe_button_state(&self.probe_btn, PROBE_BUTTON_NEUTRAL_CLASS, "Probe", None);
         class(&self.probe_timing, PROBE_STATUS_SUCCESS_CLASS);
         self.probe_timing.set_text_content(Some(&format!(
-            "Probe finished successfully in {:.1}ms",
-            elapsed_ms
+            "start_probe: {:.1}ms\nreadback: {:.1}ms\nfull: {:.1}ms",
+            start_probe_ms, readback_ms, full_ms
         )));
     }
 
-    pub fn set_probe_failure(&self, message: &str, elapsed_ms: f64) {
+    pub fn set_probe_failure(
+        &self,
+        message: &str,
+        start_probe_ms: f64,
+        readback_ms: Option<f64>,
+        full_ms: f64,
+    ) {
         self.probe_btn.style().set_property("opacity", "1").unwrap();
         self.probe_btn
             .style()
@@ -715,9 +729,12 @@ impl Ui {
             Some(message),
         );
         class(&self.probe_timing, PROBE_STATUS_FAILURE_CLASS);
+        let readback_text = readback_ms
+            .map(|value| format!("{value:.1}ms"))
+            .unwrap_or_else(|| "n/a".to_string());
         self.probe_timing.set_text_content(Some(&format!(
-            "Probe failed in {:.1}ms with error: {message}",
-            elapsed_ms
+            "start_probe: {:.1}ms\nreadback: {}\nfull: {:.1}ms\nerror: {message}",
+            start_probe_ms, readback_text, full_ms
         )));
     }
 
@@ -1857,6 +1874,10 @@ fn build_bench_config(
     probe_timing
         .style()
         .set_property("display", "none")
+        .unwrap();
+    probe_timing
+        .style()
+        .set_property("white-space", "pre-line")
         .unwrap();
     left_col.append_child(&probe_timing).unwrap();
 

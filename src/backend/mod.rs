@@ -141,8 +141,11 @@ pub fn current_backend_kind() -> BackendKind {
 pub fn webgpu_supported() -> bool {
     web_sys::window()
         .and_then(|window| {
-            js_sys::Reflect::get(window.as_ref(), &wasm_bindgen::JsValue::from_str("navigator"))
-                .ok()
+            js_sys::Reflect::get(
+                window.as_ref(),
+                &wasm_bindgen::JsValue::from_str("navigator"),
+            )
+            .ok()
         })
         .and_then(|navigator| {
             js_sys::Reflect::get(&navigator, &wasm_bindgen::JsValue::from_str("gpu")).ok()
@@ -185,7 +188,7 @@ pub trait Backend {
     fn draw_image(&mut self, image: ImageSource, rect: &Rect, bilinear: bool);
     fn upload_image(&mut self, pixmap: Pixmap) -> ImageSource;
     fn destroy_image(&mut self, image: &ImageSource);
-    fn probe(&mut self) -> Result<(), String> {
+    fn probe(&mut self) -> Result<vello_hybrid::WebGlPendingProbe, String> {
         Err("Backend probing is only supported for Vello Hybrid".to_string())
     }
 }

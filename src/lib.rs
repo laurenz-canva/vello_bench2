@@ -59,6 +59,86 @@ fn probe_elapsed_ms(started_at: f64) -> f64 {
         .unwrap_or(0.0)
 }
 
+fn poll_probe_completion<F>(pending_probe: vello_hybrid::WebGlPendingProbe, on_complete: F)
+where
+    F: FnOnce(ProbeCompletion) + 'static,
+{
+    let callback: RafClosure = Rc::new(RefCell::new(None));
+    let callback_ref = callback.clone();
+    let pending_probe = Rc::new(RefCell::new(Some(pending_probe)));
+    let pending_probe_ref = pending_probe.clone();
+    let on_complete = Rc::new(RefCell::new(Some(on_complete)));
+    let on_complete_ref = on_complete.clone();
+
+    *callback.borrow_mut() = Some(Closure::wrap(Box::new(move || {
+        let Some(pending_probe) = pending_probe_ref.borrow_mut().take() else {
+            return;
+        };
+
+        let readback_started_at = web_sys::window()
+            .and_then(|window| window.performance())
+            .map(|performance| performance.now())
+            .unwrap_or(0.0);
+        match pending_probe.try_finish() {
+            Ok(vello_hybrid::WebGlProbeStatus::Pending(pending_probe)) => {
+                *pending_probe_ref.borrow_mut() = Some(pending_probe);
+                if let Some(callback) = callback_ref.borrow().as_ref() {
+                    request_animation_frame(callback);
+                }
+            }
+            Ok(vello_hybrid::WebGlProbeStatus::Complete(probe)) => {
+                let readback_ms = probe_elapsed_ms(readback_started_at);
+                callback_ref.borrow_mut().take();
+                if let Some(on_complete) = on_complete_ref.borrow_mut().take() {
+                    on_complete(ProbeCompletion {
+                        readback_ms,
+                        result: probe_result_to_result(probe),
+                    });
+                }
+            }
+            Err(error) => {
+                let readback_ms = probe_elapsed_ms(readback_started_at);
+                callback_ref.borrow_mut().take();
+                if let Some(on_complete) = on_complete_ref.borrow_mut().take() {
+                    on_complete(ProbeCompletion {
+                        readback_ms,
+                        result: Err(error.to_string()),
+                    });
+                }
+            }
+        }
+    }) as Box<dyn FnMut()>));
+
+    if let Some(callback) = callback.borrow().as_ref() {
+        request_animation_frame(callback);
+    }
+}
+
+fn probe_result_to_result(
+    probe: vello_common::probe::Probe<vello_hybrid::RenderError>,
+) -> Result<(), String> {
+    match probe {
+        vello_common::probe::Probe::Success => Ok(()),
+        vello_common::probe::Probe::Error(_) => {
+            Err("Probe output did not match the bundled reference".to_string())
+        }
+        vello_common::probe::Probe::RenderError(error) => {
+            Err(format!("Probe render failed: {error:?}"))
+        }
+    }
+}
+
+struct PendingProbeCompletion {
+    started_at: f64,
+    start_probe_ms: f64,
+    pending_probe: vello_hybrid::WebGlPendingProbe,
+}
+
+struct ProbeCompletion {
+    readback_ms: f64,
+    result: Result<(), String>,
+}
+
 struct AppState {
     scenes: Vec<Box<dyn BenchScene>>,
     current_scene: usize,
@@ -593,9 +673,9 @@ impl AppState {
             .start(&self.bench_defs, &self.benchmark_canvas, vp_w, vp_h);
     }
 
-    fn run_backend_probe(&mut self) {
+    fn run_backend_probe(&mut self) -> Option<PendingProbeCompletion> {
         if self.benchmark_running() || self.backend.kind() != BackendKind::Hybrid {
-            return;
+            return None;
         }
         let started_at = web_sys::window()
             .and_then(|window| window.performance())
@@ -603,15 +683,24 @@ impl AppState {
             .unwrap_or(0.0);
         self.ui.set_probe_running(true);
         match self.backend.probe() {
-            Ok(()) => {
-                let elapsed_ms = probe_elapsed_ms(started_at);
-                log::info!("Vello Hybrid probe succeeded in {elapsed_ms:.1}ms");
-                self.ui.set_probe_success(elapsed_ms);
+            Ok(pending_probe) => {
+                let start_probe_ms = probe_elapsed_ms(started_at);
+                log::info!("Vello Hybrid probe start_probe finished in {start_probe_ms:.1}ms");
+                self.ui.set_probe_sync_complete(start_probe_ms);
+                Some(PendingProbeCompletion {
+                    started_at,
+                    start_probe_ms,
+                    pending_probe,
+                })
             }
             Err(error) => {
-                let elapsed_ms = probe_elapsed_ms(started_at);
-                log::warn!("Vello Hybrid probe failed in {elapsed_ms:.1}ms: {error}");
-                self.ui.set_probe_failure(&error, elapsed_ms);
+                let start_probe_ms = probe_elapsed_ms(started_at);
+                log::warn!(
+                    "Vello Hybrid probe failed: start_probe {start_probe_ms:.1}ms, full {start_probe_ms:.1}ms: {error}"
+                );
+                self.ui
+                    .set_probe_failure(&error, start_probe_ms, None, start_probe_ms);
+                None
             }
         }
     }
@@ -1210,7 +1299,42 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         let s = state.clone();
         let btn = state.borrow().ui.probe_btn().clone();
         let cb = Closure::wrap(Box::new(move || {
-            s.borrow_mut().run_backend_probe();
+            if let Some(pending) = s.borrow_mut().run_backend_probe() {
+                let s = s.clone();
+                poll_probe_completion(pending.pending_probe, move |completion| {
+                    let full_ms = probe_elapsed_ms(pending.started_at);
+                    let st = s.borrow();
+                    match completion.result {
+                        Ok(()) => {
+                            log::info!(
+                                "Vello Hybrid probe succeeded: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms",
+                                pending.start_probe_ms,
+                                completion.readback_ms,
+                                full_ms
+                            );
+                            st.ui.set_probe_success(
+                                pending.start_probe_ms,
+                                completion.readback_ms,
+                                full_ms,
+                            );
+                        }
+                        Err(error) => {
+                            log::warn!(
+                                "Vello Hybrid probe failed: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms: {error}",
+                                pending.start_probe_ms,
+                                completion.readback_ms,
+                                full_ms
+                            );
+                            st.ui.set_probe_failure(
+                                &error,
+                                pending.start_probe_ms,
+                                Some(completion.readback_ms),
+                                full_ms,
+                            );
+                        }
+                    }
+                });
+            }
         }) as Box<dyn FnMut()>);
         btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
             .unwrap();
