@@ -1881,7 +1881,6 @@ dependencies = [
  "vello_common",
  "vello_sparse_shaders",
  "web-sys",
- "wgpu",
 ]
 
 [[package]]
