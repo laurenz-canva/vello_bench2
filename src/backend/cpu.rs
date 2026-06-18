@@ -132,7 +132,7 @@ impl Backend for BackendImpl {
     fn render_offscreen(&mut self) {
         self.ctx.flush();
         self.ctx
-            .render_to_pixmap(&mut self.resources, &mut self.target);
+            .render(&mut self.target, &mut self.resources);
     }
 
     fn blit(&mut self) {
