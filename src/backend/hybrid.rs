@@ -29,15 +29,7 @@ impl BackendImpl {
         // Turns out that, at least on MacOS, using texture sizes larger tahan 4096 comes at a very steep
         // price when rendering filter layers, presumably due to the frequent framebuffer switches becoming
         // much more expensive.
-        let atlas_dimension = query_max_texture_size().min(4_096).max(w.max(h).min(4_096));
-        let settings = vello_hybrid::RenderSettings {
-            atlas_config: vello_hybrid::AtlasConfig {
-                max_atlases: 128,
-                atlas_size: (atlas_dimension, atlas_dimension),
-                ..vello_hybrid::AtlasConfig::default()
-            },
-            ..vello_hybrid::RenderSettings::default()
-        };
+        let settings = vello_hybrid::RenderSettings::default();
         Self {
             ctx: vello_hybrid::Scene::new(w as u16, h as u16),
             resources: vello_hybrid::Resources::new(),

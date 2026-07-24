@@ -1296,49 +1296,54 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
 
     // Probe Vello Hybrid
     {
-        let s = state.clone();
-        let btn = state.borrow().ui.probe_btn().clone();
-        let cb = Closure::wrap(Box::new(move || {
-            if let Some(pending) = s.borrow_mut().run_backend_probe() {
-                let s = s.clone();
-                poll_probe_completion(pending.pending_probe, move |completion| {
-                    let full_ms = probe_elapsed_ms(pending.started_at);
-                    let st = s.borrow();
-                    match completion.result {
-                        Ok(()) => {
-                            log::info!(
-                                "Vello Hybrid probe succeeded: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms",
-                                pending.start_probe_ms,
-                                completion.readback_ms,
-                                full_ms
-                            );
-                            st.ui.set_probe_success(
-                                pending.start_probe_ms,
-                                completion.readback_ms,
-                                full_ms,
-                            );
+        let buttons = {
+            let st = state.borrow();
+            [st.ui.probe_btn().clone(), st.ui.top_probe_btn().clone()]
+        };
+        for btn in buttons {
+            let s = state.clone();
+            let cb = Closure::wrap(Box::new(move || {
+                if let Some(pending) = s.borrow_mut().run_backend_probe() {
+                    let s = s.clone();
+                    poll_probe_completion(pending.pending_probe, move |completion| {
+                        let full_ms = probe_elapsed_ms(pending.started_at);
+                        let st = s.borrow();
+                        match completion.result {
+                            Ok(()) => {
+                                log::info!(
+                                    "Vello Hybrid probe succeeded: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms",
+                                    pending.start_probe_ms,
+                                    completion.readback_ms,
+                                    full_ms
+                                );
+                                st.ui.set_probe_success(
+                                    pending.start_probe_ms,
+                                    completion.readback_ms,
+                                    full_ms,
+                                );
+                            }
+                            Err(error) => {
+                                log::warn!(
+                                    "Vello Hybrid probe failed: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms: {error}",
+                                    pending.start_probe_ms,
+                                    completion.readback_ms,
+                                    full_ms
+                                );
+                                st.ui.set_probe_failure(
+                                    &error,
+                                    pending.start_probe_ms,
+                                    Some(completion.readback_ms),
+                                    full_ms,
+                                );
+                            }
                         }
-                        Err(error) => {
-                            log::warn!(
-                                "Vello Hybrid probe failed: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms: {error}",
-                                pending.start_probe_ms,
-                                completion.readback_ms,
-                                full_ms
-                            );
-                            st.ui.set_probe_failure(
-                                &error,
-                                pending.start_probe_ms,
-                                Some(completion.readback_ms),
-                                full_ms,
-                            );
-                        }
-                    }
-                });
-            }
-        }) as Box<dyn FnMut()>);
-        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
-            .unwrap();
-        cb.forget();
+                    });
+                }
+            }) as Box<dyn FnMut()>);
+            btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+                .unwrap();
+            cb.forget();
+        }
     }
 
     // Start A/B benchmarks

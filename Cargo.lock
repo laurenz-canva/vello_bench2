@@ -445,6 +445,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "font-types"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad67eced03f5504d9cbd3a879b5958b5c54d4e5fd794361c6eb21b05fb703411"
+dependencies = [
+ "bytemuck",
+]
+
+[[package]]
 name = "fontconfig-parser"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -546,7 +555,6 @@ dependencies = [
 [[package]]
 name = "glifo"
 version = "0.1.1"
-source = "git+https://github.com/linebender/vello?rev=9c29286#9c292860957b010ed8d81e6d4c7317d81ab0ec4d"
 dependencies = [
  "bytemuck",
  "foldhash 0.2.0",
@@ -554,7 +562,7 @@ dependencies = [
  "log",
  "peniko",
  "png",
- "skrifa",
+ "skrifa 0.43.2",
  "smallvec",
  "vello_common",
 ]
@@ -1386,7 +1394,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4ed38b89c2c77ff968c524145ad65fb010f38af5c7a224b53b81d47ac2daa81"
 dependencies = [
  "bytemuck",
- "font-types",
+ "font-types 0.11.3",
+]
+
+[[package]]
+name = "read-fonts"
+version = "0.40.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "487889119a5f19ff7c0a20637196bdc76b9f54ebec17e3588b5d75e4999f8773"
+dependencies = [
+ "bytemuck",
+ "font-types 0.12.1",
+ "once_cell",
 ]
 
 [[package]]
@@ -1547,7 +1566,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c34617370ae968efb7161bb2beb517d9084659aae19e24b89e3db25b46e4564"
 dependencies = [
  "bytemuck",
- "read-fonts",
+ "read-fonts 0.39.2",
+]
+
+[[package]]
+name = "skrifa"
+version = "0.43.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4cbe997d0f2480442d727488fbe2150779114cbe480ecdbadef58b33e0318ffb"
+dependencies = [
+ "bytemuck",
+ "read-fonts 0.40.2",
 ]
 
 [[package]]
@@ -1777,14 +1806,13 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 [[package]]
 name = "vello"
 version = "0.9.0"
-source = "git+https://github.com/linebender/vello?rev=9c29286#9c292860957b010ed8d81e6d4c7317d81ab0ec4d"
 dependencies = [
  "bytemuck",
  "futures-intrusive",
  "log",
  "peniko",
  "png",
- "skrifa",
+ "skrifa 0.43.2",
  "static_assertions",
  "thiserror",
  "vello_encoding",
@@ -1815,7 +1843,7 @@ dependencies = [
  "pathfinder_webgl",
  "serde",
  "serde_json",
- "skrifa",
+ "skrifa 0.42.1",
  "smallvec",
  "usvg",
  "vello",
@@ -1830,7 +1858,6 @@ dependencies = [
 [[package]]
 name = "vello_common"
 version = "0.0.9"
-source = "git+https://github.com/linebender/vello?rev=9c29286#9c292860957b010ed8d81e6d4c7317d81ab0ec4d"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -1846,7 +1873,6 @@ dependencies = [
 [[package]]
 name = "vello_cpu"
 version = "0.0.9"
-source = "git+https://github.com/linebender/vello?rev=9c29286#9c292860957b010ed8d81e6d4c7317d81ab0ec4d"
 dependencies = [
  "bytemuck",
  "glifo",
@@ -1858,19 +1884,17 @@ dependencies = [
 [[package]]
 name = "vello_encoding"
 version = "0.9.0"
-source = "git+https://github.com/linebender/vello?rev=9c29286#9c292860957b010ed8d81e6d4c7317d81ab0ec4d"
 dependencies = [
  "bytemuck",
  "guillotiere",
  "peniko",
- "skrifa",
+ "skrifa 0.43.2",
  "smallvec",
 ]
 
 [[package]]
 name = "vello_hybrid"
 version = "0.0.9"
-source = "git+https://github.com/linebender/vello?rev=9c29286#9c292860957b010ed8d81e6d4c7317d81ab0ec4d"
 dependencies = [
  "bytemuck",
  "glifo",
@@ -1886,7 +1910,6 @@ dependencies = [
 [[package]]
 name = "vello_shaders"
 version = "0.9.0"
-source = "git+https://github.com/linebender/vello?rev=9c29286#9c292860957b010ed8d81e6d4c7317d81ab0ec4d"
 dependencies = [
  "bytemuck",
  "log",
@@ -1898,7 +1921,6 @@ dependencies = [
 [[package]]
 name = "vello_sparse_shaders"
 version = "0.0.9"
-source = "git+https://github.com/linebender/vello?rev=9c29286#9c292860957b010ed8d81e6d4c7317d81ab0ec4d"
 dependencies = [
  "naga",
 ]

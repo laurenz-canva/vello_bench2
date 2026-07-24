@@ -38,6 +38,9 @@ fn set(el: &HtmlElement, props: &[(&str, &str)]) {
 }
 
 const PROBE_BUTTON_NEUTRAL_CLASS: &str = "mb-3 border border-slate-300/20 bg-slate-300/10 px-4 py-2 text-center text-sm font-semibold text-slate-200 transition hover:bg-slate-300/15";
+const TOP_PROBE_BUTTON_NEUTRAL_CLASS: &str = "shrink-0 cursor-pointer whitespace-nowrap border border-slate-300/20 bg-slate-300/10 px-2 py-1 text-xs font-semibold text-slate-200 transition hover:bg-slate-300/15";
+const TOP_PROBE_BUTTON_SUCCESS_CLASS: &str = "shrink-0 cursor-pointer whitespace-nowrap border border-emerald-300/40 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-300/15";
+const TOP_PROBE_BUTTON_FAILURE_CLASS: &str = "shrink-0 cursor-pointer whitespace-nowrap border border-rose-300/40 bg-rose-300/10 px-2 py-1 text-xs font-semibold text-rose-300 transition hover:bg-rose-300/15";
 const PROBE_STATUS_NEUTRAL_CLASS: &str = "mb-3 text-xs leading-5 text-slate-400";
 const PROBE_STATUS_SUCCESS_CLASS: &str = "mb-3 text-xs leading-5 text-emerald-300";
 const PROBE_STATUS_FAILURE_CLASS: &str = "mb-3 text-xs leading-5 text-rose-300";
@@ -188,6 +191,7 @@ pub struct Ui {
     top_timing_wrap: HtmlElement,
     top_timing_label: HtmlElement,
     top_timing_popup: HtmlElement,
+    top_probe_btn: HtmlElement,
     renderer_select: HtmlSelectElement,
 
     // Interactive: sidebar
@@ -284,6 +288,7 @@ impl Ui {
             sidebar_toggle_btn,
             tab_interactive,
             tab_benchmark,
+            top_probe_btn,
             renderer_select,
         ) = build_top_bar(document, crate::backend::current_backend_kind());
         app_overlay.append_child(&top_bar).unwrap();
@@ -338,6 +343,7 @@ impl Ui {
             top_timing_wrap: iv.top_timing_wrap,
             top_timing_label: iv.top_timing_label,
             top_timing_popup: iv.top_timing_popup,
+            top_probe_btn,
             renderer_select,
             sidebar: iv.sidebar,
             toggle_btn: sidebar_toggle_btn,
@@ -628,6 +634,10 @@ impl Ui {
         &self.probe_btn
     }
 
+    pub fn top_probe_btn(&self) -> &HtmlElement {
+        &self.top_probe_btn
+    }
+
     pub fn ab_start_btn(&self) -> Option<&HtmlElement> {
         self.ab_start_btn.as_ref()
     }
@@ -666,14 +676,16 @@ impl Ui {
     }
 
     pub fn set_probe_running(&self, running: bool) {
-        self.probe_btn
-            .style()
-            .set_property("opacity", if running { "0.7" } else { "1" })
-            .unwrap();
-        self.probe_btn
-            .style()
-            .set_property("pointer-events", if running { "none" } else { "auto" })
-            .unwrap();
+        for button in [&self.probe_btn, &self.top_probe_btn] {
+            button
+                .style()
+                .set_property("opacity", if running { "0.7" } else { "1" })
+                .unwrap();
+            button
+                .style()
+                .set_property("pointer-events", if running { "none" } else { "auto" })
+                .unwrap();
+        }
         if running {
             set_probe_button_state(
                 &self.probe_btn,
@@ -681,10 +693,22 @@ impl Ui {
                 "Probing...",
                 None,
             );
+            set_probe_button_state(
+                &self.top_probe_btn,
+                TOP_PROBE_BUTTON_NEUTRAL_CLASS,
+                "Probing...",
+                None,
+            );
             class(&self.probe_timing, PROBE_STATUS_NEUTRAL_CLASS);
             self.probe_timing.set_text_content(Some("Running probe..."));
         } else {
             set_probe_button_state(&self.probe_btn, PROBE_BUTTON_NEUTRAL_CLASS, "Probe", None);
+            set_probe_button_state(
+                &self.top_probe_btn,
+                TOP_PROBE_BUTTON_NEUTRAL_CLASS,
+                "Probe",
+                None,
+            );
         }
     }
 
@@ -697,12 +721,22 @@ impl Ui {
     }
 
     pub fn set_probe_success(&self, start_probe_ms: f64, readback_ms: f64, full_ms: f64) {
-        self.probe_btn.style().set_property("opacity", "1").unwrap();
-        self.probe_btn
-            .style()
-            .set_property("pointer-events", "auto")
-            .unwrap();
+        for button in [&self.probe_btn, &self.top_probe_btn] {
+            button.style().set_property("opacity", "1").unwrap();
+            button
+                .style()
+                .set_property("pointer-events", "auto")
+                .unwrap();
+        }
         set_probe_button_state(&self.probe_btn, PROBE_BUTTON_NEUTRAL_CLASS, "Probe", None);
+        set_probe_button_state(
+            &self.top_probe_btn,
+            TOP_PROBE_BUTTON_SUCCESS_CLASS,
+            "Probe: Success",
+            Some(&format!(
+                "start_probe: {start_probe_ms:.1}ms, readback: {readback_ms:.1}ms, full: {full_ms:.1}ms"
+            )),
+        );
         class(&self.probe_timing, PROBE_STATUS_SUCCESS_CLASS);
         self.probe_timing.set_text_content(Some(&format!(
             "start_probe: {:.1}ms\nreadback: {:.1}ms\nfull: {:.1}ms",
@@ -717,15 +751,23 @@ impl Ui {
         readback_ms: Option<f64>,
         full_ms: f64,
     ) {
-        self.probe_btn.style().set_property("opacity", "1").unwrap();
-        self.probe_btn
-            .style()
-            .set_property("pointer-events", "auto")
-            .unwrap();
+        for button in [&self.probe_btn, &self.top_probe_btn] {
+            button.style().set_property("opacity", "1").unwrap();
+            button
+                .style()
+                .set_property("pointer-events", "auto")
+                .unwrap();
+        }
         set_probe_button_state(
             &self.probe_btn,
             PROBE_BUTTON_NEUTRAL_CLASS,
             "Probe",
+            Some(message),
+        );
+        set_probe_button_state(
+            &self.top_probe_btn,
+            TOP_PROBE_BUTTON_FAILURE_CLASS,
+            "Probe: Error",
             Some(message),
         );
         class(&self.probe_timing, PROBE_STATUS_FAILURE_CLASS);
@@ -740,20 +782,28 @@ impl Ui {
 
     fn sync_probe_button(&self, kind: BackendKind) {
         let visible = kind == BackendKind::Hybrid;
-        self.probe_btn
-            .style()
-            .set_property("display", if visible { "block" } else { "none" })
-            .unwrap();
-        self.probe_btn.style().set_property("opacity", "1").unwrap();
-        self.probe_btn
-            .style()
-            .set_property("pointer-events", "auto")
-            .unwrap();
+        for button in [&self.probe_btn, &self.top_probe_btn] {
+            button
+                .style()
+                .set_property("display", if visible { "block" } else { "none" })
+                .unwrap();
+            button.style().set_property("opacity", "1").unwrap();
+            button
+                .style()
+                .set_property("pointer-events", "auto")
+                .unwrap();
+        }
         self.probe_timing
             .style()
             .set_property("display", if visible { "block" } else { "none" })
             .unwrap();
         set_probe_button_state(&self.probe_btn, PROBE_BUTTON_NEUTRAL_CLASS, "Probe", None);
+        set_probe_button_state(
+            &self.top_probe_btn,
+            TOP_PROBE_BUTTON_NEUTRAL_CLASS,
+            "Probe",
+            None,
+        );
         class(&self.probe_timing, PROBE_STATUS_NEUTRAL_CLASS);
         self.probe_timing.set_text_content(Some(""));
     }
@@ -1499,6 +1549,7 @@ fn build_top_bar(
     HtmlElement,
     HtmlElement,
     HtmlElement,
+    HtmlElement,
     HtmlSelectElement,
 ) {
     let top_bar = div(document);
@@ -1583,6 +1634,19 @@ fn build_top_bar(
         controls_group.append_child(&simd_btn).unwrap();
     }
 
+    let top_probe_btn = div(document);
+    set_probe_button_state(
+        &top_probe_btn,
+        TOP_PROBE_BUTTON_NEUTRAL_CLASS,
+        "Probe",
+        None,
+    );
+    top_probe_btn
+        .style()
+        .set_property("display", "none")
+        .unwrap();
+    controls_group.append_child(&top_probe_btn).unwrap();
+
     let renderer_select: HtmlSelectElement = document
         .create_element("select")
         .unwrap()
@@ -1609,6 +1673,7 @@ fn build_top_bar(
         sidebar_toggle_btn,
         tab_interactive,
         tab_benchmark,
+        top_probe_btn,
         renderer_select,
     )
 }
