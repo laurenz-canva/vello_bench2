@@ -1,11 +1,13 @@
 use glifo::Glyph;
 use vello_common::filter_effects::Filter;
+use vello_common::geometry::SizeU16;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
+use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::{Fill, FontData};
 use vello_common::pixmap::Pixmap;
-use wasm_bindgen::JsCast;
-use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
+use vello_hybrid::{LayersConfig, MemorySettings};
+use web_sys::HtmlCanvasElement;
 
 use crate::backend::{Backend, BackendKind, layout_text_glyphs, uploaded_image_id};
 use crate::capability::CapabilityProfile;
@@ -16,6 +18,7 @@ pub struct BackendImpl {
     ctx: vello_hybrid::Scene,
     resources: vello_hybrid::Resources,
     renderer: vello_hybrid::WebGlRenderer,
+    image_atlas_config: AtlasConfig,
 }
 
 impl std::fmt::Debug for BackendImpl {
@@ -26,14 +29,18 @@ impl std::fmt::Debug for BackendImpl {
 
 impl BackendImpl {
     pub fn new(canvas: &HtmlCanvasElement, w: u32, h: u32) -> Self {
-        // Turns out that, at least on MacOS, using texture sizes larger tahan 4096 comes at a very steep
-        // price when rendering filter layers, presumably due to the frequent framebuffer switches becoming
-        // much more expensive.
+        let image_atlas_config = AtlasConfig::default();
+        let memory_settings = MemorySettings {
+            layers_config: LayersConfig::default(),
+            image_atlas_config,
+        };
         let settings = vello_hybrid::RenderSettings::default();
+
         Self {
             ctx: vello_hybrid::Scene::new(w as u16, h as u16),
-            resources: vello_hybrid::Resources::new(),
+            resources: vello_hybrid::Resources::new_with_config(image_atlas_config),
             renderer: vello_hybrid::WebGlRenderer::new_with(canvas, settings),
+            image_atlas_config,
         }
     }
 
@@ -44,32 +51,6 @@ impl BackendImpl {
             .hint(hint)
             .fill_glyphs(glyphs.iter().copied());
     }
-}
-
-fn query_max_texture_size() -> u32 {
-    let Some(window) = web_sys::window() else {
-        return 8_192;
-    };
-    let Some(document) = window.document() else {
-        return 8_192;
-    };
-    let Ok(element) = document.create_element("canvas") else {
-        return 8_192;
-    };
-    let Ok(temp_canvas) = element.dyn_into::<HtmlCanvasElement>() else {
-        return 8_192;
-    };
-    let Ok(Some(context)) = temp_canvas.get_context("webgl2") else {
-        return 8_192;
-    };
-    let Ok(gl) = context.dyn_into::<WebGl2RenderingContext>() else {
-        return 8_192;
-    };
-    gl.get_parameter(WebGl2RenderingContext::MAX_TEXTURE_SIZE)
-        .ok()
-        .and_then(|value| value.as_f64())
-        .map(|value| value as u32)
-        .unwrap_or(8_192)
 }
 
 impl Backend for BackendImpl {
@@ -87,7 +68,7 @@ impl Backend for BackendImpl {
             height: self.ctx.height() as u32,
         };
         self.renderer
-            .render(&mut self.ctx, &mut self.resources, &rs)
+            .render(&self.ctx, &mut self.resources, &rs)
             .unwrap();
     }
 
@@ -103,7 +84,7 @@ impl Backend for BackendImpl {
 
     fn resize(&mut self, w: u32, h: u32) {
         self.ctx = vello_hybrid::Scene::new(w as u16, h as u16);
-        self.resources = vello_hybrid::Resources::new();
+        self.resources = vello_hybrid::Resources::new_with_config(self.image_atlas_config);
     }
 
     fn set_paint(&mut self, paint: PaintType) {

@@ -555,6 +555,7 @@ dependencies = [
 [[package]]
 name = "glifo"
 version = "0.1.1"
+source = "git+https://github.com/linebender/vello?rev=c334386#c33438626fbd307bdc7b158566c028d16355b1d7"
 dependencies = [
  "bytemuck",
  "foldhash 0.2.0",
@@ -1806,6 +1807,7 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 [[package]]
 name = "vello"
 version = "0.9.0"
+source = "git+https://github.com/linebender/vello?rev=c334386#c33438626fbd307bdc7b158566c028d16355b1d7"
 dependencies = [
  "bytemuck",
  "futures-intrusive",
@@ -1858,6 +1860,7 @@ dependencies = [
 [[package]]
 name = "vello_common"
 version = "0.0.9"
+source = "git+https://github.com/linebender/vello?rev=c334386#c33438626fbd307bdc7b158566c028d16355b1d7"
 dependencies = [
  "bytemuck",
  "fearless_simd",
@@ -1873,6 +1876,7 @@ dependencies = [
 [[package]]
 name = "vello_cpu"
 version = "0.0.9"
+source = "git+https://github.com/linebender/vello?rev=c334386#c33438626fbd307bdc7b158566c028d16355b1d7"
 dependencies = [
  "bytemuck",
  "glifo",
@@ -1884,6 +1888,7 @@ dependencies = [
 [[package]]
 name = "vello_encoding"
 version = "0.9.0"
+source = "git+https://github.com/linebender/vello?rev=c334386#c33438626fbd307bdc7b158566c028d16355b1d7"
 dependencies = [
  "bytemuck",
  "guillotiere",
@@ -1895,6 +1900,7 @@ dependencies = [
 [[package]]
 name = "vello_hybrid"
 version = "0.0.9"
+source = "git+https://github.com/linebender/vello?rev=c334386#c33438626fbd307bdc7b158566c028d16355b1d7"
 dependencies = [
  "bytemuck",
  "glifo",
@@ -1910,6 +1916,7 @@ dependencies = [
 [[package]]
 name = "vello_shaders"
 version = "0.9.0"
+source = "git+https://github.com/linebender/vello?rev=c334386#c33438626fbd307bdc7b158566c028d16355b1d7"
 dependencies = [
  "bytemuck",
  "log",
@@ -1921,6 +1928,7 @@ dependencies = [
 [[package]]
 name = "vello_sparse_shaders"
 version = "0.0.9"
+source = "git+https://github.com/linebender/vello?rev=c334386#c33438626fbd307bdc7b158566c028d16355b1d7"
 dependencies = [
  "naga",
 ]
