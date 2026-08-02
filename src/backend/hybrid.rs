@@ -34,7 +34,10 @@ impl BackendImpl {
             layers_config: LayersConfig::default(),
             image_atlas_config,
         };
-        let settings = vello_hybrid::RenderSettings::default();
+        let settings = vello_hybrid::RenderSettings {
+            memory_settings,
+            ..Default::default()
+        };
 
         Self {
             ctx: vello_hybrid::Scene::new(w as u16, h as u16),
