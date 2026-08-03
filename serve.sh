@@ -191,7 +191,7 @@ fi
 
 echo "==> Serving at http://localhost:8080"
 if [ "$BIND_ADDR" = "0.0.0.0" ]; then
-  LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || echo "<your-ip>")
+  LOCAL_IP=$(python3 -c 'import socket; sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); sock.connect(("1.1.1.1", 80)); print(sock.getsockname()[0]); sock.close()' 2>/dev/null || echo "<your-ip>")
   echo "==> On your tablet, open http://$LOCAL_IP:8080"
 fi
 python3 -c "
