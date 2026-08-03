@@ -18,7 +18,6 @@ pub struct BackendImpl {
     ctx: vello_hybrid::Scene,
     resources: vello_hybrid::Resources,
     renderer: vello_hybrid::WebGlRenderer,
-    image_atlas_config: AtlasConfig,
 }
 
 impl std::fmt::Debug for BackendImpl {
@@ -34,13 +33,15 @@ impl BackendImpl {
             layers_config: LayersConfig::default(),
             image_atlas_config,
         };
-        let settings = vello_hybrid::RenderSettings::default();
+        let settings = vello_hybrid::RenderSettings {
+            memory_settings,
+            ..Default::default()
+        };
 
         Self {
             ctx: vello_hybrid::Scene::new(w as u16, h as u16),
             resources: vello_hybrid::Resources::new_with_config(image_atlas_config),
             renderer: vello_hybrid::WebGlRenderer::new_with(canvas, settings),
-            image_atlas_config,
         }
     }
 
@@ -84,7 +85,6 @@ impl Backend for BackendImpl {
 
     fn resize(&mut self, w: u32, h: u32) {
         self.ctx = vello_hybrid::Scene::new(w as u16, h as u16);
-        self.resources = vello_hybrid::Resources::new_with_config(self.image_atlas_config);
     }
 
     fn set_paint(&mut self, paint: PaintType) {
