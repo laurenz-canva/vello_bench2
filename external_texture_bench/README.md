@@ -23,11 +23,11 @@ The benchmark accepts one allocation size and one resident-texture count per run
 
 Each warmup or measured `requestAnimationFrame` callback submits exactly one Vello render. There is no calibration, repetition multiplier, or hidden workload amplification. The frame interval therefore represents one render of the current scene.
 
-The benchmark runs every image-paint variant in ascending rect-count order, then runs the matching external-texture variants in the same order. Each variant gets a 0.5-second warmup immediately before its single timed run. Warmup and measurements are defined by elapsed wall-clock time rather than frame count, with a default measurement duration of one second per strategy.
+For each ascending rect-count variant, the benchmark runs image paint followed immediately by external texture. Each strategy gets a 0.5-second warmup immediately before its single timed run. Warmup and measurements are defined by elapsed wall-clock time rather than frame count, with a default measurement duration of one second per strategy.
 
 Square images use `vello_bench2`'s seeded position/velocity model, speed scaling, and boundary bounce behavior. As in `vello_bench2`, each animated frame records the current scene before rendering, so scene recording contributes to the measured frame rate.
 
-Each result row contains one rect count, image-paint FPS, external-texture FPS, and the external-texture FPS difference. Each variant runs exactly once. A difference of at least +10% is green and at most -10% is red. Once either strategy averages less than 20 FPS, the benchmark records that result and skips all higher rect counts. If the image-paint pass reaches the cutoff first, the external-texture pass only runs the rect counts reached by image paint.
+Each result row contains one rect count, image-paint FPS, external-texture FPS, and the external-texture FPS difference. Each strategy runs exactly once. A difference of at least +10% is green and at most -10% is red. Once either strategy averages less than 20 FPS, the benchmark records the completed pair and skips all higher rect counts.
 
 The page pauses timing while hidden and rejects large interruption intervals.
 
