@@ -10,7 +10,7 @@ use vello_hybrid::{
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlCanvasElement, WebGl2RenderingContext as Gl, WebGlTexture};
 
-pub const CANVAS_SIZE: u16 = 1024;
+const FALLBACK_VIEWPORT_SIZE: u16 = 1024;
 const ANIMATION_SPEED: f64 = 5.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,6 +66,7 @@ struct AnimatedRect {
 }
 
 pub struct BenchRenderer {
+    canvas: HtmlCanvasElement,
     gl: Gl,
     renderer: WebGlRenderer,
     resources: vello_hybrid::Resources,
@@ -77,13 +78,16 @@ pub struct BenchRenderer {
     active_count: usize,
     draw_size: u16,
     last_animation_time: f64,
+    viewport_width: u16,
+    viewport_height: u16,
     render_size: RenderSize,
 }
 
 impl BenchRenderer {
     pub fn new(canvas: &HtmlCanvasElement) -> Result<Self, String> {
-        canvas.set_width(u32::from(CANVAS_SIZE));
-        canvas.set_height(u32::from(CANVAS_SIZE));
+        let (viewport_width, viewport_height) = viewport_size();
+        canvas.set_width(u32::from(viewport_width));
+        canvas.set_height(u32::from(viewport_height));
 
         let gl: Gl = canvas
             .get_context("webgl2")
@@ -95,22 +99,29 @@ impl BenchRenderer {
         let (renderer, resources) = WebGlRenderer::new_with(canvas, RenderSettings::default());
 
         Ok(Self {
+            canvas: canvas.clone(),
             gl,
             renderer,
             resources,
-            image_scene: Scene::new(CANVAS_SIZE, CANVAS_SIZE),
-            external_scene: Scene::new(CANVAS_SIZE, CANVAS_SIZE),
+            image_scene: Scene::new(viewport_width, viewport_height),
+            external_scene: Scene::new(viewport_width, viewport_height),
             textures: None,
             rects: Vec::new(),
             rng: Rng::new(0xDEAD_BEEF),
             active_count: 0,
             draw_size: 4,
             last_animation_time: 0.0,
+            viewport_width,
+            viewport_height,
             render_size: RenderSize {
-                width: u32::from(CANVAS_SIZE),
-                height: u32::from(CANVAS_SIZE),
+                width: u32::from(viewport_width),
+                height: u32::from(viewport_height),
             },
         })
+    }
+
+    pub fn viewport_dimensions(&self) -> (u16, u16) {
+        (self.viewport_width, self.viewport_height)
     }
 
     pub fn max_texture_size(&self) -> u32 {
@@ -124,6 +135,10 @@ impl BenchRenderer {
     pub fn begin_texture_set(&mut self, size: u16) {
         self.delete_textures();
         self.textures = Some(PreparedTextures::new(size));
+    }
+
+    pub fn prepared_texture_count(&self) -> usize {
+        self.textures.as_ref().map_or(0, PreparedTextures::len)
     }
 
     /// Generate one of the same deterministic radial-wave images used by vello_bench2's
@@ -181,12 +196,16 @@ impl BenchRenderer {
             .textures
             .as_ref()
             .ok_or_else(|| "textures have not been prepared".to_string())?;
-        if prepared.len() < 2 {
-            return Err("at least two textures must be prepared".to_string());
+        if prepared.len() < 1 {
+            return Err("at least one texture must be prepared".to_string());
         }
 
         while self.rects.len() < image_count {
-            self.rects.push(random_rect(&mut self.rng));
+            self.rects.push(random_rect(
+                &mut self.rng,
+                self.viewport_width,
+                self.viewport_height,
+            ));
         }
         self.active_count = image_count;
         self.draw_size = draw_size.max(1);
@@ -195,8 +214,11 @@ impl BenchRenderer {
     }
 
     /// Animate, record, and submit one strategy. Scene recording mirrors vello_bench2's animated
-    /// benchmark loop and occurs before the CPU render-submit timer starts.
-    pub fn render_once(&mut self, mode: RenderMode, now: f64) -> Result<f64, String> {
+    /// benchmark loop and is included in the measured frame interval.
+    pub fn render_once(&mut self, mode: RenderMode, now: f64) -> Result<(), String> {
+        if self.resize_to_viewport() {
+            self.last_animation_time = now;
+        }
         self.animate(now);
         self.record_scene(mode)?;
         let bindings = &self
@@ -208,23 +230,42 @@ impl BenchRenderer {
             RenderMode::ImagePaint => &self.image_scene,
             RenderMode::ExternalTexture => &self.external_scene,
         };
-        let started = now_ms();
         self.renderer
             .render(scene, &mut self.resources, &self.render_size, bindings)
             .map_err(|error| error.to_string())?;
-        Ok(now_ms() - started)
+        Ok(())
     }
 
     fn animate(&mut self, now: f64) {
         let dt = ((now - self.last_animation_time) / 1000.0).clamp(0.0, 0.1) * ANIMATION_SPEED;
         self.last_animation_time = now;
-        let max = f64::from(CANVAS_SIZE.saturating_sub(self.draw_size));
+        let max_x = f64::from(self.viewport_width.saturating_sub(self.draw_size));
+        let max_y = f64::from(self.viewport_height.saturating_sub(self.draw_size));
         for rect in self.rects.iter_mut().take(self.active_count) {
             rect.x += rect.vx * dt;
             rect.y += rect.vy * dt;
-            bounce(&mut rect.x, &mut rect.vx, max);
-            bounce(&mut rect.y, &mut rect.vy, max);
+            bounce(&mut rect.x, &mut rect.vx, max_x);
+            bounce(&mut rect.y, &mut rect.vy, max_y);
         }
+    }
+
+    fn resize_to_viewport(&mut self) -> bool {
+        let (width, height) = viewport_size();
+        if width == self.viewport_width && height == self.viewport_height {
+            return false;
+        }
+
+        self.canvas.set_width(u32::from(width));
+        self.canvas.set_height(u32::from(height));
+        self.image_scene = Scene::new(width, height);
+        self.external_scene = Scene::new(width, height);
+        self.viewport_width = width;
+        self.viewport_height = height;
+        self.render_size = RenderSize {
+            width: u32::from(width),
+            height: u32::from(height),
+        };
+        true
     }
 
     fn record_scene(&mut self, mode: RenderMode) -> Result<(), String> {
@@ -302,14 +343,32 @@ impl Drop for BenchRenderer {
     }
 }
 
-fn random_rect(rng: &mut Rng) -> AnimatedRect {
-    let max = f64::from(CANVAS_SIZE);
+fn random_rect(rng: &mut Rng, viewport_width: u16, viewport_height: u16) -> AnimatedRect {
     AnimatedRect {
-        x: rng.f64() * max,
-        y: rng.f64() * max,
+        x: rng.f64() * f64::from(viewport_width),
+        y: rng.f64() * f64::from(viewport_height),
         vx: (rng.f64() - 0.5) * 200.0,
         vy: (rng.f64() - 0.5) * 200.0,
     }
+}
+
+fn viewport_size() -> (u16, u16) {
+    let window = web_sys::window();
+    let dimension = |value: Result<wasm_bindgen::JsValue, wasm_bindgen::JsValue>| {
+        value
+            .ok()
+            .and_then(|value| value.as_f64())
+            .filter(|value| value.is_finite() && *value >= 1.0)
+            .map_or(FALLBACK_VIEWPORT_SIZE, |value| {
+                value.min(f64::from(u16::MAX)).round() as u16
+            })
+    };
+    window.map_or((FALLBACK_VIEWPORT_SIZE, FALLBACK_VIEWPORT_SIZE), |window| {
+        (
+            dimension(window.inner_width()),
+            dimension(window.inner_height()),
+        )
+    })
 }
 
 /// Pixel-for-pixel equivalent to vello_bench2's image-paint generator at its native 64px size;
@@ -387,10 +446,4 @@ impl Rng {
             self.next_u64() as u8,
         ]
     }
-}
-
-fn now_ms() -> f64 {
-    web_sys::window()
-        .and_then(|window| window.performance())
-        .map_or(0.0, |performance| performance.now())
 }

@@ -10,7 +10,7 @@
     [hidden] { display: none !important; }
     html, body { min-height: 100%; }
     body { margin: 0; color: #e7edf7; background: #09101c; -webkit-text-size-adjust: 100%; }
-    button, input { font: inherit; }
+    button, input, select { font: inherit; }
     button { min-height: 44px; border: 0; border-radius: 9px; padding: 11px 16px; color: white; background: #3977f6; font-weight: 700; cursor: pointer; touch-action: manipulation; }
     button.secondary { background: #26364f; }
 
@@ -23,7 +23,7 @@
     .field.wide { grid-column: 1 / -1; }
     label { color: #c5d0df; font-size: 13px; font-weight: 700; }
     small { color: #72839b; line-height: 1.4; }
-    input { width: 100%; min-height: 44px; border: 1px solid #33445f; border-radius: 8px; padding: 10px 11px; color: #eef5ff; background: #0b1422; font-size: 16px; }
+    input, select { width: 100%; min-height: 44px; border: 1px solid #33445f; border-radius: 8px; padding: 10px 11px; color: #eef5ff; background: #0b1422; font-size: 16px; }
     .actions { display: flex; align-items: center; gap: 12px; margin-top: 22px; }
     .device, .error { margin-top: 14px; font-size: 13px; line-height: 1.5; }
     .device { color: #72849d; }
@@ -36,6 +36,13 @@
     #running-status { min-width: 0; overflow: hidden; color: #e8eff9; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
     .progress { position: absolute; inset: auto 0 env(safe-area-inset-bottom); height: 7px; background: #1e2c41; }
     #progress-fill { width: 0; height: 100%; background: linear-gradient(90deg, #3c7cf8, #50d6ba); transition: width .15s ease; }
+    .interactive-panel { position: absolute; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); width: min(460px, calc(100% - 24px - env(safe-area-inset-left) - env(safe-area-inset-right))); max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow: auto; padding: 16px; border: 1px solid #33445f; border-radius: 14px; background: #0b1422ed; box-shadow: 0 14px 40px #0008; }
+    .interactive-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .interactive-heading strong { font-size: 17px; }
+    .interactive-heading button { margin-left: auto; }
+    .interactive-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    #interactive-status { margin: 14px 0 0; color: #aebed3; font-size: 13px; }
+    #interactive-error { margin: 6px 0 0; color: #ffad9e; font-size: 13px; }
 
     .results-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
     .results-heading h1 { margin: 0; }
@@ -46,6 +53,8 @@
     td, th { padding: 10px 11px; border-bottom: 1px solid #213047; text-align: right; }
     th:first-child, td:first-child { text-align: left; }
     tbody tr:hover { background: #111d30; }
+    tbody tr.faster td:last-child { color: #62dda9; font-weight: 800; }
+    tbody tr.slower td:last-child { color: #ff756d; font-weight: 800; }
     .note { margin-top: 16px; color: #7688a1; font-size: 13px; line-height: 1.5; }
 
     @media (max-width: 700px) {
@@ -56,19 +65,18 @@
       .config-grid { grid-template-columns: 1fr; }
       .field.wide { grid-column: 1; }
       .actions button { width: 100%; }
+      .actions { flex-direction: column; }
       .run-overlay { align-items: flex-start; }
       #running-status { padding-top: 7px; white-space: normal; line-height: 1.35; }
       .run-overlay button { flex: 0 0 auto; }
+      .interactive-panel { top: max(8px, env(safe-area-inset-top)); left: max(8px, env(safe-area-inset-left)); width: calc(100% - 16px - env(safe-area-inset-left) - env(safe-area-inset-right)); max-height: min(54dvh, 440px); padding: 12px; }
+      .interactive-grid { gap: 9px; }
+      .interactive-grid label { font-size: 11px; }
+      .interactive-grid input, .interactive-grid select { min-height: 40px; padding: 7px 9px; }
       .results-heading { align-items: flex-start; flex-direction: column; }
       .results-heading button { width: 100%; }
-      .table-wrap { overflow: visible; border: 0; }
-      table, tbody { display: block; }
-      thead { display: none; }
-      tbody { display: grid; gap: 12px; }
-      tr { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; padding: 14px; border: 1px solid #243249; border-radius: 12px; background: #101a2a; }
-      td, th, th:first-child, td:first-child { padding: 0; border: 0; text-align: left; }
-      td { min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
-      td::before { display: block; margin-bottom: 3px; content: attr(data-label); color: #7f91aa; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+      table { table-layout: fixed; font-size: 11px; }
+      td, th { padding: 8px 5px; white-space: nowrap; }
     }
   </style>
 </head>
@@ -79,44 +87,38 @@
     <section class="card">
       <div class="config-grid">
         <div class="field wide">
-          <label for="image-counts">Images / external runs</label>
-          <input id="image-counts" value="1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000">
+          <label for="image-counts">Rects / external runs</label>
+          <input id="image-counts" value="1, 10, 50, 100, 200, 300, 450, 600, 800, 1000, 1400, 1800, 2400, 3000, 4000, 5000, 6000, 8000">
           <small>Each strategy draws the same independently bouncing rectangles. External images alternate TextureIds so every image produces its own run.</small>
         </div>
         <div class="field">
-          <label for="texture-size">Texture allocation size (px)</label>
-          <input id="texture-size" type="number" min="4" value="64" inputmode="numeric">
+          <label for="texture-size">Image size (px)</label>
+          <input id="texture-size" type="number" min="4" value="16" inputmode="numeric">
           <small>One square RGBA8 allocation size per benchmark run.</small>
         </div>
         <div class="field">
-          <label for="texture-count">Resident textures</label>
+          <label for="texture-count">Number of images</label>
           <input id="texture-count" type="number" min="2" value="2" inputmode="numeric">
-          <small>Images cycle through this pool. Minimum 2 preserves separate adjacent runs.</small>
+          <small>Rects cycle through this source-image pool. Minimum 2 preserves separate adjacent runs.</small>
         </div>
         <div class="field">
-          <label for="draw-size">Rectangle size (px)</label>
+          <label for="draw-size">Rect size (px)</label>
           <input id="draw-size" type="number" min="1" max="16" value="4" inputmode="numeric">
         </div>
         <div class="field">
-          <label for="warmup-frames">Warmup frames</label>
-          <input id="warmup-frames" type="number" min="1" value="20" inputmode="numeric">
-          <small>Applied once to each strategy per image-count variant, before all measurements.</small>
+          <label for="warmup-seconds">Warmup seconds</label>
+          <input id="warmup-seconds" type="number" min="0.1" step="0.1" value="0.5" inputmode="decimal">
+          <small>Applied once to each strategy before the timed run.</small>
         </div>
         <div class="field">
-          <label for="measured-frames">Measured frames</label>
-          <input id="measured-frames" type="number" min="10" value="60" inputmode="numeric">
-        </div>
-        <div class="field">
-          <label for="trials">Measurements per variant</label>
-          <input id="trials" type="number" min="1" value="3" inputmode="numeric">
-          <small>Run consecutively after both strategy warmups.</small>
-        </div>
-        <div class="field">
-          <label for="memory-limit-mib">Texture-set limit (MiB)</label>
-          <input id="memory-limit-mib" type="number" min="1" value="256" inputmode="numeric">
+          <label for="measurement-seconds">Seconds per measurement</label>
+          <input id="measurement-seconds" type="number" min="0.1" step="0.1" value="1" inputmode="decimal">
         </div>
       </div>
-      <div class="actions"><button id="run-button">Run benchmark</button></div>
+      <div class="actions">
+        <button id="run-button">Run benchmark</button>
+        <button id="interactive-button" class="secondary">Open interactive mode</button>
+      </div>
       <div id="device-info" class="device"></div>
       <div id="config-error" class="error" role="alert"></div>
     </section>
@@ -124,11 +126,44 @@
 
   <main id="running-screen" hidden>
     <canvas id="benchmark-canvas"></canvas>
-    <div class="run-overlay">
+    <div id="benchmark-overlay" class="run-overlay">
       <span id="running-status">Preparing benchmark…</span>
       <button id="stop-button" class="secondary">Stop</button>
     </div>
-    <div class="progress"><div id="progress-fill"></div></div>
+    <div id="interactive-overlay" class="interactive-panel" hidden>
+      <div class="interactive-heading">
+        <strong>Interactive mode</strong>
+        <button id="interactive-back-button" class="secondary">Back</button>
+      </div>
+      <div class="interactive-grid">
+        <div class="field">
+          <label for="interactive-source">Image source</label>
+          <select id="interactive-source">
+            <option value="image">Image paint</option>
+            <option value="external">External texture</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="interactive-image-count">Rects</label>
+          <input id="interactive-image-count" type="number" min="1" value="100" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label for="interactive-texture-count">Number of images</label>
+          <input id="interactive-texture-count" type="number" min="1" value="2" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label for="interactive-texture-size">Image size (px)</label>
+          <input id="interactive-texture-size" type="number" min="4" value="16" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label for="interactive-draw-size">Rect size (px)</label>
+          <input id="interactive-draw-size" type="number" min="1" value="4" inputmode="numeric">
+        </div>
+      </div>
+      <p id="interactive-status"></p>
+      <p id="interactive-error" role="alert"></p>
+    </div>
+    <div id="progress" class="progress"><div id="progress-fill"></div></div>
   </main>
 
   <main id="results-screen" class="page" hidden>
@@ -141,18 +176,13 @@
       <table>
         <thead>
           <tr>
-            <th>Texture</th><th>Textures</th><th>Images</th><th>Measurement</th>
-            <th>Image FPS</th><th>External FPS</th>
-            <th>Image frame ms</th><th>External frame ms</th>
-            <th>Image mean ms</th><th>External mean ms</th><th>Δ frame ms</th><th>Δ frame %</th>
-            <th>Image CPU ms</th><th>External CPU ms</th><th>Δ CPU ms</th>
-            <th>Image p95 ms</th><th>External p95 ms</th>
+            <th>Rects</th><th>Image FPS</th><th>External FPS</th><th>Difference</th>
           </tr>
         </thead>
         <tbody id="results-body"></tbody>
       </table>
     </div>
-    <p class="note">Deltas are external texture minus image paint, so a positive time delta means external textures are slower. Measurement order alternates between pairs to reduce ordering bias. FPS is refresh-capped for light variants; CPU submit time does not wait for asynchronous GPU completion.</p>
+    <p class="note">Difference is external-texture FPS relative to image-paint FPS. Green is at least 10% faster; red is at least 10% slower. Each variant runs once, and higher rect counts are skipped after either strategy falls below 20 FPS.</p>
   </main>
 
   <script type="module">

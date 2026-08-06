@@ -8,7 +8,7 @@ The benchmark answers how steady-state rendering changes with:
 - the number of resident textures those images alternate across;
 - a texture allocation dimension selected before each run.
 
-Both strategies draw the same tiny rectangles from byte-identical premultiplied images. The images use the deterministic translucent radial-wave generator from `vello_bench2`'s image-paint rectangle workload (pixel-for-pixel identical at its native 64×64 size). The full image is scaled into a 4×4 destination by default, keeping fragment work small.
+Both strategies draw the same tiny rectangles from byte-identical premultiplied images. The images use the deterministic translucent radial-wave generator from `vello_bench2`'s image-paint rectangle workload (pixel-for-pixel identical at its native 64×64 size). By default, the generalized generator creates 16×16 images and draws them into 4×4 destination rectangles.
 
 ## Measurement boundaries
 
@@ -23,13 +23,13 @@ The benchmark accepts one allocation size and one resident-texture count per run
 
 Each warmup or measured `requestAnimationFrame` callback submits exactly one Vello render. There is no calibration, repetition multiplier, or hidden workload amplification. The frame interval therefore represents one render of the current scene.
 
-For each image-count variant, warmup frames run once for image paint and once for external textures. Both warmup blocks finish before any measurements; all requested paired measurements then run consecutively without another warmup.
+For each rect-count variant, a 0.5-second warmup runs once for image paint and once for external textures. Both warmup blocks finish before the single timed run for each strategy. Warmup and measurements are defined by elapsed wall-clock time rather than frame count, with a default measurement duration of one second per strategy.
 
-Rectangles use `vello_bench2`'s seeded position/velocity model, speed scaling, and boundary bounce behavior. As in `vello_bench2`, each animated frame records the current scene before rendering. Scene recording therefore contributes to frame intervals, while the CPU-submit column times only `renderer.render`.
+Square images use `vello_bench2`'s seeded position/velocity model, speed scaling, and boundary bounce behavior. As in `vello_bench2`, each animated frame records the current scene before rendering, so scene recording contributes to the measured frame rate.
 
-Each result row pairs image paint and external texture for the same image count and measurement number. Deltas are `external texture - image paint`; positive time deltas mean external textures are slower. Pair order alternates across repeated measurements to reduce systematic ordering bias.
+Each result row contains one rect count, image-paint FPS, external-texture FPS, and the external-texture FPS difference. Each variant runs exactly once. A difference of at least +10% is green and at most -10% is red. Pair order alternates across rect-count variants to reduce systematic ordering bias. Once either strategy averages less than 20 FPS, the benchmark records that result and skips all higher rect counts.
 
-The page pauses timing while hidden and rejects large interruption intervals. Multiple measurements are run for every variant.
+The page pauses timing while hidden and rejects large interruption intervals.
 
 ## Build and serve
 
@@ -53,11 +53,13 @@ sh serve.sh --global
 
 Then open port `8081` on the host machine.
 
-The default run uses `1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000` images alternating across two 64×64 textures. A configurable memory limit rejects unsafe configurations before allocating them.
+The default run uses `1, 10, 50, 100, 200, 300, 450, 600, 800, 1000, 1400, 1800, 2400, 3000, 4000, 5000, 6000, 8000` rects alternating across two 16×16 images, drawn at 4×4 pixels. The benchmark allocates exactly the configured source-image pool for both strategies, with no separate texture-memory limit.
+
+Interactive mode renders continuously and exposes live controls for image source, rect count, number of source images, image size, and rect size. Changing the image size or source-image pool destroys the old paired resources and prepares a new pool before rendering resumes.
 
 ## Interpretation
 
-FPS and frame intervals are capped by the display refresh rate for workloads that comfortably finish within one refresh period. They become useful once a variant starts missing frames. The CPU-submit measurement can show smaller changes below that threshold, but it does not wait for asynchronous GPU completion.
+FPS is capped by the display refresh rate for workloads that comfortably finish within one refresh period. It becomes useful once a variant starts missing frames.
 
 The external measurements include Vello scheduling, WebGL texture binding, and the corresponding tiny draw. This is not a direct timer around `gl.bindTexture`, because WebGL is asynchronous and Vello intentionally treats binding and drawing as one external-texture run.
 
