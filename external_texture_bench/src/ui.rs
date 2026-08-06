@@ -251,6 +251,12 @@ impl Ui {
 }
 
 fn format_delta(value: f64, precision: usize) -> String {
+    let rounded_zero_threshold = 0.5 * 10_f64.powi(-(precision as i32));
+    let value = if value.abs() < rounded_zero_threshold {
+        0.0
+    } else {
+        value
+    };
     format!("{value:+.*}%", precision)
 }
 

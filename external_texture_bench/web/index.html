@@ -182,7 +182,7 @@
         <tbody id="results-body"></tbody>
       </table>
     </div>
-    <p class="note">All image-paint variants run first, followed by all external-texture variants. Difference is external-texture FPS relative to image-paint FPS. Green is at least 10% faster; red is at least 10% slower. Each variant runs once, and higher rect counts are skipped after either strategy falls below 20 FPS.</p>
+    <p class="note">Each rect count runs image paint followed immediately by external texture. Difference is external-texture FPS relative to image-paint FPS. Green is at least 10% faster; red is at least 10% slower. Each strategy runs once, and higher rect counts are skipped after either strategy falls below 20 FPS.</p>
   </main>
 
   <script type="module">
