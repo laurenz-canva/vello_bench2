@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Vello image texture comparison</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { min-height: 100%; }
+    body { margin: 0; color: #e7edf7; background: #09101c; -webkit-text-size-adjust: 100%; }
+    button, input { font: inherit; }
+    button { min-height: 44px; border: 0; border-radius: 9px; padding: 11px 16px; color: white; background: #3977f6; font-weight: 700; cursor: pointer; touch-action: manipulation; }
+    button.secondary { background: #26364f; }
+
+    .page { width: min(920px, calc(100% - 36px)); margin: 0 auto; padding: max(40px, env(safe-area-inset-top)) 0 max(40px, env(safe-area-inset-bottom)); }
+    h1 { margin: 0 0 10px; font-size: clamp(28px, 5vw, 46px); letter-spacing: -.04em; }
+    .lede { max-width: 800px; margin: 0 0 26px; color: #9aa9bd; line-height: 1.55; }
+    .card { border: 1px solid #243249; border-radius: 15px; background: #101a2a; box-shadow: 0 16px 50px #0005; padding: 22px; }
+    .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 18px; }
+    .field { display: grid; align-content: start; gap: 7px; }
+    .field.wide { grid-column: 1 / -1; }
+    label { color: #c5d0df; font-size: 13px; font-weight: 700; }
+    small { color: #72839b; line-height: 1.4; }
+    input { width: 100%; min-height: 44px; border: 1px solid #33445f; border-radius: 8px; padding: 10px 11px; color: #eef5ff; background: #0b1422; font-size: 16px; }
+    .actions { display: flex; align-items: center; gap: 12px; margin-top: 22px; }
+    .device, .error { margin-top: 14px; font-size: 13px; line-height: 1.5; }
+    .device { color: #72849d; }
+    .error { color: #ffad9e; }
+
+    #running-screen { position: fixed; inset: 0; width: 100%; height: 100%; height: 100dvh; overflow: hidden; background: #03070d; }
+    #benchmark-canvas { display: block; width: 100%; height: 100%; background: #07101c; image-rendering: pixelated; }
+    .run-overlay { position: absolute; inset: 0 0 auto 0; display: flex; align-items: center; gap: 12px; padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 20px max(12px, env(safe-area-inset-left)); background: linear-gradient(#050b13f2, #050b1300); pointer-events: none; }
+    .run-overlay button { margin-left: auto; pointer-events: auto; }
+    #running-status { min-width: 0; overflow: hidden; color: #e8eff9; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+    .progress { position: absolute; inset: auto 0 env(safe-area-inset-bottom); height: 7px; background: #1e2c41; }
+    #progress-fill { width: 0; height: 100%; background: linear-gradient(90deg, #3c7cf8, #50d6ba); transition: width .15s ease; }
+
+    .results-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+    .results-heading h1 { margin: 0; }
+    #results-status { margin: 0 0 18px; color: #9fb0c7; }
+    .table-wrap { overflow-x: auto; border: 1px solid #243249; border-radius: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+    th { color: #899bb4; background: #101a2a; white-space: nowrap; }
+    td, th { padding: 10px 11px; border-bottom: 1px solid #213047; text-align: right; }
+    th:first-child, td:first-child { text-align: left; }
+    tbody tr:hover { background: #111d30; }
+    .note { margin-top: 16px; color: #7688a1; font-size: 13px; line-height: 1.5; }
+
+    @media (max-width: 700px) {
+      .page { width: min(100% - 24px, 920px); padding: max(24px, env(safe-area-inset-top)) 0 max(24px, env(safe-area-inset-bottom)); }
+      h1 { font-size: 30px; }
+      .lede { margin-bottom: 18px; }
+      .card { padding: 16px; }
+      .config-grid { grid-template-columns: 1fr; }
+      .field.wide { grid-column: 1; }
+      .actions button { width: 100%; }
+      .run-overlay { align-items: flex-start; }
+      #running-status { padding-top: 7px; white-space: normal; line-height: 1.35; }
+      .run-overlay button { flex: 0 0 auto; }
+      .results-heading { align-items: flex-start; flex-direction: column; }
+      .results-heading button { width: 100%; }
+      .table-wrap { overflow: visible; border: 0; }
+      table, tbody { display: block; }
+      thead { display: none; }
+      tbody { display: grid; gap: 12px; }
+      tr { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; padding: 14px; border: 1px solid #243249; border-radius: 12px; background: #101a2a; }
+      td, th, th:first-child, td:first-child { padding: 0; border: 0; text-align: left; }
+      td { min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
+      td::before { display: block; margin-bottom: 3px; content: attr(data-label); color: #7f91aa; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+    }
+  </style>
+</head>
+<body>
+  <main id="setup-screen" class="page">
+    <h1>Image texture comparison</h1>
+    <p class="lede">Compares Vello image-paint rectangles with external-texture rectangles using identical images, motion, geometry, and one Vello render per animation frame.</p>
+    <section class="card">
+      <div class="config-grid">
+        <div class="field wide">
+          <label for="image-counts">Images / external runs</label>
+          <input id="image-counts" value="1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000">
+          <small>Each strategy draws the same independently bouncing rectangles. External images alternate TextureIds so every image produces its own run.</small>
+        </div>
+        <div class="field">
+          <label for="texture-size">Texture allocation size (px)</label>
+          <input id="texture-size" type="number" min="4" value="64" inputmode="numeric">
+          <small>One square RGBA8 allocation size per benchmark run.</small>
+        </div>
+        <div class="field">
+          <label for="texture-count">Resident textures</label>
+          <input id="texture-count" type="number" min="2" value="2" inputmode="numeric">
+          <small>Images cycle through this pool. Minimum 2 preserves separate adjacent runs.</small>
+        </div>
+        <div class="field">
+          <label for="draw-size">Rectangle size (px)</label>
+          <input id="draw-size" type="number" min="1" max="16" value="4" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label for="warmup-frames">Warmup frames</label>
+          <input id="warmup-frames" type="number" min="1" value="20" inputmode="numeric">
+          <small>Applied once to each strategy per image-count variant, before all measurements.</small>
+        </div>
+        <div class="field">
+          <label for="measured-frames">Measured frames</label>
+          <input id="measured-frames" type="number" min="10" value="60" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label for="trials">Measurements per variant</label>
+          <input id="trials" type="number" min="1" value="3" inputmode="numeric">
+          <small>Run consecutively after both strategy warmups.</small>
+        </div>
+        <div class="field">
+          <label for="memory-limit-mib">Texture-set limit (MiB)</label>
+          <input id="memory-limit-mib" type="number" min="1" value="256" inputmode="numeric">
+        </div>
+      </div>
+      <div class="actions"><button id="run-button">Run benchmark</button></div>
+      <div id="device-info" class="device"></div>
+      <div id="config-error" class="error" role="alert"></div>
+    </section>
+  </main>
+
+  <main id="running-screen" hidden>
+    <canvas id="benchmark-canvas"></canvas>
+    <div class="run-overlay">
+      <span id="running-status">Preparing benchmark…</span>
+      <button id="stop-button" class="secondary">Stop</button>
+    </div>
+    <div class="progress"><div id="progress-fill"></div></div>
+  </main>
+
+  <main id="results-screen" class="page" hidden>
+    <div class="results-heading">
+      <h1>Benchmark results</h1>
+      <button id="restart-button">Configure another run</button>
+    </div>
+    <p id="results-status"></p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Texture</th><th>Textures</th><th>Images</th><th>Measurement</th>
+            <th>Image FPS</th><th>External FPS</th>
+            <th>Image frame ms</th><th>External frame ms</th>
+            <th>Image mean ms</th><th>External mean ms</th><th>Δ frame ms</th><th>Δ frame %</th>
+            <th>Image CPU ms</th><th>External CPU ms</th><th>Δ CPU ms</th>
+            <th>Image p95 ms</th><th>External p95 ms</th>
+          </tr>
+        </thead>
+        <tbody id="results-body"></tbody>
+      </table>
+    </div>
+    <p class="note">Deltas are external texture minus image paint, so a positive time delta means external textures are slower. Measurement order alternates between pairs to reduce ordering bias. FPS is refresh-capped for light variants; CPU submit time does not wait for asynchronous GPU completion.</p>
+  </main>
+
+  <script type="module">
+    import init from './external_texture_bench.js';
+    init().catch(error => {
+      console.error(error);
+      document.querySelector('#config-error').textContent = `Initialization failed: ${error}`;
+    });
+  </script>
+</body>
+</html>
