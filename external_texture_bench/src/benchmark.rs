@@ -93,9 +93,10 @@ enum Phase {
 pub struct BenchRunner {
     config: Option<BenchConfig>,
     phase: Phase,
+    mode: RenderMode,
     count_index: usize,
-    pending_image: Option<MeasurementMetrics>,
-    stop_after_pair: bool,
+    case_limit: usize,
+    image_results: Vec<MeasurementMetrics>,
 }
 
 impl BenchRunner {
@@ -103,9 +104,10 @@ impl BenchRunner {
         Self {
             config: None,
             phase: Phase::Idle,
+            mode: RenderMode::ImagePaint,
             count_index: 0,
-            pending_image: None,
-            stop_after_pair: false,
+            case_limit: 0,
+            image_results: Vec::new(),
         }
     }
 
@@ -113,9 +115,10 @@ impl BenchRunner {
         let size = config.texture_size;
         let texture_count = config.texture_count;
         self.config = Some(config);
+        self.mode = RenderMode::ImagePaint;
         self.count_index = 0;
-        self.pending_image = None;
-        self.stop_after_pair = false;
+        self.case_limit = self.config.as_ref().unwrap().variant_count();
+        self.image_results.clear();
         renderer.begin_texture_set(size);
         self.phase = Phase::Preparing { next_texture: 0 };
         vec![RunnerEvent::Status(format!(
@@ -246,7 +249,7 @@ impl BenchRunner {
         let count = self.current_count();
         let draw_size = self.config.as_ref().unwrap().draw_size;
         match renderer.configure_scene(count, draw_size) {
-            Ok(()) => self.start_warmup(RenderMode::ImagePaint),
+            Ok(()) => self.start_warmup(self.mode),
             Err(error) => {
                 self.phase = Phase::Complete;
                 vec![RunnerEvent::Failed(error)]
@@ -292,12 +295,34 @@ impl BenchRunner {
     ) -> Vec<RunnerEvent> {
         match mode {
             RenderMode::ImagePaint => {
-                self.stop_after_pair = metrics.fps < 20.0;
-                self.pending_image = Some(metrics);
-                self.start_warmup(RenderMode::ExternalTexture)
+                let stop_early = metrics.fps < 20.0;
+                self.image_results.push(metrics);
+                if stop_early {
+                    self.case_limit = self.count_index + 1;
+                }
+
+                let mut events = vec![RunnerEvent::Progress {
+                    completed: self.count_index + 1,
+                    total: if stop_early {
+                        self.case_limit * 2
+                    } else {
+                        configured_case_count * 2
+                    },
+                }];
+
+                self.count_index += 1;
+                if self.count_index < self.case_limit {
+                    events.extend(self.start_current_case(renderer));
+                    return events;
+                }
+
+                self.mode = RenderMode::ExternalTexture;
+                self.count_index = 0;
+                events.extend(self.start_current_case(renderer));
+                events
             }
             RenderMode::ExternalTexture => {
-                let image_fps = self.pending_image.take().unwrap().fps;
+                let image_fps = self.image_results[self.count_index].fps;
                 let external_fps = metrics.fps;
                 let result = CaseResult {
                     image_count: self.current_count(),
@@ -309,12 +334,12 @@ impl BenchRunner {
                         0.0
                     },
                 };
-                let stop_early = self.stop_after_pair || external_fps < 20.0;
+                let stop_early = external_fps < 20.0;
                 let mut events = vec![
                     RunnerEvent::CaseComplete(result),
                     RunnerEvent::Progress {
-                        completed: self.count_index + 1,
-                        total: configured_case_count,
+                        completed: self.case_limit + self.count_index + 1,
+                        total: self.case_limit * 2,
                     },
                 ];
 
@@ -329,8 +354,7 @@ impl BenchRunner {
                 }
 
                 self.count_index += 1;
-                self.stop_after_pair = false;
-                if self.count_index < configured_case_count {
+                if self.count_index < self.case_limit {
                     events.extend(self.start_current_case(renderer));
                     return events;
                 }
