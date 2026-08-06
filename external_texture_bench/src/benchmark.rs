@@ -93,9 +93,10 @@ enum Phase {
 pub struct BenchRunner {
     config: Option<BenchConfig>,
     phase: Phase,
+    mode: RenderMode,
     count_index: usize,
-    pending_image: Option<MeasurementMetrics>,
-    pending_external: Option<MeasurementMetrics>,
+    case_limit: usize,
+    image_results: Vec<MeasurementMetrics>,
 }
 
 impl BenchRunner {
@@ -103,9 +104,10 @@ impl BenchRunner {
         Self {
             config: None,
             phase: Phase::Idle,
+            mode: RenderMode::ImagePaint,
             count_index: 0,
-            pending_image: None,
-            pending_external: None,
+            case_limit: 0,
+            image_results: Vec::new(),
         }
     }
 
@@ -113,9 +115,10 @@ impl BenchRunner {
         let size = config.texture_size;
         let texture_count = config.texture_count;
         self.config = Some(config);
+        self.mode = RenderMode::ImagePaint;
         self.count_index = 0;
-        self.pending_image = None;
-        self.pending_external = None;
+        self.case_limit = self.config.as_ref().unwrap().variant_count();
+        self.image_results.clear();
         renderer.begin_texture_set(size);
         self.phase = Phase::Preparing { next_texture: 0 };
         vec![RunnerEvent::Status(format!(
@@ -190,11 +193,8 @@ impl BenchRunner {
                 }
 
                 if elapsed_ms >= warmup_ms {
-                    if mode == RenderMode::ImagePaint {
-                        events.extend(self.start_warmup(RenderMode::ExternalTexture));
-                    } else {
-                        events.extend(self.start_measurement_pair());
-                    }
+                    events.extend(self.start_measurement(mode));
+                    self.render_transition_frame(renderer, now, &mut events);
                     return events;
                 }
 
@@ -225,23 +225,8 @@ impl BenchRunner {
 
                 if frame_intervals.iter().sum::<f64>() >= measurement_ms {
                     let metrics = summarize(&frame_intervals);
-                    match mode {
-                        RenderMode::ImagePaint => self.pending_image = Some(metrics),
-                        RenderMode::ExternalTexture => self.pending_external = Some(metrics),
-                    }
-
-                    if self.pending_image.is_some() && self.pending_external.is_some() {
-                        let result = self.finish_pair();
-                        let stop_early = result.image_fps < 20.0 || result.external_fps < 20.0;
-                        events.push(RunnerEvent::CaseComplete(result));
-                        events.push(RunnerEvent::Progress {
-                            completed: self.count_index + 1,
-                            total: total_cases,
-                        });
-                        events.extend(self.advance_after_case(renderer, stop_early));
-                    } else {
-                        events.extend(self.start_measurement(mode.other()));
-                    }
+                    events.extend(self.finish_measurement(renderer, mode, metrics, total_cases));
+                    self.render_transition_frame(renderer, now, &mut events);
                     return events;
                 }
 
@@ -264,7 +249,7 @@ impl BenchRunner {
         let count = self.current_count();
         let draw_size = self.config.as_ref().unwrap().draw_size;
         match renderer.configure_scene(count, draw_size) {
-            Ok(()) => self.start_warmup(RenderMode::ImagePaint),
+            Ok(()) => self.start_warmup(self.mode),
             Err(error) => {
                 self.phase = Phase::Complete;
                 vec![RunnerEvent::Failed(error)]
@@ -286,17 +271,6 @@ impl BenchRunner {
         ))]
     }
 
-    fn start_measurement_pair(&mut self) -> Vec<RunnerEvent> {
-        self.pending_image = None;
-        self.pending_external = None;
-        let first = if self.count_index.is_multiple_of(2) {
-            RenderMode::ImagePaint
-        } else {
-            RenderMode::ExternalTexture
-        };
-        self.start_measurement(first)
-    }
-
     fn start_measurement(&mut self, mode: RenderMode) -> Vec<RunnerEvent> {
         let config = self.config.as_ref().unwrap();
         self.phase = Phase::Measuring {
@@ -312,48 +286,118 @@ impl BenchRunner {
         ))]
     }
 
-    fn finish_pair(&mut self) -> CaseResult {
-        let image_paint = self.pending_image.take().unwrap();
-        let external_texture = self.pending_external.take().unwrap();
-        CaseResult {
-            image_count: self.current_count(),
-            image_fps: image_paint.fps,
-            external_fps: external_texture.fps,
-            delta_fps_percent: if image_paint.fps > 0.0 {
-                (external_texture.fps - image_paint.fps) / image_paint.fps * 100.0
-            } else {
-                0.0
-            },
-        }
-    }
-
-    fn advance_after_case(
+    fn finish_measurement(
         &mut self,
         renderer: &mut BenchRenderer,
-        stop_early: bool,
+        mode: RenderMode,
+        metrics: MeasurementMetrics,
+        configured_case_count: usize,
     ) -> Vec<RunnerEvent> {
-        if stop_early {
-            let count = self.current_count();
-            self.phase = Phase::Complete;
-            renderer.delete_textures();
-            return vec![RunnerEvent::Complete(format!(
-                "Stopped after {count} images because average FPS fell below 20"
-            ))];
-        }
+        match mode {
+            RenderMode::ImagePaint => {
+                let stop_early = metrics.fps < 20.0;
+                self.image_results.push(metrics);
+                if stop_early {
+                    self.case_limit = self.count_index + 1;
+                }
 
-        self.count_index += 1;
-        if self.count_index < self.config.as_ref().unwrap().image_counts.len() {
-            return self.start_current_case(renderer);
-        }
+                let mut events = vec![RunnerEvent::Progress {
+                    completed: self.count_index + 1,
+                    total: if stop_early {
+                        self.case_limit * 2
+                    } else {
+                        configured_case_count * 2
+                    },
+                }];
+                self.count_index += 1;
+                if self.count_index < self.case_limit {
+                    events.extend(self.start_current_case(renderer));
+                } else {
+                    self.mode = RenderMode::ExternalTexture;
+                    self.count_index = 0;
+                    events.push(RunnerEvent::Status(format!(
+                        "Image-paint pass complete · starting {} external-texture variants",
+                        self.case_limit
+                    )));
+                    events.extend(self.start_current_case(renderer));
+                }
+                events
+            }
+            RenderMode::ExternalTexture => {
+                let image_fps = self.image_results[self.count_index].fps;
+                let external_fps = metrics.fps;
+                let result = CaseResult {
+                    image_count: self.current_count(),
+                    image_fps,
+                    external_fps,
+                    delta_fps_percent: if image_fps > 0.0 {
+                        (external_fps - image_fps) / image_fps * 100.0
+                    } else {
+                        0.0
+                    },
+                };
+                let stop_early = external_fps < 20.0;
+                let mut events = vec![
+                    RunnerEvent::CaseComplete(result),
+                    RunnerEvent::Progress {
+                        completed: self.case_limit + self.count_index + 1,
+                        total: self.case_limit * 2,
+                    },
+                ];
 
-        self.phase = Phase::Complete;
-        renderer.delete_textures();
-        vec![RunnerEvent::Complete("Benchmark complete".to_string())]
+                if stop_early {
+                    let count = self.current_count();
+                    self.phase = Phase::Complete;
+                    renderer.delete_textures();
+                    events.push(RunnerEvent::Complete(format!(
+                        "Stopped after {count} rects because average FPS fell below 20"
+                    )));
+                    return events;
+                }
+
+                self.count_index += 1;
+                if self.count_index < self.case_limit {
+                    events.extend(self.start_current_case(renderer));
+                    return events;
+                }
+
+                self.phase = Phase::Complete;
+                renderer.delete_textures();
+                events.push(RunnerEvent::Complete("Benchmark complete".to_string()));
+                events
+            }
+        }
     }
 
     fn fail(&mut self, error: String, events: &mut Vec<RunnerEvent>) {
         self.phase = Phase::Complete;
         events.push(RunnerEvent::Failed(error));
+    }
+
+    /// Render immediately after switching into a new warmup or measurement phase so the phase
+    /// transition does not consume an animation frame without presenting updated content.
+    fn render_transition_frame(
+        &mut self,
+        renderer: &mut BenchRenderer,
+        now: f64,
+        events: &mut Vec<RunnerEvent>,
+    ) {
+        let mode = match &self.phase {
+            Phase::Warming { mode, .. } | Phase::Measuring { mode, .. } => *mode,
+            _ => return,
+        };
+
+        if let Err(error) = renderer.render_once(mode, now) {
+            self.fail(error, events);
+            return;
+        }
+
+        match &mut self.phase {
+            Phase::Warming { last_raf, .. } | Phase::Measuring { last_raf, .. } => {
+                *last_raf = Some(now);
+            }
+            _ => {}
+        }
     }
 
     fn current_size(&self) -> u16 {

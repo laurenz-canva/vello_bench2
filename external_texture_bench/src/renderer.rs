@@ -26,13 +26,6 @@ impl RenderMode {
             Self::ExternalTexture => "external texture",
         }
     }
-
-    pub fn other(self) -> Self {
-        match self {
-            Self::ImagePaint => Self::ExternalTexture,
-            Self::ExternalTexture => Self::ImagePaint,
-        }
-    }
 }
 
 struct PreparedTextures {
@@ -209,7 +202,6 @@ impl BenchRenderer {
         }
         self.active_count = image_count;
         self.draw_size = draw_size.max(1);
-        self.last_animation_time = 0.0;
         Ok(())
     }
 
