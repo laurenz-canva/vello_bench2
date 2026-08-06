@@ -1,14 +1,16 @@
 use glifo::Glyph;
+use vello_common::TextureId;
 use vello_common::filter_effects::Filter;
+use vello_common::geometry::RectU16;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{ImageSource, PaintType};
-use vello_common::peniko::{Fill, FontData};
+use vello_common::peniko::{Fill, FontData, ImageQuality};
 use vello_common::pixmap::Pixmap;
-use vello_hybrid::{LayersConfig, MemorySettings, WebGlTextureBindings};
-use web_sys::HtmlCanvasElement;
+use vello_hybrid::{LayersConfig, MemorySettings, SampleRect, WebGlTextureBindings};
+use web_sys::{HtmlCanvasElement, WebGl2RenderingContext as Gl};
 
-use crate::backend::{Backend, BackendKind, layout_text_glyphs, uploaded_image_id};
+use crate::backend::{Backend, BackendKind, ExternalImage, layout_text_glyphs, uploaded_image_id};
 use crate::capability::CapabilityProfile;
 
 pub(crate) const CAPABILITIES: CapabilityProfile = CapabilityProfile::all();
@@ -17,6 +19,8 @@ pub struct BackendImpl {
     ctx: vello_hybrid::Scene,
     resources: vello_hybrid::Resources,
     renderer: vello_hybrid::WebGlRenderer,
+    external_bindings: WebGlTextureBindings,
+    next_external_texture_id: u64,
 }
 
 impl std::fmt::Debug for BackendImpl {
@@ -43,6 +47,8 @@ impl BackendImpl {
             ctx: vello_hybrid::Scene::new(w as u16, h as u16),
             resources,
             renderer,
+            external_bindings: WebGlTextureBindings::new(),
+            next_external_texture_id: 1,
         }
     }
 
@@ -70,7 +76,7 @@ impl Backend for BackendImpl {
             height: self.ctx.height() as u32,
         };
         self.renderer
-            .render(&self.ctx, &mut self.resources, &rs, &WebGlTextureBindings::default())
+            .render(&self.ctx, &mut self.resources, &rs, &self.external_bindings)
             .unwrap();
     }
 
@@ -172,6 +178,69 @@ impl Backend for BackendImpl {
     fn destroy_image(&mut self, image: &ImageSource) {
         if let Some(id) = uploaded_image_id(image) {
             self.renderer.destroy_image(&mut self.resources, id);
+        }
+    }
+
+    fn draw_external_image(&mut self, image: ExternalImage, rect: &Rect, bilinear: bool) {
+        let scale_x = rect.width() / f64::from(image.width);
+        let scale_y = rect.height() / f64::from(image.height);
+        self.ctx.draw_texture_rects(
+            image.texture_id,
+            if bilinear {
+                ImageQuality::Medium
+            } else {
+                ImageQuality::Low
+            },
+            [SampleRect {
+                source_region: RectU16::new(0, 0, image.width, image.height),
+                transform: Affine::translate((rect.x0, rect.y0))
+                    * Affine::scale_non_uniform(scale_x, scale_y),
+            }],
+        );
+    }
+
+    fn upload_external_image(&mut self, pixmap: Pixmap) -> ExternalImage {
+        let texture_id = TextureId(self.next_external_texture_id);
+        self.next_external_texture_id = self.next_external_texture_id.wrapping_add(1).max(1);
+        let width = pixmap.width();
+        let height = pixmap.height();
+        let gl = self.renderer.gl_context();
+        let texture = gl
+            .create_texture()
+            .expect("failed to create external texture");
+        gl.active_texture(Gl::TEXTURE0);
+        gl.bind_texture(Gl::TEXTURE_2D, Some(&texture));
+        gl.tex_parameteri(Gl::TEXTURE_2D, Gl::TEXTURE_MIN_FILTER, Gl::NEAREST as i32);
+        gl.tex_parameteri(Gl::TEXTURE_2D, Gl::TEXTURE_MAG_FILTER, Gl::NEAREST as i32);
+        gl.tex_parameteri(Gl::TEXTURE_2D, Gl::TEXTURE_WRAP_S, Gl::CLAMP_TO_EDGE as i32);
+        gl.tex_parameteri(Gl::TEXTURE_2D, Gl::TEXTURE_WRAP_T, Gl::CLAMP_TO_EDGE as i32);
+        gl.pixel_storei(Gl::UNPACK_ALIGNMENT, 1);
+        gl.pixel_storei(Gl::UNPACK_FLIP_Y_WEBGL, 0);
+        gl.pixel_storei(Gl::UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0);
+        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+            Gl::TEXTURE_2D,
+            0,
+            Gl::RGBA8 as i32,
+            i32::from(width),
+            i32::from(height),
+            0,
+            Gl::RGBA,
+            Gl::UNSIGNED_BYTE,
+            Some(pixmap.data_as_u8_slice()),
+        )
+        .expect("failed to upload external texture");
+        gl.bind_texture(Gl::TEXTURE_2D, None);
+        self.external_bindings.insert(texture_id, texture);
+        ExternalImage {
+            texture_id,
+            width,
+            height,
+        }
+    }
+
+    fn destroy_external_image(&mut self, image: &ExternalImage) {
+        if let Some(texture) = self.external_bindings.remove(image.texture_id) {
+            self.renderer.gl_context().delete_texture(Some(&texture));
         }
     }
 

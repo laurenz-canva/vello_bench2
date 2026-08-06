@@ -23,6 +23,14 @@ use crate::scenes::{ParamId, SceneId};
 
 pub use vello_common::pixmap::Pixmap;
 
+/// Opaque handle for an externally bound texture owned by a backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ExternalImage {
+    pub(crate) texture_id: vello_common::TextureId,
+    pub(crate) width: u16,
+    pub(crate) height: u16,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendKind {
     Hybrid,
@@ -188,6 +196,13 @@ pub trait Backend {
     fn draw_image(&mut self, image: ImageSource, rect: &Rect, bilinear: bool);
     fn upload_image(&mut self, pixmap: Pixmap) -> ImageSource;
     fn destroy_image(&mut self, image: &ImageSource);
+    fn draw_external_image(&mut self, _image: ExternalImage, _rect: &Rect, _bilinear: bool) {
+        panic!("external textures are unsupported by this backend")
+    }
+    fn upload_external_image(&mut self, _pixmap: Pixmap) -> ExternalImage {
+        panic!("external textures are unsupported by this backend")
+    }
+    fn destroy_external_image(&mut self, _image: &ExternalImage) {}
     fn probe(&mut self) -> Result<vello_hybrid::WebGlPendingProbe, String> {
         Err("Backend probing is only supported for Vello Hybrid".to_string())
     }

@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 
-use crate::backend::{Backend, ImageSource, Pixmap};
+use crate::backend::{Backend, ExternalImage, ImageSource, Pixmap};
 use crate::scenes::SceneId;
 
 #[derive(Debug, Default)]
 pub struct ResourceStore {
     scene_epochs: HashMap<SceneId, u64>,
     images: HashMap<(SceneId, u64, u64), ImageSource>,
+    external_images: HashMap<(SceneId, u64, u64), ExternalImage>,
 }
 
 impl ResourceStore {
@@ -41,6 +42,25 @@ impl ResourceStore {
             .clone()
     }
 
+    pub fn get_or_upload_external_image<F>(
+        &mut self,
+        scene_id: SceneId,
+        epoch: u64,
+        key: u64,
+        backend: &mut dyn Backend,
+        make_pixmap: F,
+    ) -> ExternalImage
+    where
+        F: FnOnce() -> Pixmap,
+    {
+        self.prepare_scene(scene_id, epoch, backend);
+        let cache_key = (scene_id, epoch, key);
+        *self
+            .external_images
+            .entry(cache_key)
+            .or_insert_with(|| backend.upload_external_image(make_pixmap()))
+    }
+
     pub fn clear_scene(&mut self, scene_id: SceneId, backend: &mut dyn Backend) {
         let doomed: Vec<_> = self
             .images
@@ -53,12 +73,26 @@ impl ResourceStore {
                 backend.destroy_image(&image);
             }
         }
+        let doomed_external: Vec<_> = self
+            .external_images
+            .keys()
+            .copied()
+            .filter(|(id, _, _)| *id == scene_id)
+            .collect();
+        for key in doomed_external {
+            if let Some(image) = self.external_images.remove(&key) {
+                backend.destroy_external_image(&image);
+            }
+        }
         self.scene_epochs.remove(&scene_id);
     }
 
     pub fn clear_all(&mut self, backend: &mut dyn Backend) {
         for (_, image) in self.images.drain() {
             backend.destroy_image(&image);
+        }
+        for (_, image) in self.external_images.drain() {
+            backend.destroy_external_image(&image);
         }
         self.scene_epochs.clear();
     }

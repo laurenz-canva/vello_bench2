@@ -51,7 +51,7 @@ pathfinder_resources = { git = "https://github.com/servo/pathfinder", branch = "
 pathfinder_simd = { git = "https://github.com/servo/pathfinder", branch = "main", optional = true }
 pathfinder_webgl = { git = "https://github.com/servo/pathfinder", branch = "main", optional = true }
 js-sys = "0.3.98"
-wasm-bindgen = "=0.2.121"
+wasm-bindgen = "=0.2.123"
 wasm-bindgen-futures = "0.4.56"
 web-sys = { version = "0.3.83", features = [
     "Window",

@@ -32,7 +32,7 @@ use harness::{
     BenchDef, BenchHarness, CalibrationEvent, CalibrationHarness, HarnessEvent, bench_defs,
 };
 use resource_store::ResourceStore;
-use scenes::{BenchScene, scene_index};
+use scenes::{BenchScene, ParamId, scene_index};
 use storage::CalibrationProfile;
 use ui::{AppMode, Ui};
 use vello_common::kurbo::Affine;
@@ -423,6 +423,22 @@ impl AppState {
 
         let params = self.ui.read_params();
         let idx = self.current_scene;
+        let previous_external_source = self.scenes[idx]
+            .params()
+            .into_iter()
+            .find(|param| param.id == ParamId::UseExternalTexture)
+            .map(|param| param.value);
+        let external_source_changed = params
+            .iter()
+            .find(|(param_id, _)| *param_id == ParamId::UseExternalTexture)
+            .is_some_and(|(_, value)| {
+                previous_external_source
+                    .is_some_and(|previous| (previous - value).abs() > f64::EPSILON)
+            });
+        if external_source_changed {
+            let scene_id = self.scenes[idx].scene_id();
+            self.resources.clear_scene(scene_id, self.backend.as_mut());
+        }
         for &(param_id, value) in &params {
             self.scenes[idx].set_param(param_id, value);
         }
