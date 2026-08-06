@@ -7,6 +7,8 @@ A browser-based benchmark tool for Vello Hybrid's WebGL2 renderer. Two modes:
 - **Interactive** -- tweak parameters in real-time, observe FPS.
 - **Benchmark** -- automated suite with rAF-based measurement, 3 warmup frames, 15 measured frames, and comparison reports.
 
+With the Vello Hybrid backend, the interactive rectangle scene exposes an **Image Source** selector used when **Paint** is set to **Image**. It switches live between regular image paint and externally bound WebGL textures. Cached atlas images and external WebGL textures are explicitly released whenever the source changes.
+
 ## Running
 
 ### Quick (single build)
@@ -31,7 +33,7 @@ Builds both SIMD and non-SIMD variants and serves them with a toggle button in t
 ./serve.sh
 ```
 
-Then open http://localhost:8080. Requires `wasm-bindgen-cli` (`cargo install wasm-bindgen-cli --version 0.2.118`).
+Then open http://localhost:8080. Requires `wasm-bindgen-cli` (`cargo install wasm-bindgen-cli --version 0.2.123`).
 
 Pass `--debug` to keep debug symbols while still using an optimized build:
 

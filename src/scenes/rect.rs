@@ -151,6 +151,8 @@ pub struct RectScene {
     image_opaque: bool,
     /// Use `draw_image` API instead of image paint (hybrid GPU fast path).
     use_draw_image: bool,
+    /// Use externally bound WebGL textures instead of the image atlas.
+    use_external_texture: bool,
     /// When true, fill colors use alpha 255 instead of semi-transparent.
     opaque: bool,
     /// When true, gradient colors and positions animate every frame.
@@ -181,6 +183,7 @@ impl RectScene {
             image_filter: 0,
             image_opaque: false,
             use_draw_image: false,
+            use_external_texture: false,
             opaque: false,
             dynamic_gradient: false,
             gradient_shape: 0,
@@ -350,6 +353,12 @@ impl BenchScene for RectScene {
                 value: if self.use_draw_image { 1.0 } else { 0.0 },
             },
             Param {
+                id: ParamId::UseExternalTexture,
+                label: "Image Source",
+                kind: ParamKind::Select(vec![("Image Paint", 0.0), ("External Texture", 1.0)]),
+                value: if self.use_external_texture { 1.0 } else { 0.0 },
+            },
+            Param {
                 id: ParamId::Opaque,
                 label: "Opaque",
                 kind: ParamKind::Select(vec![("No", 0.0), ("Yes", 1.0)]),
@@ -376,6 +385,13 @@ impl BenchScene for RectScene {
                 }
             }
             ParamId::UseDrawImage => self.use_draw_image = value >= 0.5,
+            ParamId::UseExternalTexture => {
+                let enabled = value >= 0.5;
+                if enabled != self.use_external_texture {
+                    self.use_external_texture = enabled;
+                    self.image_epoch = self.image_epoch.wrapping_add(1);
+                }
+            }
             ParamId::Opaque => {
                 let new_val = value >= 0.5;
                 if new_val != self.opaque {
@@ -541,6 +557,21 @@ impl BenchScene for RectScene {
                         ..Default::default()
                     };
                     backend.set_paint(gradient.into());
+                }
+                _ if self.use_external_texture => {
+                    let source = resources.get_or_upload_external_image(
+                        SceneId::Rect,
+                        image_epoch,
+                        r.image_idx as u64,
+                        backend,
+                        || make_image_pixmap(r.image_idx, image_opaque),
+                    );
+                    let bilinear = self.image_filter != 0;
+                    backend.draw_external_image(source, &rect, bilinear);
+                    if self.rotated {
+                        backend.set_transform(view);
+                    }
+                    continue;
                 }
                 _ if self.use_draw_image => {
                     // draw_image expects the rect in image-native coordinates;

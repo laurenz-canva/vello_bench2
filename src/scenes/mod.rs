@@ -62,6 +62,7 @@ pub enum ParamId {
     ImageFilter,
     ImageOpaque,
     UseDrawImage,
+    UseExternalTexture,
     NumStrokes,
     CurveType,
     Segments,
@@ -84,7 +85,7 @@ pub enum ParamId {
 }
 
 impl ParamId {
-    pub const COUNT: usize = 28;
+    pub const COUNT: usize = 29;
     pub const ALL_MASK: u64 = (1u64 << Self::COUNT) - 1;
 
     pub(crate) const fn index(self) -> usize {
@@ -98,25 +99,26 @@ impl ParamId {
             Self::ImageFilter => 6,
             Self::ImageOpaque => 7,
             Self::UseDrawImage => 8,
-            Self::NumStrokes => 9,
-            Self::CurveType => 10,
-            Self::Segments => 11,
-            Self::StrokeWidth => 12,
-            Self::Cap => 13,
-            Self::NumVertices => 14,
-            Self::SvgAsset => 15,
-            Self::ClipMode => 16,
-            Self::ClipMethod => 17,
-            Self::NumRuns => 18,
-            Self::FontSize => 19,
-            Self::FilterKind => 20,
-            Self::Speed => 21,
-            Self::BlurStdDeviation => 22,
-            Self::ShadowDx => 23,
-            Self::ShadowDy => 24,
-            Self::ShadowAlpha => 25,
-            Self::Opaque => 26,
-            Self::TargetOverlap => 27,
+            Self::UseExternalTexture => 9,
+            Self::NumStrokes => 10,
+            Self::CurveType => 11,
+            Self::Segments => 12,
+            Self::StrokeWidth => 13,
+            Self::Cap => 14,
+            Self::NumVertices => 15,
+            Self::SvgAsset => 16,
+            Self::ClipMode => 17,
+            Self::ClipMethod => 18,
+            Self::NumRuns => 19,
+            Self::FontSize => 20,
+            Self::FilterKind => 21,
+            Self::Speed => 22,
+            Self::BlurStdDeviation => 23,
+            Self::ShadowDx => 24,
+            Self::ShadowDy => 25,
+            Self::ShadowAlpha => 26,
+            Self::Opaque => 27,
+            Self::TargetOverlap => 28,
         }
     }
 
@@ -135,6 +137,7 @@ impl ParamId {
             Self::ImageFilter => "image_filter",
             Self::ImageOpaque => "image_opaque",
             Self::UseDrawImage => "use_draw_image",
+            Self::UseExternalTexture => "use_external_texture",
             Self::NumStrokes => "num_strokes",
             Self::CurveType => "curve_type",
             Self::Segments => "segments",

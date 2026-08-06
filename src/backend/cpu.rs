@@ -16,8 +16,10 @@ use crate::backend::{Backend, BackendKind, layout_text_glyphs};
 use crate::capability::CapabilityProfile;
 use crate::scenes::{ParamId, SceneId};
 
-pub(crate) const CAPABILITIES: CapabilityProfile =
-    CapabilityProfile::all().deny_params(SceneId::Rect, &[ParamId::UseDrawImage]);
+pub(crate) const CAPABILITIES: CapabilityProfile = CapabilityProfile::all().deny_params(
+    SceneId::Rect,
+    &[ParamId::UseDrawImage, ParamId::UseExternalTexture],
+);
 
 extern crate alloc;
 
@@ -131,8 +133,7 @@ impl Backend for BackendImpl {
 
     fn render_offscreen(&mut self) {
         self.ctx.flush();
-        self.ctx
-            .render(&mut self.target, &mut self.resources);
+        self.ctx.render(&mut self.target, &mut self.resources);
     }
 
     fn blit(&mut self) {
