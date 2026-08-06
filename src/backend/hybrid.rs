@@ -1,12 +1,11 @@
 use glifo::Glyph;
 use vello_common::filter_effects::Filter;
-use vello_common::geometry::SizeU16;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::{Fill, FontData};
 use vello_common::pixmap::Pixmap;
-use vello_hybrid::{LayersConfig, MemorySettings};
+use vello_hybrid::{LayersConfig, MemorySettings, WebGlTextureBindings};
 use web_sys::HtmlCanvasElement;
 
 use crate::backend::{Backend, BackendKind, layout_text_glyphs, uploaded_image_id};
@@ -38,10 +37,12 @@ impl BackendImpl {
             ..Default::default()
         };
 
+        let (renderer, resources) = vello_hybrid::WebGlRenderer::new_with(canvas, settings);
+
         Self {
             ctx: vello_hybrid::Scene::new(w as u16, h as u16),
-            resources: vello_hybrid::Resources::new_with_config(image_atlas_config),
-            renderer: vello_hybrid::WebGlRenderer::new_with(canvas, settings),
+            resources,
+            renderer,
         }
     }
 
@@ -69,7 +70,7 @@ impl Backend for BackendImpl {
             height: self.ctx.height() as u32,
         };
         self.renderer
-            .render(&self.ctx, &mut self.resources, &rs)
+            .render(&self.ctx, &mut self.resources, &rs, &WebGlTextureBindings::default())
             .unwrap();
     }
 
