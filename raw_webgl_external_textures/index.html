@@ -32,6 +32,7 @@
       z-index: 1;
       top: max(12px, env(safe-area-inset-top));
       left: max(12px, env(safe-area-inset-left));
+      max-width: calc(100vw - 240px - env(safe-area-inset-left) - env(safe-area-inset-right));
       padding: 8px 10px;
       border: 1px solid rgb(255 255 255 / 18%);
       border-radius: 8px;
@@ -54,21 +55,59 @@
       color: #ff8787;
       white-space: pre-wrap;
     }
+
+    #rect-controls {
+      position: fixed;
+      z-index: 2;
+      top: max(12px, env(safe-area-inset-top));
+      right: max(12px, env(safe-area-inset-right));
+      display: flex;
+      gap: 8px;
+    }
+
+    #rect-controls button {
+      min-height: 44px;
+      padding: 9px 13px;
+      border: 1px solid rgb(255 255 255 / 20%);
+      border-radius: 9px;
+      background: #3977f6;
+      box-shadow: 0 5px 20px rgb(0 0 0 / 30%);
+      color: white;
+      font: 700 14px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    #rect-controls button:active { background: #2c62d0; }
+    #rect-controls button:disabled { opacity: .45; cursor: default; }
+
+    @media (max-width: 600px) {
+      #stats {
+        top: max(68px, calc(env(safe-area-inset-top) + 56px));
+        max-width: calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right));
+      }
+    }
   </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
   <div id="stats">
-    <div><span id="fps">warming…</span></div>
-    <div>50 rects · 6 attrib offsets/draw · 50 draws/frame · 4×4px</div>
+    <div><span id="fps">0.0 FPS</span></div>
+    <div><span id="rect-count">200</span> rects · 6 attrib offsets/draw · <span id="draw-count">200</span> draws/frame · 4×4px</div>
     <div id="error"></div>
+  </div>
+  <div id="rect-controls">
+    <button id="remove-rects" type="button">−10 rects</button>
+    <button id="add-rects" type="button">+10 rects</button>
   </div>
 
   <script>
     (() => {
       "use strict";
 
-      const RECT_COUNT = 50;
+      const INITIAL_RECT_COUNT = 200;
+      const RECT_COUNT_STEP = 10;
+      const FPS_SAMPLE_FRAMES = 10;
       const TEXTURE_SIZE = 16;
       const RECT_SIZE = 4;
       const STRIPS_PER_RECT = 1;
@@ -78,6 +117,10 @@
 
       const canvas = document.querySelector("#canvas");
       const fpsElement = document.querySelector("#fps");
+      const rectCountElement = document.querySelector("#rect-count");
+      const drawCountElement = document.querySelector("#draw-count");
+      const removeRectsButton = document.querySelector("#remove-rects");
+      const addRectsButton = document.querySelector("#add-rects");
       const errorElement = document.querySelector("#error");
 
       try {
@@ -291,11 +334,12 @@
         passTextures[2] = atlasTexture;
         const externalPlaceholder = makePlaceholderTexture();
 
-        const stripData = new Uint32Array(
-          RECT_COUNT * STRIPS_PER_RECT * UINTS_PER_STRIP,
+        let rectCount = INITIAL_RECT_COUNT;
+        let stripData = new Uint32Array(
+          rectCount * STRIPS_PER_RECT * UINTS_PER_STRIP,
         );
-        const positions = new Float32Array(RECT_COUNT * 2);
-        const velocities = new Float32Array(RECT_COUNT * 2);
+        let positions = new Float32Array(rectCount * 2);
+        let velocities = new Float32Array(rectCount * 2);
         let randomState = 0xdeadbeef;
         const random = () => {
           randomState ^= randomState << 13;
@@ -337,12 +381,41 @@
         resize();
         window.addEventListener("resize", resize, { passive: true });
 
-        for (let i = 0; i < RECT_COUNT; i++) {
+        const initializeRect = (i) => {
           positions[i * 2] = random() * Math.max(0, width - RECT_SIZE);
           positions[i * 2 + 1] = random() * Math.max(0, height - RECT_SIZE);
           velocities[i * 2] = (35 + random() * 90) * (random() < 0.5 ? -1 : 1);
           velocities[i * 2 + 1] = (35 + random() * 90) * (random() < 0.5 ? -1 : 1);
+        };
+        for (let i = 0; i < rectCount; i++) {
+          initializeRect(i);
         }
+
+        const setRectCount = (nextCount) => {
+          const previousCount = rectCount;
+          rectCount = Math.max(RECT_COUNT_STEP, nextCount);
+
+          const nextStripData = new Uint32Array(
+            rectCount * STRIPS_PER_RECT * UINTS_PER_STRIP,
+          );
+          nextStripData.set(stripData.subarray(0, nextStripData.length));
+          stripData = nextStripData;
+
+          const nextPositions = new Float32Array(rectCount * 2);
+          nextPositions.set(positions.subarray(0, nextPositions.length));
+          positions = nextPositions;
+
+          const nextVelocities = new Float32Array(rectCount * 2);
+          nextVelocities.set(velocities.subarray(0, nextVelocities.length));
+          velocities = nextVelocities;
+
+          for (let i = previousCount; i < rectCount; i++) {
+            initializeRect(i);
+          }
+          rectCountElement.textContent = String(rectCount);
+          drawCountElement.textContent = String(rectCount);
+          removeRectsButton.disabled = rectCount <= RECT_COUNT_STEP;
+        };
 
         gl.clearColor(0.0, 0.0, 0.0, 0.0);
         gl.clearDepth(1.0);
@@ -356,7 +429,7 @@
         const updateRects = (dt) => {
           const maxX = Math.max(0, width - RECT_SIZE);
           const maxY = Math.max(0, height - RECT_SIZE);
-          for (let i = 0; i < RECT_COUNT; i++) {
+          for (let i = 0; i < rectCount; i++) {
             const offset = i * 2;
             let x = positions[offset] + velocities[offset] * dt;
             let y = positions[offset + 1] + velocities[offset + 1] * dt;
@@ -432,7 +505,7 @@
 
           // Mirror Vello's external-texture run loop. The shader stays intentionally trivial;
           // the important part here is the same WebGL state-changing call pattern.
-          for (let i = 0; i < RECT_COUNT; i++) {
+          for (let i = 0; i < rectCount; i++) {
             gl.activeTexture(gl.TEXTURE0 + EXTERNAL_TEXTURE_UNIT);
             gl.bindTexture(gl.TEXTURE_2D, textures[i & 1]);
             setStripAttribOffset(i);
@@ -450,7 +523,16 @@
 
         let lastTime;
         let sampleStart;
-        let sampleFrames = 0;
+        let sampleIntervals = 0;
+        const changeRectCount = (delta) => {
+          setRectCount(rectCount + delta);
+          lastTime = undefined;
+          sampleStart = undefined;
+          sampleIntervals = 0;
+        };
+        removeRectsButton.addEventListener("click", () => changeRectCount(-RECT_COUNT_STEP));
+        addRectsButton.addEventListener("click", () => changeRectCount(RECT_COUNT_STEP));
+
         const frame = (now) => {
           if (lastTime === undefined) {
             lastTime = now;
@@ -462,12 +544,14 @@
           updateRects(dt);
           render();
 
-          sampleFrames++;
-          const sampleDuration = now - sampleStart;
-          if (sampleDuration >= 1000) {
-            fpsElement.textContent = `${(sampleFrames * 1000 / sampleDuration).toFixed(1)} FPS`;
+          if (now > sampleStart) {
+            sampleIntervals++;
+          }
+          if (sampleIntervals >= FPS_SAMPLE_FRAMES) {
+            const sampleDuration = now - sampleStart;
+            fpsElement.textContent = `${(sampleIntervals * 1000 / sampleDuration).toFixed(1)} FPS`;
             sampleStart = now;
-            sampleFrames = 0;
+            sampleIntervals = 0;
           }
           requestAnimationFrame(frame);
         };
@@ -476,8 +560,7 @@
           if (!document.hidden) {
             lastTime = undefined;
             sampleStart = undefined;
-            sampleFrames = 0;
-            fpsElement.textContent = "warming…";
+            sampleIntervals = 0;
           }
         });
 
