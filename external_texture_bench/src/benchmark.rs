@@ -52,6 +52,7 @@ impl BenchConfig {
 #[derive(Clone, Debug)]
 pub struct MeasurementMetrics {
     pub fps: f64,
+    pub cpu_ms: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -60,6 +61,9 @@ pub struct CaseResult {
     pub image_fps: f64,
     pub external_fps: f64,
     pub delta_fps_percent: f64,
+    pub image_cpu_ms: f64,
+    pub external_cpu_ms: f64,
+    pub delta_cpu_percent: f64,
 }
 
 #[derive(Debug)]
@@ -85,6 +89,7 @@ enum Phase {
     Measuring {
         mode: RenderMode,
         frame_intervals: Vec<f64>,
+        cpu_times: Vec<f64>,
         last_raf: Option<f64>,
     },
     Complete,
@@ -136,10 +141,12 @@ impl BenchRunner {
             Phase::Warming { last_raf, .. } => *last_raf = None,
             Phase::Measuring {
                 frame_intervals,
+                cpu_times,
                 last_raf,
                 ..
             } => {
                 frame_intervals.clear();
+                cpu_times.clear();
                 *last_raf = None;
             }
             _ => {}
@@ -199,7 +206,7 @@ impl BenchRunner {
                 }
 
                 match renderer.render_once(mode, now) {
-                    Ok(()) => {
+                    Ok(_) => {
                         self.phase = Phase::Warming {
                             mode,
                             elapsed_ms,
@@ -212,6 +219,7 @@ impl BenchRunner {
             Phase::Measuring {
                 mode,
                 mut frame_intervals,
+                mut cpu_times,
                 last_raf,
             } => {
                 if let Some(last) = last_raf {
@@ -224,17 +232,19 @@ impl BenchRunner {
                 }
 
                 if frame_intervals.iter().sum::<f64>() >= measurement_ms {
-                    let metrics = summarize(&frame_intervals);
+                    let metrics = summarize(&frame_intervals, &cpu_times);
                     events.extend(self.finish_measurement(renderer, mode, metrics, total_cases));
                     self.render_transition_frame(renderer, now, &mut events);
                     return events;
                 }
 
                 match renderer.render_once(mode, now) {
-                    Ok(()) => {
+                    Ok(timing) => {
+                        cpu_times.push(timing.cpu_ms);
                         self.phase = Phase::Measuring {
                             mode,
                             frame_intervals,
+                            cpu_times,
                             last_raf: Some(now),
                         };
                     }
@@ -276,6 +286,7 @@ impl BenchRunner {
         self.phase = Phase::Measuring {
             mode,
             frame_intervals: Vec::with_capacity((config.measurement_seconds * 120.0) as usize),
+            cpu_times: Vec::with_capacity((config.measurement_seconds * 120.0) as usize),
             last_raf: None,
         };
         vec![RunnerEvent::Status(format!(
@@ -322,17 +333,24 @@ impl BenchRunner {
                 events
             }
             RenderMode::ExternalTexture => {
-                let image_fps = self.image_results[self.count_index].fps;
+                let image_metrics = &self.image_results[self.count_index];
+                let image_fps = image_metrics.fps;
                 let external_fps = metrics.fps;
+                let delta_percent = |external: f64, image: f64| {
+                    if image > 0.0 {
+                        (external - image) / image * 100.0
+                    } else {
+                        0.0
+                    }
+                };
                 let result = CaseResult {
                     image_count: self.current_count(),
                     image_fps,
                     external_fps,
-                    delta_fps_percent: if image_fps > 0.0 {
-                        (external_fps - image_fps) / image_fps * 100.0
-                    } else {
-                        0.0
-                    },
+                    delta_fps_percent: delta_percent(external_fps, image_fps),
+                    image_cpu_ms: image_metrics.cpu_ms,
+                    external_cpu_ms: metrics.cpu_ms,
+                    delta_cpu_percent: delta_percent(metrics.cpu_ms, image_metrics.cpu_ms),
                 };
                 let stop_early = external_fps < 20.0;
                 let mut events = vec![
@@ -407,11 +425,16 @@ impl BenchRunner {
     }
 }
 
-fn summarize(frame_intervals: &[f64]) -> MeasurementMetrics {
+fn summarize(frame_intervals: &[f64], cpu_times: &[f64]) -> MeasurementMetrics {
     let elapsed_ms = frame_intervals.iter().sum::<f64>();
     MeasurementMetrics {
         fps: frame_intervals.len() as f64 * 1000.0 / elapsed_ms,
+        cpu_ms: mean(cpu_times).unwrap_or(0.0),
     }
+}
+
+fn mean(values: &[f64]) -> Option<f64> {
+    (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
 }
 
 #[cfg(test)]
@@ -420,7 +443,8 @@ mod tests {
 
     #[test]
     fn fps_uses_the_full_measurement_interval() {
-        let metrics = summarize(&[10.0, 20.0, 20.0]);
+        let metrics = summarize(&[10.0, 20.0, 20.0], &[2.0, 4.0]);
         assert_eq!(metrics.fps, 60.0);
+        assert_eq!(metrics.cpu_ms, 3.0);
     }
 }

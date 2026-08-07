@@ -28,6 +28,12 @@ impl RenderMode {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct FrameTiming {
+    /// CPU wall time spent inside Vello's WebGL render submission.
+    pub cpu_ms: f64,
+}
+
 struct PreparedTextures {
     size: u16,
     external: Vec<WebGlTexture>,
@@ -74,6 +80,7 @@ pub struct BenchRenderer {
     viewport_width: u16,
     viewport_height: u16,
     render_size: RenderSize,
+    gpu_timer_supported: bool,
 }
 
 impl BenchRenderer {
@@ -82,14 +89,20 @@ impl BenchRenderer {
         canvas.set_width(u32::from(viewport_width));
         canvas.set_height(u32::from(viewport_height));
 
+        // Let Vello create the context first so its requested attributes (notably antialias:
+        // false) take effect. A later getContext call returns that same context.
+        let (renderer, resources) = WebGlRenderer::new_with(canvas, RenderSettings::default());
         let gl: Gl = canvas
             .get_context("webgl2")
             .map_err(|_| "failed to query WebGL2 context".to_string())?
             .ok_or_else(|| "WebGL2 is unavailable on this device".to_string())?
             .dyn_into()
             .map_err(|_| "canvas context was not WebGL2".to_string())?;
-
-        let (renderer, resources) = WebGlRenderer::new_with(canvas, RenderSettings::default());
+        let gpu_timer_supported = gl
+            .get_extension("EXT_disjoint_timer_query_webgl2")
+            .ok()
+            .flatten()
+            .is_some();
 
         Ok(Self {
             canvas: canvas.clone(),
@@ -110,6 +123,7 @@ impl BenchRenderer {
                 width: u32::from(viewport_width),
                 height: u32::from(viewport_height),
             },
+            gpu_timer_supported,
         })
     }
 
@@ -123,6 +137,10 @@ impl BenchRenderer {
             .ok()
             .and_then(|value| value.as_f64())
             .unwrap_or(0.0) as u32
+    }
+
+    pub fn gpu_timer_supported(&self) -> bool {
+        self.gpu_timer_supported
     }
 
     pub fn begin_texture_set(&mut self, size: u16) {
@@ -207,7 +225,7 @@ impl BenchRenderer {
 
     /// Animate, record, and submit one strategy. Scene recording mirrors vello_bench2's animated
     /// benchmark loop and is included in the measured frame interval.
-    pub fn render_once(&mut self, mode: RenderMode, now: f64) -> Result<(), String> {
+    pub fn render_once(&mut self, mode: RenderMode, now: f64) -> Result<FrameTiming, String> {
         if self.resize_to_viewport() {
             self.last_animation_time = now;
         }
@@ -222,10 +240,14 @@ impl BenchRenderer {
             RenderMode::ImagePaint => &self.image_scene,
             RenderMode::ExternalTexture => &self.external_scene,
         };
-        self.renderer
+        let cpu_start = performance_now();
+        let render_result = self
+            .renderer
             .render(scene, &mut self.resources, &self.render_size, bindings)
-            .map_err(|error| error.to_string())?;
-        Ok(())
+            .map_err(|error| error.to_string());
+        let cpu_ms = performance_now() - cpu_start;
+        render_result?;
+        Ok(FrameTiming { cpu_ms })
     }
 
     fn animate(&mut self, now: f64) {
@@ -327,6 +349,12 @@ impl BenchRenderer {
             }
         }
     }
+}
+
+fn performance_now() -> f64 {
+    web_sys::window()
+        .and_then(|window| window.performance())
+        .map_or(0.0, |performance| performance.now())
 }
 
 impl Drop for BenchRenderer {

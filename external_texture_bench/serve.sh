@@ -21,5 +21,17 @@ wasm-bindgen \
 cp web/index.html dist/index.html
 
 echo "Serving http://$BIND_ADDR:8081"
-python3 -m http.server 8081 --bind "$BIND_ADDR" --directory dist
+python3 -c "
+import http.server, os
 
+os.chdir('dist')
+
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header('Cross-Origin-Opener-Policy', 'same-origin')
+        self.send_header('Cross-Origin-Embedder-Policy', 'require-corp')
+        self.send_header('Cache-Control', 'no-store')
+        super().end_headers()
+
+http.server.ThreadingHTTPServer(('$BIND_ADDR', 8081), Handler).serve_forever()
+"

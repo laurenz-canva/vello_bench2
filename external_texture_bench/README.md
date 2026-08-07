@@ -27,7 +27,7 @@ The benchmark first runs every ascending image-paint rect-count variant, then ru
 
 Square images use `vello_bench2`'s seeded position/velocity model, speed scaling, and boundary bounce behavior. As in `vello_bench2`, each animated frame records the current scene before rendering, so scene recording contributes to the measured frame rate.
 
-Each result row appears during the external-texture pass and contains one rect count, image-paint FPS, external-texture FPS, and the external-texture FPS difference. Each strategy runs exactly once. A difference of at least +10% is green and at most -10% is red. If image paint averages less than 20 FPS, its pass stops and the external-texture pass runs only the rect counts already reached. If external texture falls below 20 FPS, its pass stops and skips all higher rect counts.
+Each result row appears during the external-texture pass and contains one rect count plus compact image-paint → external-texture comparisons for FPS and CPU submission time. CPU submission time measures wall time spent in Vello's render call; it does not wait for GPU completion and excludes scene recording. Each strategy runs exactly once. An FPS difference of at least +10% is green and at most -10% is red. If image paint averages less than 20 FPS, its pass stops and the external-texture pass runs only the rect counts already reached. If external texture falls below 20 FPS, its pass stops and skips all higher rect counts.
 
 The page pauses timing while hidden and rejects large interruption intervals.
 
@@ -55,12 +55,14 @@ Then open port `8081` on the host machine.
 
 The default run uses `1, 10, 50, 100, 200, 300, 450, 600, 800, 1000, 1400, 1800, 2400, 3000, 4000, 5000, 6000, 8000` rects alternating across two 16×16 images, drawn at 4×4 pixels. The benchmark allocates exactly the configured source-image pool for both strategies, with no separate texture-memory limit.
 
-Interactive mode renders continuously and exposes live controls for image source, rect count, number of source images, image size, and rect size. Changing the image size or source-image pool destroys the old paired resources and prepares a new pool before rendering resumes.
+Interactive mode renders continuously, reports smoothed FPS and CPU submission time, and exposes live controls for image source, rect count, number of source images, image size, and rect size. Changing the image size or source-image pool destroys the old paired resources and prepares a new pool before rendering resumes.
 
 ## Interpretation
 
 FPS is capped by the display refresh rate for workloads that comfortably finish within one refresh period. It becomes useful once a variant starts missing frames.
 
 The external measurements include Vello scheduling, WebGL texture binding, and the corresponding tiny draw. This is not a direct timer around `gl.bindTexture`, because WebGL is asynchronous and Vello intentionally treats binding and drawing as one external-texture run.
+
+The setup page reports whether `EXT_disjoint_timer_query_webgl2` is exposed by the current browser, but the benchmark does not issue GPU timer queries.
 
 Texture size is expected to be mostly irrelevant to the intrinsic binding operation. Changes across allocation sizes can reveal device-specific descriptor, residency, memory-pressure, or cache behavior. Texture creation and upload cost are intentionally not represented.

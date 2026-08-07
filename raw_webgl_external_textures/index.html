@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Raw WebGL2 external textures</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #08101d;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    #stats {
+      position: fixed;
+      z-index: 1;
+      top: max(12px, env(safe-area-inset-top));
+      left: max(12px, env(safe-area-inset-left));
+      padding: 8px 10px;
+      border: 1px solid rgb(255 255 255 / 18%);
+      border-radius: 8px;
+      background: rgb(5 11 22 / 78%);
+      box-shadow: 0 5px 20px rgb(0 0 0 / 30%);
+      color: #e8f0ff;
+      font-size: 14px;
+      line-height: 1.4;
+      pointer-events: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    #fps {
+      color: #63e6be;
+      font-weight: 700;
+    }
+
+    #error {
+      color: #ff8787;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="stats">
+    <div><span id="fps">warming…</span></div>
+    <div>50 rects · 6 attrib offsets/draw · 50 draws/frame · 4×4px</div>
+    <div id="error"></div>
+  </div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const RECT_COUNT = 50;
+      const TEXTURE_SIZE = 16;
+      const RECT_SIZE = 4;
+      const STRIPS_PER_RECT = 1;
+      const UINTS_PER_STRIP = 6;
+      const BYTES_PER_STRIP = UINTS_PER_STRIP * Uint32Array.BYTES_PER_ELEMENT;
+      const EXTERNAL_TEXTURE_UNIT = 5;
+
+      const canvas = document.querySelector("#canvas");
+      const fpsElement = document.querySelector("#fps");
+      const errorElement = document.querySelector("#error");
+
+      try {
+        const gl = canvas.getContext("webgl2", {
+          alpha: true,
+          antialias: false,
+          depth: true,
+          stencil: false,
+          preserveDrawingBuffer: false,
+          powerPreference: "high-performance",
+        });
+        if (!gl) throw new Error("WebGL2 is unavailable");
+
+        const vertexSource = `#version 300 es
+          precision highp float;
+          precision highp int;
+
+          layout(location = 0) in uint a_xy;
+          layout(location = 1) in uint a_width_height;
+          layout(location = 2) in uint a_coverage;
+          layout(location = 3) in uint a_uv_origin;
+          layout(location = 4) in uint a_paint_and_rect_flag;
+          layout(location = 5) in uint a_depth_index;
+          uniform vec2 u_viewport;
+          out vec2 v_uv;
+          flat out float v_coverage;
+          flat out float v_rect_flag;
+
+          uvec2 unpack16(uint value) {
+            return uvec2(value & 0xffffu, value >> 16);
+          }
+
+          void main() {
+            uvec2 packed_xy = unpack16(a_xy);
+            uvec2 packed_size = unpack16(a_width_height);
+            uvec2 packed_uv = unpack16(a_uv_origin);
+            vec2 corner = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1));
+            vec2 pixel = vec2(packed_xy) + corner * vec2(packed_size);
+            vec2 clip = pixel / u_viewport * 2.0 - 1.0;
+            float depth = float(a_depth_index & 0xffffu) / 65535.0;
+            gl_Position = vec4(clip.x, -clip.y, depth * 2.0 - 1.0, 1.0);
+            vec2 local_origin = vec2(packed_uv) / 256.0 - 1.0;
+            v_uv = (local_origin + corner * vec2(packed_size)) / ${RECT_SIZE}.0;
+            v_coverage = float(a_coverage & 0xffu) / 255.0;
+            v_rect_flag = float(a_paint_and_rect_flag >> 31);
+          }
+        `;
+
+        const fragmentSource = `#version 300 es
+          precision highp float;
+          precision highp sampler2DArray;
+
+          uniform sampler2D u_alphas_texture;
+          uniform sampler2D u_layer_texture;
+          uniform sampler2DArray u_atlas_texture;
+          uniform sampler2D u_encoded_paints_texture;
+          uniform sampler2D u_gradient_texture;
+          uniform sampler2D u_external_texture;
+          uniform int u_source;
+          in vec2 v_uv;
+          flat in float v_coverage;
+          flat in float v_rect_flag;
+          out vec4 out_color;
+
+          void main() {
+            vec4 color;
+            if (u_source == 5) {
+              ivec2 texel = clamp(
+                ivec2(floor(v_uv * float(${TEXTURE_SIZE}))),
+                ivec2(0),
+                ivec2(${TEXTURE_SIZE - 1})
+              );
+              color = texelFetch(u_external_texture, texel, 0);
+            } else if (u_source == 4) {
+              color = texture(u_gradient_texture, v_uv);
+            } else if (u_source == 3) {
+              color = texture(u_encoded_paints_texture, v_uv);
+            } else if (u_source == 2) {
+              color = texture(u_atlas_texture, vec3(v_uv, 0.0));
+            } else if (u_source == 1) {
+              color = texture(u_layer_texture, v_uv);
+            } else {
+              color = texture(u_alphas_texture, v_uv);
+            }
+            out_color = color * v_coverage * v_rect_flag;
+          }
+        `;
+
+        const compileShader = (type, source) => {
+          const shader = gl.createShader(type);
+          gl.shaderSource(shader, source);
+          gl.compileShader(shader);
+          if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            const message = gl.getShaderInfoLog(shader) || "Shader compilation failed";
+            gl.deleteShader(shader);
+            throw new Error(message);
+          }
+          return shader;
+        };
+
+        const vertexShader = compileShader(gl.VERTEX_SHADER, vertexSource);
+        const fragmentShader = compileShader(gl.FRAGMENT_SHADER, fragmentSource);
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+        gl.deleteShader(vertexShader);
+        gl.deleteShader(fragmentShader);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+          throw new Error(gl.getProgramInfoLog(program) || "Program linking failed");
+        }
+
+        gl.useProgram(program);
+        const viewportUniform = gl.getUniformLocation(program, "u_viewport");
+        const samplerUniforms = [
+          gl.getUniformLocation(program, "u_alphas_texture"),
+          gl.getUniformLocation(program, "u_layer_texture"),
+          gl.getUniformLocation(program, "u_atlas_texture"),
+          gl.getUniformLocation(program, "u_encoded_paints_texture"),
+          gl.getUniformLocation(program, "u_gradient_texture"),
+          gl.getUniformLocation(program, "u_external_texture"),
+        ];
+        const sourceUniform = gl.getUniformLocation(program, "u_source");
+
+        const makePattern = (patternIndex) => {
+          const pixels = new Uint8Array(TEXTURE_SIZE * TEXTURE_SIZE * 4);
+          for (let y = 0; y < TEXTURE_SIZE; y++) {
+            for (let x = 0; x < TEXTURE_SIZE; x++) {
+              const checker = ((x >> 2) + (y >> 2)) & 1;
+              const diagonal = ((x + y) >> 2) & 1;
+              const color = patternIndex === 0
+                ? (checker ? [255, 74, 122] : [38, 198, 255])
+                : (diagonal ? [255, 210, 54] : [91, 255, 137]);
+              const alpha = ((x ^ y) & 3) === 0 ? 190 : 235;
+              const offset = (y * TEXTURE_SIZE + x) * 4;
+              pixels[offset] = Math.round(color[0] * alpha / 255);
+              pixels[offset + 1] = Math.round(color[1] * alpha / 255);
+              pixels[offset + 2] = Math.round(color[2] * alpha / 255);
+              pixels[offset + 3] = alpha;
+            }
+          }
+          return pixels;
+        };
+
+        const textures = [0, 1].map((patternIndex) => {
+          const texture = gl.createTexture();
+          gl.bindTexture(gl.TEXTURE_2D, texture);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+          gl.texImage2D(
+            gl.TEXTURE_2D,
+            0,
+            gl.RGBA8,
+            TEXTURE_SIZE,
+            TEXTURE_SIZE,
+            0,
+            gl.RGBA,
+            gl.UNSIGNED_BYTE,
+            makePattern(patternIndex),
+          );
+          return texture;
+        });
+
+        const makePlaceholderTexture = () => {
+          const texture = gl.createTexture();
+          gl.bindTexture(gl.TEXTURE_2D, texture);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          gl.texImage2D(
+            gl.TEXTURE_2D,
+            0,
+            gl.RGBA8,
+            1,
+            1,
+            0,
+            gl.RGBA,
+            gl.UNSIGNED_BYTE,
+            new Uint8Array([255, 255, 255, 255]),
+          );
+          return texture;
+        };
+
+        const passTextures = [
+          makePlaceholderTexture(),
+          makePlaceholderTexture(),
+          null,
+          makePlaceholderTexture(),
+          makePlaceholderTexture(),
+        ];
+        const atlasTexture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D_ARRAY, atlasTexture);
+        gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texImage3D(
+          gl.TEXTURE_2D_ARRAY,
+          0,
+          gl.RGBA8,
+          1,
+          1,
+          1,
+          0,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          new Uint8Array([255, 255, 255, 255]),
+        );
+        passTextures[2] = atlasTexture;
+        const externalPlaceholder = makePlaceholderTexture();
+
+        const stripData = new Uint32Array(
+          RECT_COUNT * STRIPS_PER_RECT * UINTS_PER_STRIP,
+        );
+        const positions = new Float32Array(RECT_COUNT * 2);
+        const velocities = new Float32Array(RECT_COUNT * 2);
+        let randomState = 0xdeadbeef;
+        const random = () => {
+          randomState ^= randomState << 13;
+          randomState ^= randomState >>> 17;
+          randomState ^= randomState << 5;
+          return (randomState >>> 0) / 0x100000000;
+        };
+
+        const vao = gl.createVertexArray();
+        const stripBuffer = gl.createBuffer();
+        gl.bindVertexArray(vao);
+        gl.bindBuffer(gl.ARRAY_BUFFER, stripBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, stripData.byteLength, gl.DYNAMIC_DRAW);
+        for (let location = 0; location < UINTS_PER_STRIP; location++) {
+          gl.enableVertexAttribArray(location);
+          gl.vertexAttribIPointer(
+            location,
+            1,
+            gl.UNSIGNED_INT,
+            BYTES_PER_STRIP,
+            location * Uint32Array.BYTES_PER_ELEMENT,
+          );
+          gl.vertexAttribDivisor(location, 1);
+        }
+
+        let width = 1;
+        let height = 1;
+        const resize = () => {
+          // Match the Vello harness: use CSS viewport pixels rather than multiplying by DPR.
+          width = Math.max(1, Math.round(window.innerWidth));
+          height = Math.max(1, Math.round(window.innerHeight));
+          if (canvas.width !== width || canvas.height !== height) {
+            canvas.width = width;
+            canvas.height = height;
+            gl.viewport(0, 0, width, height);
+            gl.uniform2f(viewportUniform, width, height);
+          }
+        };
+        resize();
+        window.addEventListener("resize", resize, { passive: true });
+
+        for (let i = 0; i < RECT_COUNT; i++) {
+          positions[i * 2] = random() * Math.max(0, width - RECT_SIZE);
+          positions[i * 2 + 1] = random() * Math.max(0, height - RECT_SIZE);
+          velocities[i * 2] = (35 + random() * 90) * (random() < 0.5 ? -1 : 1);
+          velocities[i * 2 + 1] = (35 + random() * 90) * (random() < 0.5 ? -1 : 1);
+        }
+
+        gl.clearColor(0.0, 0.0, 0.0, 0.0);
+        gl.clearDepth(1.0);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+        const packU16Pair = (low, high) => (
+          ((low & 0xffff) | ((high & 0xffff) << 16)) >>> 0
+        );
+
+        const updateRects = (dt) => {
+          const maxX = Math.max(0, width - RECT_SIZE);
+          const maxY = Math.max(0, height - RECT_SIZE);
+          for (let i = 0; i < RECT_COUNT; i++) {
+            const offset = i * 2;
+            let x = positions[offset] + velocities[offset] * dt;
+            let y = positions[offset + 1] + velocities[offset + 1] * dt;
+
+            if (x < 0) {
+              x = 0;
+              velocities[offset] = Math.abs(velocities[offset]);
+            } else if (x > maxX) {
+              x = maxX;
+              velocities[offset] = -Math.abs(velocities[offset]);
+            }
+            if (y < 0) {
+              y = 0;
+              velocities[offset + 1] = Math.abs(velocities[offset + 1]);
+            } else if (y > maxY) {
+              y = maxY;
+              velocities[offset + 1] = -Math.abs(velocities[offset + 1]);
+            }
+
+            positions[offset] = x;
+            positions[offset + 1] = y;
+            const dataOffset = i * UINTS_PER_STRIP;
+            stripData[dataOffset] = packU16Pair(Math.floor(x), Math.floor(y));
+            stripData[dataOffset + 1] = packU16Pair(RECT_SIZE, RECT_SIZE);
+            stripData[dataOffset + 2] = 255;
+            stripData[dataOffset + 3] = packU16Pair(256, 256);
+            stripData[dataOffset + 4] = 0x80000000;
+            stripData[dataOffset + 5] = 0;
+          }
+        };
+
+        const bindPassTextures = () => {
+          for (let unit = 0; unit < 5; unit++) {
+            gl.activeTexture(gl.TEXTURE0 + unit);
+            gl.bindTexture(unit === 2 ? gl.TEXTURE_2D_ARRAY : gl.TEXTURE_2D, passTextures[unit]);
+            gl.uniform1i(samplerUniforms[unit], unit);
+          }
+          gl.activeTexture(gl.TEXTURE0 + EXTERNAL_TEXTURE_UNIT);
+          gl.bindTexture(gl.TEXTURE_2D, externalPlaceholder);
+          gl.uniform1i(samplerUniforms[EXTERNAL_TEXTURE_UNIT], EXTERNAL_TEXTURE_UNIT);
+          gl.uniform1i(sourceUniform, EXTERNAL_TEXTURE_UNIT);
+        };
+
+        const setStripAttribOffset = (firstInstance) => {
+          const byteOffset = firstInstance * BYTES_PER_STRIP;
+          for (let location = 0; location < UINTS_PER_STRIP; location++) {
+            gl.vertexAttribIPointer(
+              location,
+              1,
+              gl.UNSIGNED_INT,
+              BYTES_PER_STRIP,
+              byteOffset + location * Uint32Array.BYTES_PER_ELEMENT,
+            );
+          }
+        };
+
+        const render = () => {
+          gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+          gl.disable(gl.SCISSOR_TEST);
+          gl.useProgram(program);
+          gl.bindVertexArray(vao);
+          bindPassTextures();
+
+          // Vello orphans and re-uploads its single strip buffer on every render.
+          gl.bindBuffer(gl.ARRAY_BUFFER, stripBuffer);
+          gl.bufferData(gl.ARRAY_BUFFER, stripData.byteLength, gl.DYNAMIC_DRAW);
+          gl.bufferSubData(gl.ARRAY_BUFFER, 0, stripData);
+
+          gl.enable(gl.DEPTH_TEST);
+          gl.depthFunc(gl.LEQUAL);
+          gl.depthMask(false);
+          gl.enable(gl.BLEND);
+
+          // Mirror Vello's external-texture run loop. The shader stays intentionally trivial;
+          // the important part here is the same WebGL state-changing call pattern.
+          for (let i = 0; i < RECT_COUNT; i++) {
+            gl.activeTexture(gl.TEXTURE0 + EXTERNAL_TEXTURE_UNIT);
+            gl.bindTexture(gl.TEXTURE_2D, textures[i & 1]);
+            setStripAttribOffset(i);
+            gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, 1);
+          }
+
+          gl.activeTexture(gl.TEXTURE0 + EXTERNAL_TEXTURE_UNIT);
+          gl.bindTexture(gl.TEXTURE_2D, externalPlaceholder);
+          setStripAttribOffset(0);
+          gl.disable(gl.DEPTH_TEST);
+          gl.depthMask(true);
+          gl.enable(gl.BLEND);
+          gl.bindVertexArray(null);
+        };
+
+        let lastTime;
+        let sampleStart;
+        let sampleFrames = 0;
+        const frame = (now) => {
+          if (lastTime === undefined) {
+            lastTime = now;
+            sampleStart = now;
+          }
+          const dt = Math.min(0.1, Math.max(0, (now - lastTime) / 1000));
+          lastTime = now;
+
+          updateRects(dt);
+          render();
+
+          sampleFrames++;
+          const sampleDuration = now - sampleStart;
+          if (sampleDuration >= 1000) {
+            fpsElement.textContent = `${(sampleFrames * 1000 / sampleDuration).toFixed(1)} FPS`;
+            sampleStart = now;
+            sampleFrames = 0;
+          }
+          requestAnimationFrame(frame);
+        };
+
+        document.addEventListener("visibilitychange", () => {
+          if (!document.hidden) {
+            lastTime = undefined;
+            sampleStart = undefined;
+            sampleFrames = 0;
+            fpsElement.textContent = "warming…";
+          }
+        });
+
+        requestAnimationFrame(frame);
+      } catch (error) {
+        fpsElement.textContent = "failed";
+        errorElement.textContent = error instanceof Error ? error.message : String(error);
+      }
+    })();
+  </script>
+</body>
+</html>

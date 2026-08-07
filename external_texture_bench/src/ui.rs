@@ -36,6 +36,7 @@ pub struct Ui {
     progress: HtmlElement,
     results_body: HtmlElement,
     device_info: HtmlElement,
+    gpu_timer_support: HtmlElement,
     interactive_image_count: HtmlInputElement,
     interactive_texture_size: HtmlInputElement,
     interactive_texture_count: HtmlInputElement,
@@ -71,6 +72,7 @@ impl Ui {
             progress: element(document, "progress")?,
             results_body: element(document, "results-body")?,
             device_info: element(document, "device-info")?,
+            gpu_timer_support: element(document, "gpu-timer-support")?,
             interactive_image_count: element(document, "interactive-image-count")?,
             interactive_texture_size: element(document, "interactive-texture-size")?,
             interactive_texture_count: element(document, "interactive-texture-count")?,
@@ -203,6 +205,19 @@ impl Ui {
         )));
     }
 
+    pub fn set_gpu_timer_support(&self, supported: bool) {
+        self.gpu_timer_support.set_text_content(Some(if supported {
+            "GPU timer query supported"
+        } else {
+            "GPU timer query unsupported"
+        }));
+        self.gpu_timer_support.set_class_name(if supported {
+            "supported"
+        } else {
+            "unsupported"
+        });
+    }
+
     pub fn handle_event(&self, event: RunnerEvent) {
         match event {
             RunnerEvent::Status(message) => self.set_status(&message),
@@ -237,9 +252,24 @@ impl Ui {
         row.set_class_name(result_class);
         for (label, value) in [
             ("Rects", result.image_count.to_string()),
-            ("Image FPS", format!("{:.1}", result.image_fps)),
-            ("External FPS", format!("{:.1}", result.external_fps)),
-            ("Difference", format_delta(result.delta_fps_percent, 1)),
+            (
+                "FPS image → external",
+                format!(
+                    "{:.1} → {:.1} ({})",
+                    result.image_fps,
+                    result.external_fps,
+                    format_delta(result.delta_fps_percent, 1)
+                ),
+            ),
+            (
+                "CPU ms image → external",
+                format!(
+                    "{:.3} → {:.3} ({})",
+                    result.image_cpu_ms,
+                    result.external_cpu_ms,
+                    format_delta(result.delta_cpu_percent, 1)
+                ),
+            ),
         ] {
             let cell = document.create_element("td").unwrap();
             cell.set_attribute("data-label", label).unwrap();

@@ -25,6 +25,7 @@ struct InteractiveSession {
     configured_scene: Option<(usize, u16)>,
     last_raf: Option<f64>,
     smoothed_fps: Option<f64>,
+    smoothed_cpu_ms: Option<f64>,
 }
 
 impl App {
@@ -36,6 +37,7 @@ impl App {
             if let Some(interactive) = &mut self.interactive {
                 interactive.last_raf = None;
                 interactive.smoothed_fps = None;
+                interactive.smoothed_cpu_ms = None;
             } else {
                 self.runner.invalidate_pending_timing();
             }
@@ -97,6 +99,7 @@ impl App {
             configured_scene: None,
             last_raf: None,
             smoothed_fps: None,
+            smoothed_cpu_ms: None,
         });
         self.ui.begin_interactive();
     }
@@ -116,6 +119,7 @@ impl App {
             }
         };
         let session = self.interactive.as_mut().unwrap();
+        let mode_changed = requested.mode != session.config.mode;
 
         if requested.texture_size != session.config.texture_size
             || requested.texture_count != session.config.texture_count
@@ -125,8 +129,14 @@ impl App {
             session.configured_scene = None;
             session.last_raf = None;
             session.smoothed_fps = None;
+            session.smoothed_cpu_ms = None;
         }
         session.config = requested;
+        if mode_changed {
+            session.last_raf = None;
+            session.smoothed_fps = None;
+            session.smoothed_cpu_ms = None;
+        }
 
         if session.prepared_textures < session.config.texture_count {
             match self.renderer.prepare_next_texture() {
@@ -157,12 +167,17 @@ impl App {
             session.configured_scene = Some(scene_config);
             session.last_raf = None;
             session.smoothed_fps = None;
+            session.smoothed_cpu_ms = None;
         }
 
-        if let Err(error) = self.renderer.render_once(session.config.mode, now) {
-            self.ui.set_interactive_error(Some(&error));
-            return;
-        }
+        let timing = match self.renderer.render_once(session.config.mode, now) {
+            Ok(timing) => timing,
+            Err(error) => {
+                self.ui.set_interactive_error(Some(&error));
+                return;
+            }
+        };
+        session.smoothed_cpu_ms = Some(smooth(session.smoothed_cpu_ms, timing.cpu_ms));
         if let Some(last) = session.last_raf {
             let elapsed = now - last;
             if elapsed.is_finite() && elapsed > 0.0 && elapsed < 500.0 {
@@ -177,8 +192,11 @@ impl App {
         let fps = session
             .smoothed_fps
             .map_or("warming…".to_string(), |fps| format!("{fps:.1} FPS"));
+        let cpu = session
+            .smoothed_cpu_ms
+            .map_or("CPU warming…".to_string(), |ms| format!("CPU {ms:.3} ms"));
         self.ui.set_interactive_status(&format!(
-            "{} · {} rects · {fps}",
+            "{} · {} rects · {fps} · {cpu}",
             session.config.mode.label(),
             session.config.image_count,
         ));
@@ -208,6 +226,7 @@ pub fn start() -> Result<(), JsValue> {
     let renderer = BenchRenderer::new(&canvas).map_err(|error| JsValue::from_str(&error))?;
     let ui = Ui::new(&document).map_err(|error| JsValue::from_str(&error))?;
     ui.set_device_info(renderer.max_texture_size(), renderer.viewport_dimensions());
+    ui.set_gpu_timer_support(renderer.gpu_timer_supported());
 
     let app = Rc::new(RefCell::new(App {
         renderer,
@@ -258,6 +277,10 @@ pub fn start() -> Result<(), JsValue> {
 
     start_animation_loop(app)?;
     Ok(())
+}
+
+fn smooth(previous: Option<f64>, value: f64) -> f64 {
+    previous.map_or(value, |previous| previous * 0.9 + value * 0.1)
 }
 
 fn start_animation_loop(app: Rc<RefCell<App>>) -> Result<(), JsValue> {

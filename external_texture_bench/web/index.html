@@ -28,6 +28,10 @@
     .device, .error { margin-top: 14px; font-size: 13px; line-height: 1.5; }
     .device { color: #72849d; }
     .error { color: #ffad9e; }
+    #gpu-timer-support { position: fixed; z-index: 2; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); padding: 6px 9px; border: 1px solid currentColor; border-radius: 999px; background: #0b1422ed; box-shadow: 0 5px 20px #0005; font-size: 12px; font-weight: 800; }
+    #gpu-timer-support.checking { color: #899bb4; }
+    #gpu-timer-support.supported { color: #62dda9; }
+    #gpu-timer-support.unsupported { color: #ff756d; }
 
     #running-screen { position: fixed; inset: 0; width: 100%; height: 100%; height: 100dvh; overflow: hidden; background: #03070d; }
     #benchmark-canvas { display: block; width: 100%; height: 100%; background: #07101c; image-rendering: pixelated; }
@@ -53,12 +57,13 @@
     td, th { padding: 10px 11px; border-bottom: 1px solid #213047; text-align: right; }
     th:first-child, td:first-child { text-align: left; }
     tbody tr:hover { background: #111d30; }
-    tbody tr.faster td:last-child { color: #62dda9; font-weight: 800; }
-    tbody tr.slower td:last-child { color: #ff756d; font-weight: 800; }
+    tbody tr.faster td:nth-child(2) { color: #62dda9; font-weight: 800; }
+    tbody tr.slower td:nth-child(2) { color: #ff756d; font-weight: 800; }
     .note { margin-top: 16px; color: #7688a1; font-size: 13px; line-height: 1.5; }
 
     @media (max-width: 700px) {
       .page { width: min(100% - 24px, 920px); padding: max(24px, env(safe-area-inset-top)) 0 max(24px, env(safe-area-inset-bottom)); }
+      #setup-screen { padding-top: max(64px, calc(env(safe-area-inset-top) + 52px)); }
       h1 { font-size: 30px; }
       .lede { margin-bottom: 18px; }
       .card { padding: 16px; }
@@ -75,13 +80,15 @@
       .interactive-grid input, .interactive-grid select { min-height: 40px; padding: 7px 9px; }
       .results-heading { align-items: flex-start; flex-direction: column; }
       .results-heading button { width: 100%; }
-      table { table-layout: fixed; font-size: 11px; }
+      table { min-width: 620px; font-size: 11px; }
       td, th { padding: 8px 5px; white-space: nowrap; }
+      #gpu-timer-support { max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     }
   </style>
 </head>
 <body>
   <main id="setup-screen" class="page">
+    <div id="gpu-timer-support" class="checking">Checking GPU timer query…</div>
     <h1>Image texture comparison</h1>
     <p class="lede">Compares Vello image-paint rectangles with external-texture rectangles using identical images, motion, geometry, and one Vello render per animation frame.</p>
     <section class="card">
@@ -176,13 +183,13 @@
       <table>
         <thead>
           <tr>
-            <th>Rects</th><th>Image FPS</th><th>External FPS</th><th>Difference</th>
+            <th>Rects</th><th>FPS image → external</th><th>CPU ms image → external</th>
           </tr>
         </thead>
         <tbody id="results-body"></tbody>
       </table>
     </div>
-    <p class="note">All image-paint variants run first, followed by all matching external-texture variants. Difference is external-texture FPS relative to image-paint FPS. Green is at least 10% faster; red is at least 10% slower. Each strategy runs once, and higher rect counts are skipped after either strategy falls below 20 FPS.</p>
+    <p class="note">All image-paint variants run first, followed by all matching external-texture variants. Parentheses show the external-texture difference relative to image paint. CPU time is wall time spent submitting Vello's render call and excludes scene recording. Green is at least 10% higher FPS; red is at least 10% lower FPS. Each strategy runs once, and higher rect counts are skipped after either strategy falls below 20 FPS.</p>
   </main>
 
   <script type="module">
