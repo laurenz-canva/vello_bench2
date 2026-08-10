@@ -4,7 +4,6 @@ use crate::renderer::{BenchRenderer, RenderMode};
 pub struct BenchConfig {
     pub image_counts: Vec<usize>,
     pub texture_size: u16,
-    pub texture_count: usize,
     pub draw_size: u16,
     pub warmup_seconds: f64,
     pub measurement_seconds: f64,
@@ -28,11 +27,6 @@ impl BenchConfig {
             return Err(format!(
                 "the requested texture exceeds this device's {max_texture_size}px limit"
             ));
-        }
-        if self.texture_count < 2 {
-            return Err(
-                "use at least 2 textures so adjacent images cannot merge into one run".to_string(),
-            );
         }
         if !self.warmup_seconds.is_finite()
             || self.warmup_seconds <= 0.0
@@ -70,6 +64,8 @@ pub struct CaseResult {
 pub enum RunnerEvent {
     Status(String),
     Progress { completed: usize, total: usize },
+    UploadProgress { uploaded: usize, total: usize },
+    UploadComplete,
     CaseComplete(CaseResult),
     Complete(String),
     Failed(String),
@@ -79,8 +75,9 @@ pub enum RunnerEvent {
 enum Phase {
     Idle,
     Preparing {
-        next_texture: usize,
+        target_count: usize,
     },
+    FinishingUploads,
     Warming {
         mode: RenderMode,
         elapsed_ms: f64,
@@ -102,6 +99,8 @@ pub struct BenchRunner {
     count_index: usize,
     case_limit: usize,
     image_results: Vec<MeasurementMetrics>,
+    run_generation: u64,
+    image_seed: u64,
 }
 
 impl BenchRunner {
@@ -113,22 +112,22 @@ impl BenchRunner {
             count_index: 0,
             case_limit: 0,
             image_results: Vec::new(),
+            run_generation: 0,
+            image_seed: 0,
         }
     }
 
     pub fn start(&mut self, config: BenchConfig, renderer: &mut BenchRenderer) -> Vec<RunnerEvent> {
         let size = config.texture_size;
-        let texture_count = config.texture_count;
         self.config = Some(config);
         self.mode = RenderMode::ImagePaint;
         self.count_index = 0;
         self.case_limit = self.config.as_ref().unwrap().variant_count();
         self.image_results.clear();
-        renderer.begin_texture_set(size);
-        self.phase = Phase::Preparing { next_texture: 0 };
-        vec![RunnerEvent::Status(format!(
-            "Preparing {texture_count} paired textures at {size}×{size}"
-        ))]
+        self.run_generation = self.run_generation.wrapping_add(1);
+        self.image_seed = self.run_generation.wrapping_mul(0xD1B5_4A32_D192_ED03);
+        renderer.begin_benchmark_texture_set(size, self.mode, self.image_seed);
+        self.prepare_current_case(renderer)
     }
 
     pub fn stop(&mut self) {
@@ -159,7 +158,6 @@ impl BenchRunner {
         let Some(config) = self.config.as_ref() else {
             return events;
         };
-        let texture_count = config.texture_count;
         let warmup_ms = config.warmup_seconds * 1000.0;
         let measurement_ms = config.measurement_seconds * 1000.0;
         let total_cases = config.variant_count();
@@ -167,25 +165,38 @@ impl BenchRunner {
         match std::mem::replace(&mut self.phase, Phase::Idle) {
             Phase::Idle => {}
             Phase::Complete => self.phase = Phase::Complete,
-            Phase::Preparing { next_texture } => {
-                if let Err(error) = renderer.prepare_next_texture() {
-                    self.fail(error, &mut events);
-                    return events;
+            Phase::Preparing { target_count } => {
+                let upload_start = performance_now();
+                while renderer.prepared_texture_count() < target_count {
+                    if let Err(error) = renderer.prepare_next_texture() {
+                        self.fail(error, &mut events);
+                        return events;
+                    }
+                    if performance_now() - upload_start >= 8.0 {
+                        break;
+                    }
                 }
-                let prepared = next_texture + 1;
-                let required = texture_count;
+                let prepared = renderer.prepared_texture_count();
                 events.push(RunnerEvent::Status(format!(
-                    "Preparing paired {}×{} textures · {prepared}/{required}",
+                    "Uploading distinct {} {}×{} images · {prepared}/{target_count}",
+                    self.mode.label(),
                     self.current_size(),
                     self.current_size()
                 )));
-                if prepared < required {
-                    self.phase = Phase::Preparing {
-                        next_texture: prepared,
-                    };
+                events.push(RunnerEvent::UploadProgress {
+                    uploaded: prepared,
+                    total: target_count,
+                });
+                if prepared < target_count {
+                    self.phase = Phase::Preparing { target_count };
                 } else {
-                    events.extend(self.start_current_case(renderer));
+                    self.phase = Phase::FinishingUploads;
                 }
+            }
+            Phase::FinishingUploads => {
+                renderer.finish_texture_uploads();
+                events.push(RunnerEvent::UploadComplete);
+                events.extend(self.start_current_case(renderer));
             }
             Phase::Warming {
                 mode,
@@ -267,6 +278,28 @@ impl BenchRunner {
         }
     }
 
+    fn prepare_current_case(&mut self, renderer: &mut BenchRenderer) -> Vec<RunnerEvent> {
+        let target_count = self.current_count();
+        let uploaded = renderer.prepared_texture_count();
+        if uploaded >= target_count {
+            return self.start_current_case(renderer);
+        }
+
+        self.phase = Phase::Preparing { target_count };
+        vec![
+            RunnerEvent::Status(format!(
+                "Uploading distinct {} {}×{} images · {uploaded}/{target_count}",
+                self.mode.label(),
+                self.current_size(),
+                self.current_size()
+            )),
+            RunnerEvent::UploadProgress {
+                uploaded,
+                total: target_count,
+            },
+        ]
+    }
+
     fn start_warmup(&mut self, mode: RenderMode) -> Vec<RunnerEvent> {
         let warmup_seconds = self.config.as_ref().unwrap().warmup_seconds;
         self.phase = Phase::Warming {
@@ -323,13 +356,18 @@ impl BenchRunner {
 
                 self.count_index += 1;
                 if self.count_index < self.case_limit {
-                    events.extend(self.start_current_case(renderer));
+                    events.extend(self.prepare_current_case(renderer));
                     return events;
                 }
 
                 self.mode = RenderMode::ExternalTexture;
                 self.count_index = 0;
-                events.extend(self.start_current_case(renderer));
+                renderer.begin_benchmark_texture_set(
+                    self.current_size(),
+                    self.mode,
+                    self.image_seed,
+                );
+                events.extend(self.prepare_current_case(renderer));
                 events
             }
             RenderMode::ExternalTexture => {
@@ -373,7 +411,7 @@ impl BenchRunner {
 
                 self.count_index += 1;
                 if self.count_index < self.case_limit {
-                    events.extend(self.start_current_case(renderer));
+                    events.extend(self.prepare_current_case(renderer));
                     return events;
                 }
 
@@ -435,6 +473,12 @@ fn summarize(frame_intervals: &[f64], cpu_times: &[f64]) -> MeasurementMetrics {
 
 fn mean(values: &[f64]) -> Option<f64> {
     (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
+}
+
+fn performance_now() -> f64 {
+    web_sys::window()
+        .and_then(|window| window.performance())
+        .map_or(0.0, |performance| performance.now())
 }
 
 #[cfg(test)]

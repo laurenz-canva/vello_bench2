@@ -37,7 +37,12 @@
     #benchmark-canvas { display: block; width: 100%; height: 100%; background: #07101c; image-rendering: pixelated; }
     .run-overlay { position: absolute; inset: 0 0 auto 0; display: flex; align-items: center; gap: 12px; padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 20px max(12px, env(safe-area-inset-left)); background: linear-gradient(#050b13f2, #050b1300); pointer-events: none; }
     .run-overlay button { margin-left: auto; pointer-events: auto; }
-    #running-status { min-width: 0; overflow: hidden; color: #e8eff9; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+    .run-copy { min-width: 0; flex: 1; }
+    #running-status { overflow: hidden; color: #e8eff9; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+    #upload-progress { width: min(320px, 65vw); margin-top: 7px; }
+    #upload-progress-label { margin-bottom: 4px; color: #9fb0c7; font-size: 11px; font-variant-numeric: tabular-nums; }
+    .upload-progress-track { height: 4px; overflow: hidden; border-radius: 999px; background: #26364f; }
+    #upload-progress-fill { width: 0; height: 100%; background: #50d6ba; }
     .progress { position: absolute; inset: auto 0 env(safe-area-inset-bottom); height: 7px; background: #1e2c41; }
     #progress-fill { width: 0; height: 100%; background: linear-gradient(90deg, #3c7cf8, #50d6ba); transition: width .15s ease; }
     .interactive-panel { position: absolute; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); width: min(460px, calc(100% - 24px - env(safe-area-inset-left) - env(safe-area-inset-right))); max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow: auto; padding: 16px; border: 1px solid #33445f; border-radius: 14px; background: #0b1422ed; box-shadow: 0 14px 40px #0008; }
@@ -96,17 +101,12 @@
         <div class="field wide">
           <label for="image-counts">Rects / external runs</label>
           <input id="image-counts" value="1, 10, 50, 100, 200, 300, 450, 600, 800, 1000, 1400, 1800, 2400, 3000, 4000, 5000, 6000, 8000">
-          <small>Each strategy draws the same independently bouncing rectangles. External images alternate TextureIds so every image produces its own run.</small>
+          <small>Each stage has one distinct image per independently bouncing rect. Increasing from 10 to 100 retains the first 10 images and uploads 90 more before warmup.</small>
         </div>
         <div class="field">
           <label for="texture-size">Image size (px)</label>
           <input id="texture-size" type="number" min="4" value="16" inputmode="numeric">
           <small>One square RGBA8 allocation size per benchmark run.</small>
-        </div>
-        <div class="field">
-          <label for="texture-count">Number of images</label>
-          <input id="texture-count" type="number" min="2" value="2" inputmode="numeric">
-          <small>Rects cycle through this source-image pool. Minimum 2 preserves separate adjacent runs.</small>
         </div>
         <div class="field">
           <label for="draw-size">Rect size (px)</label>
@@ -134,7 +134,13 @@
   <main id="running-screen" hidden>
     <canvas id="benchmark-canvas"></canvas>
     <div id="benchmark-overlay" class="run-overlay">
-      <span id="running-status">Preparing benchmark…</span>
+      <div class="run-copy">
+        <div id="running-status">Preparing benchmark…</div>
+        <div id="upload-progress" hidden>
+          <div id="upload-progress-label"></div>
+          <div class="upload-progress-track"><div id="upload-progress-fill"></div></div>
+        </div>
+      </div>
       <button id="stop-button" class="secondary">Stop</button>
     </div>
     <div id="interactive-overlay" class="interactive-panel" hidden>
@@ -189,7 +195,7 @@
         <tbody id="results-body"></tbody>
       </table>
     </div>
-    <p class="note">All image-paint variants run first, followed by all matching external-texture variants. Parentheses show the external-texture difference relative to image paint. CPU time is wall time spent submitting Vello's render call and excludes scene recording. Green is at least 10% higher FPS; red is at least 10% lower FPS. Each strategy runs once, and higher rect counts are skipped after either strategy falls below 20 FPS.</p>
+    <p class="note">All image-paint variants run first, followed by all matching external-texture variants. A shared paired-resource pool grows to one distinct image per rect, and all uploads finish before warmup. Parentheses show the external-texture difference relative to image paint. CPU time is wall time spent submitting Vello's render call and excludes scene recording. Green is at least 10% higher FPS; red is at least 10% lower FPS. Each strategy runs once, and higher rect counts are skipped after either strategy falls below 20 FPS.</p>
   </main>
 
   <script type="module">

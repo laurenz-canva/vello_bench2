@@ -5,7 +5,6 @@ A small, independent browser benchmark comparing Vello Hybrid's WebGL2 external-
 The benchmark answers how steady-state rendering changes with:
 
 - the number of externally bound images/external-texture runs;
-- the number of resident textures those images alternate across;
 - a texture allocation dimension selected before each run.
 
 Both strategies draw the same tiny rectangles from byte-identical premultiplied images. The images use the deterministic translucent radial-wave generator from `vello_bench2`'s image-paint rectangle workload (pixel-for-pixel identical at its native 64×64 size). By default, the generalized generator creates 16×16 images and draws them into 4×4 destination rectangles.
@@ -19,7 +18,7 @@ The following work is excluded from measured samples:
 - creation of `WebGlTextureBindings`;
 - initial renderer and texture warmup.
 
-The benchmark accepts one allocation size and one resident-texture count per run. It prepares that texture pool one texture per animation frame. Logical images cycle through the pool; because the pool must contain at least two textures, adjacent images have different `TextureId`s and remain separate external-texture runs. To compare allocation sizes or resident-set sizes, run the benchmark separately for each configuration.
+The benchmark accepts one allocation size per run and grows a separate resource pool for each strategy. A transition from 10 to 100 rects retains the first 10 images and uploads 90 new ones. The image-paint pass uploads only through Vello's normal atlas path; the external-texture pass starts with an empty pool and creates standalone WebGL textures only when that pass begins. Both pools use byte-identical deterministic image data at each index. Uploads run in short, time-budgeted batches with visible progress, and the benchmark waits for all queued WebGL uploads to finish before starting warmup. Vello's conservative eight-atlas default is disabled for this benchmark; atlas growth is limited only by the device's physical texture-array-layer limit.
 
 Each warmup or measured `requestAnimationFrame` callback submits exactly one Vello render. There is no calibration, repetition multiplier, or hidden workload amplification. The frame interval therefore represents one render of the current scene.
 
@@ -53,7 +52,7 @@ sh serve.sh --global
 
 Then open port `8081` on the host machine.
 
-The default run uses `1, 10, 50, 100, 200, 300, 450, 600, 800, 1000, 1400, 1800, 2400, 3000, 4000, 5000, 6000, 8000` rects alternating across two 16×16 images, drawn at 4×4 pixels. The benchmark allocates exactly the configured source-image pool for both strategies, with no separate texture-memory limit.
+The default run uses `1, 10, 50, 100, 200, 300, 450, 600, 800, 1000, 1400, 1800, 2400, 3000, 4000, 5000, 6000, 8000` distinct 16×16 images, drawn into equally many 4×4 rects. Each strategy incrementally grows its pool to the current rect count, with no separate benchmark texture-count limit.
 
 Interactive mode renders continuously, reports smoothed FPS and CPU submission time, and exposes live controls for image source, rect count, number of source images, image size, and rect size. Changing the image size or source-image pool destroys the old paired resources and prepares a new pool before rendering resumes.
 

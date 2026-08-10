@@ -15,7 +15,6 @@ pub struct InteractiveConfig {
 pub struct Ui {
     image_counts: HtmlInputElement,
     texture_size: HtmlInputElement,
-    texture_count: HtmlInputElement,
     draw_size: HtmlInputElement,
     warmup_seconds: HtmlInputElement,
     measurement_seconds: HtmlInputElement,
@@ -31,6 +30,9 @@ pub struct Ui {
     running_status: HtmlElement,
     results_status: HtmlElement,
     progress_fill: HtmlElement,
+    upload_progress: HtmlElement,
+    upload_progress_fill: HtmlElement,
+    upload_progress_label: HtmlElement,
     benchmark_overlay: HtmlElement,
     interactive_overlay: HtmlElement,
     progress: HtmlElement,
@@ -51,7 +53,6 @@ impl Ui {
         Ok(Self {
             image_counts: element(document, "image-counts")?,
             texture_size: element(document, "texture-size")?,
-            texture_count: element(document, "texture-count")?,
             draw_size: element(document, "draw-size")?,
             warmup_seconds: element(document, "warmup-seconds")?,
             measurement_seconds: element(document, "measurement-seconds")?,
@@ -67,6 +68,9 @@ impl Ui {
             running_status: element(document, "running-status")?,
             results_status: element(document, "results-status")?,
             progress_fill: element(document, "progress-fill")?,
+            upload_progress: element(document, "upload-progress")?,
+            upload_progress_fill: element(document, "upload-progress-fill")?,
+            upload_progress_label: element(document, "upload-progress-label")?,
             benchmark_overlay: element(document, "benchmark-overlay")?,
             interactive_overlay: element(document, "interactive-overlay")?,
             progress: element(document, "progress")?,
@@ -107,7 +111,6 @@ impl Ui {
         Ok(BenchConfig {
             image_counts: parse_list::<usize>(&self.image_counts.value(), "image counts")?,
             texture_size: parse_value(&self.texture_size, "texture size")?,
-            texture_count: parse_value(&self.texture_count, "texture count")?,
             draw_size: parse_value(&self.draw_size, "draw size")?,
             warmup_seconds: parse_value(&self.warmup_seconds, "warmup duration")?,
             measurement_seconds: parse_value(&self.measurement_seconds, "measurement duration")?,
@@ -151,6 +154,7 @@ impl Ui {
         self.config_error.set_text_content(None);
         self.results_status.set_text_content(None);
         self.set_progress(0, 1);
+        self.hide_upload_progress();
         set_visible(&self.setup_screen, false);
         set_visible(&self.results_screen, false);
         set_visible(&self.running_screen, true);
@@ -188,6 +192,7 @@ impl Ui {
     }
 
     pub fn finish_run(&self, message: &str) {
+        self.hide_upload_progress();
         set_visible(&self.running_screen, false);
         set_visible(&self.setup_screen, false);
         set_visible(&self.results_screen, true);
@@ -222,6 +227,10 @@ impl Ui {
         match event {
             RunnerEvent::Status(message) => self.set_status(&message),
             RunnerEvent::Progress { completed, total } => self.set_progress(completed, total),
+            RunnerEvent::UploadProgress { uploaded, total } => {
+                self.set_upload_progress(uploaded, total);
+            }
+            RunnerEvent::UploadComplete => self.hide_upload_progress(),
             RunnerEvent::CaseComplete(result) => self.append_result(&result),
             RunnerEvent::Complete(message) => {
                 self.set_progress(1, 1);
@@ -237,6 +246,21 @@ impl Ui {
             .progress_fill
             .style()
             .set_property("width", &format!("{percentage:.2}%"));
+    }
+
+    fn set_upload_progress(&self, uploaded: usize, total: usize) {
+        let percentage = uploaded as f64 / total.max(1) as f64 * 100.0;
+        self.upload_progress_label
+            .set_text_content(Some(&format!("Images uploaded: {uploaded}/{total}")));
+        let _ = self
+            .upload_progress_fill
+            .style()
+            .set_property("width", &format!("{percentage:.2}%"));
+        set_visible(&self.upload_progress, true);
+    }
+
+    fn hide_upload_progress(&self) {
+        set_visible(&self.upload_progress, false);
     }
 
     fn append_result(&self, result: &CaseResult) {

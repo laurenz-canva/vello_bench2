@@ -36,15 +36,23 @@ pub struct FrameTiming {
 
 struct PreparedTextures {
     size: u16,
+    seed: u64,
+    upload_atlas: bool,
+    upload_external: bool,
+    prepared_count: usize,
     external: Vec<WebGlTexture>,
     atlas: Vec<ImageId>,
     bindings: WebGlTextureBindings,
 }
 
 impl PreparedTextures {
-    fn new(size: u16) -> Self {
+    fn new(size: u16, seed: u64, upload_atlas: bool, upload_external: bool) -> Self {
         Self {
             size,
+            seed,
+            upload_atlas,
+            upload_external,
+            prepared_count: 0,
             external: Vec::new(),
             atlas: Vec::new(),
             bindings: WebGlTextureBindings::new(),
@@ -52,7 +60,7 @@ impl PreparedTextures {
     }
 
     fn len(&self) -> usize {
-        self.external.len()
+        self.prepared_count
     }
 }
 
@@ -91,7 +99,12 @@ impl BenchRenderer {
 
         // Let Vello create the context first so its requested attributes (notably antialias:
         // false) take effect. A later getContext call returns that same context.
-        let (renderer, resources) = WebGlRenderer::new_with(canvas, RenderSettings::default());
+        let mut settings = RenderSettings::default();
+        // The benchmark deliberately creates one distinct image per rect. Do not let Vello's
+        // conservative default of eight atlas layers cap that experiment; the renderer still
+        // clamps this to the device's physical MAX_ARRAY_TEXTURE_LAYERS limit.
+        settings.memory_settings.image_atlas_config.max_atlases = usize::MAX;
+        let (renderer, resources) = WebGlRenderer::new_with(canvas, settings);
         let gl: Gl = canvas
             .get_context("webgl2")
             .map_err(|_| "failed to query WebGL2 context".to_string())?
@@ -145,61 +158,83 @@ impl BenchRenderer {
 
     pub fn begin_texture_set(&mut self, size: u16) {
         self.delete_textures();
-        self.textures = Some(PreparedTextures::new(size));
+        self.textures = Some(PreparedTextures::new(size, 0, true, true));
+    }
+
+    pub fn begin_benchmark_texture_set(&mut self, size: u16, mode: RenderMode, seed: u64) {
+        self.delete_textures();
+        self.textures = Some(PreparedTextures::new(
+            size,
+            seed,
+            mode == RenderMode::ImagePaint,
+            mode == RenderMode::ExternalTexture,
+        ));
     }
 
     pub fn prepared_texture_count(&self) -> usize {
         self.textures.as_ref().map_or(0, PreparedTextures::len)
     }
 
-    /// Generate one of the same deterministic radial-wave images used by vello_bench2's
-    /// image-paint rectangle benchmark, then upload identical premultiplied pixels to both the
-    /// Vello image atlas and a standalone WebGL texture. This happens outside measured phases.
+    /// Generate one of the deterministic radial-wave images used by vello_bench2's image-paint
+    /// rectangle benchmark, then upload it to the resources required by the active mode. This
+    /// happens outside measured phases.
     pub fn prepare_next_texture(&mut self) -> Result<(), String> {
         let prepared = self
             .textures
             .as_mut()
             .ok_or_else(|| "texture set was not initialized".to_string())?;
-        let texture_index = prepared.external.len();
+        let texture_index = prepared.prepared_count;
         let size = prepared.size;
-        let pixmap = make_image_pixmap(size, texture_index);
+        let pixmap = make_image_pixmap(size, prepared.seed, texture_index);
 
-        let atlas_id = self.renderer.upload_image(&mut self.resources, &pixmap);
-        let texture = self
-            .gl
-            .create_texture()
-            .ok_or_else(|| "WebGL failed to create a texture".to_string())?;
-        self.gl.active_texture(Gl::TEXTURE0);
-        self.gl.bind_texture(Gl::TEXTURE_2D, Some(&texture));
-        self.gl
-            .tex_parameteri(Gl::TEXTURE_2D, Gl::TEXTURE_MIN_FILTER, Gl::NEAREST as i32);
-        self.gl
-            .tex_parameteri(Gl::TEXTURE_2D, Gl::TEXTURE_MAG_FILTER, Gl::NEAREST as i32);
-        self.gl
-            .tex_parameteri(Gl::TEXTURE_2D, Gl::TEXTURE_WRAP_S, Gl::CLAMP_TO_EDGE as i32);
-        self.gl
-            .tex_parameteri(Gl::TEXTURE_2D, Gl::TEXTURE_WRAP_T, Gl::CLAMP_TO_EDGE as i32);
-        self.gl.pixel_storei(Gl::UNPACK_ALIGNMENT, 1);
-        self.gl
-            .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
-                Gl::TEXTURE_2D,
-                0,
-                Gl::RGBA8 as i32,
-                i32::from(size),
-                i32::from(size),
-                0,
-                Gl::RGBA,
-                Gl::UNSIGNED_BYTE,
-                Some(pixmap.data_as_u8_slice()),
-            )
-            .map_err(|_| format!("failed to upload {size}x{size} texture {texture_index}"))?;
+        if prepared.upload_atlas {
+            prepared
+                .atlas
+                .push(self.renderer.upload_image(&mut self.resources, &pixmap));
+        }
 
-        let texture_id = TextureId(texture_index as u64 + 1);
-        prepared.bindings.insert(texture_id, texture.clone());
-        prepared.external.push(texture);
-        prepared.atlas.push(atlas_id);
-        self.gl.bind_texture(Gl::TEXTURE_2D, None);
+        if prepared.upload_external {
+            let texture = self
+                .gl
+                .create_texture()
+                .ok_or_else(|| "WebGL failed to create a texture".to_string())?;
+            self.gl.active_texture(Gl::TEXTURE0);
+            self.gl.bind_texture(Gl::TEXTURE_2D, Some(&texture));
+            self.gl
+                .tex_parameteri(Gl::TEXTURE_2D, Gl::TEXTURE_MIN_FILTER, Gl::NEAREST as i32);
+            self.gl
+                .tex_parameteri(Gl::TEXTURE_2D, Gl::TEXTURE_MAG_FILTER, Gl::NEAREST as i32);
+            self.gl
+                .tex_parameteri(Gl::TEXTURE_2D, Gl::TEXTURE_WRAP_S, Gl::CLAMP_TO_EDGE as i32);
+            self.gl
+                .tex_parameteri(Gl::TEXTURE_2D, Gl::TEXTURE_WRAP_T, Gl::CLAMP_TO_EDGE as i32);
+            self.gl.pixel_storei(Gl::UNPACK_ALIGNMENT, 1);
+            self.gl
+                .tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+                    Gl::TEXTURE_2D,
+                    0,
+                    Gl::RGBA8 as i32,
+                    i32::from(size),
+                    i32::from(size),
+                    0,
+                    Gl::RGBA,
+                    Gl::UNSIGNED_BYTE,
+                    Some(pixmap.data_as_u8_slice()),
+                )
+                .map_err(|_| format!("failed to upload {size}x{size} texture {texture_index}"))?;
+
+            let texture_id = TextureId(texture_index as u64 + 1);
+            prepared.bindings.insert(texture_id, texture.clone());
+            prepared.external.push(texture);
+            self.gl.bind_texture(Gl::TEXTURE_2D, None);
+        }
+
+        prepared.prepared_count += 1;
         Ok(())
+    }
+
+    pub fn finish_texture_uploads(&self) {
+        self.gl.finish();
     }
 
     pub fn configure_scene(&mut self, image_count: usize, draw_size: u16) -> Result<(), String> {
@@ -288,12 +323,15 @@ impl BenchRenderer {
             .as_ref()
             .ok_or_else(|| "textures have not been prepared".to_string())?;
         let texture_size = prepared.size;
-        let pool_size = prepared.len();
         let source_region = RectU16::new(0, 0, texture_size, texture_size);
         let scale = f64::from(self.draw_size) / f64::from(texture_size);
 
         match mode {
             RenderMode::ExternalTexture => {
+                let pool_size = prepared.external.len();
+                if pool_size == 0 {
+                    return Err("external textures have not been prepared".to_string());
+                }
                 self.external_scene.reset();
                 for (index, rect) in self.rects.iter().take(self.active_count).enumerate() {
                     let transform = Affine::translate((rect.x, rect.y)) * Affine::scale(scale);
@@ -308,6 +346,10 @@ impl BenchRenderer {
                 }
             }
             RenderMode::ImagePaint => {
+                let pool_size = prepared.atlas.len();
+                if pool_size == 0 {
+                    return Err("atlas images have not been prepared".to_string());
+                }
                 self.image_scene.reset();
                 for (index, rect) in self.rects.iter().take(self.active_count).enumerate() {
                     let image = Image {
@@ -393,8 +435,9 @@ fn viewport_size() -> (u16, u16) {
 
 /// Pixel-for-pixel equivalent to vello_bench2's image-paint generator at its native 64px size;
 /// the same formula is generalized to the configured allocation size.
-fn make_image_pixmap(size: u16, image_index: usize) -> Pixmap {
-    let mut rng = Rng::new(0xCAFE_BABE ^ ((image_index as u64 + 1) * 0x9E37_79B9));
+fn make_image_pixmap(size: u16, set_seed: u64, image_index: usize) -> Pixmap {
+    let image_seed = (image_index as u64 + 1).wrapping_mul(0x9E37_79B9);
+    let mut rng = Rng::new(0xCAFE_BABE ^ set_seed.rotate_left(17) ^ image_seed);
     let side = f64::from(size);
     let center = side / 2.0;
     let c1 = rng.color();
