@@ -85,8 +85,11 @@
       .interactive-grid input, .interactive-grid select { min-height: 40px; padding: 7px 9px; }
       .results-heading { align-items: flex-start; flex-direction: column; }
       .results-heading button { width: 100%; }
-      table { min-width: 620px; font-size: 11px; }
-      td, th { padding: 8px 5px; white-space: nowrap; }
+      .table-wrap { overflow-x: hidden; }
+      table { min-width: 0; table-layout: fixed; font-size: clamp(8px, 2.6vw, 10px); }
+      th:first-child, td:first-child { width: 12%; }
+      th:nth-child(2), td:nth-child(2), th:nth-child(3), td:nth-child(3) { width: 44%; }
+      td, th { padding: 8px 2px; letter-spacing: -.02em; white-space: nowrap; }
       #gpu-timer-support { max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     }
   </style>
