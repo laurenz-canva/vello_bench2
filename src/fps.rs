@@ -1,6 +1,6 @@
 //! Frame timing with rolling averages for both wall-clock frame time and CPU render time.
 
-const RING_SIZE: usize = 5;
+const RING_SIZE: usize = 120;
 
 /// Rolling average over a ring buffer of `f64` samples.
 #[derive(Debug)]

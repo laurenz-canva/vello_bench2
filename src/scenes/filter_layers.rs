@@ -83,7 +83,7 @@ fn make_filter(
     color: Color,
 ) -> Filter {
     match filter_kind {
-        FilterKind::DropShadow => Filter::from_primitive(FilterPrimitive::DropShadow {
+        FilterKind::DropShadow => Filter::from_primitive(FilterPrimitive::DropShadowOnly {
             dx: shadow_dx,
             dy: shadow_dy,
             std_deviation: blur_std_deviation,
@@ -264,6 +264,13 @@ impl BenchScene for FilterLayersScene {
             backend.set_paint(rect_state.color.into());
             backend.fill_rect(&rect);
             backend.pop_layer();
+
+            if filter_kind == FilterKind::DropShadow {
+                // DropShadowOnly omits the filter input, so composite the original
+                // rectangle over the completed shadow explicitly.
+                backend.set_paint(rect_state.color.into());
+                backend.fill_rect(&rect);
+            }
         }
     }
 }
