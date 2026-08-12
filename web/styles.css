@@ -1,0 +1,323 @@
+/*
+ * Static UI styles for vello_bench2.
+ *
+ * Class names remain the compact tokens emitted by the Rust UI, but this file
+ * is hand-written CSS: it has no Tailwind dependency and requires no browser-
+ * side compilation. The declarations intentionally use conservative CSS so
+ * the benchmark UI remains usable in older browsers such as Safari 15.6.
+ */
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  min-height: 100%;
+  background: #020617;
+}
+
+html {
+  color: #e2e8f0;
+  font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+button,
+input,
+select,
+textarea {
+  color: inherit;
+  font: inherit;
+}
+
+select,
+input {
+  border-radius: 0;
+}
+
+canvas {
+  display: block;
+}
+
+::selection {
+  background: rgba(103, 232, 249, 0.3);
+}
+
+/* Display and positioning */
+[class~="block"] { display: block; }
+[class~="flex"] { display: -webkit-box; display: -webkit-flex; display: flex; }
+[class~="grid"] { display: grid; }
+[class~="hidden"] { display: none; }
+[class~="inline"] { display: inline; }
+[class~="fixed"] { position: fixed; }
+[class~="absolute"] { position: absolute; }
+[class~="relative"] { position: relative; }
+
+[class~="inset-0"] { top: 0; right: 0; bottom: 0; left: 0; }
+[class~="inset-x-0"] { right: 0; left: 0; }
+[class~="inset-x-3"] { right: 0.75rem; left: 0.75rem; }
+[class~="top-0"] { top: 0; }
+[class~="top-3"] { top: 0.75rem; }
+[class~="top-16"] { top: 4rem; }
+[class~="top-20"] { top: 5rem; }
+[class~="top-24"] { top: 6rem; }
+[class~="top-28"] { top: 7rem; }
+[class~="top-32"] { top: 8rem; }
+[class~="top-[7.5rem]"] { top: 7.5rem; }
+[class~="top-full"] { top: 100%; }
+[class~="right-0"] { right: 0; }
+[class~="right-3"] { right: 0.75rem; }
+[class~="right-4"] { right: 1rem; }
+[class~="bottom-0"] { bottom: 0; }
+[class~="bottom-4"] { bottom: 1rem; }
+[class~="bottom-full"] { bottom: 100%; }
+[class~="left-0"] { left: 0; }
+[class~="left-3"] { left: 0.75rem; }
+[class~="left-4"] { left: 1rem; }
+
+[class~="z-20"] { z-index: 20; }
+[class~="z-50"] { z-index: 50; }
+[class~="z-[70]"] { z-index: 70; }
+[class~="z-[75]"] { z-index: 75; }
+[class~="z-[80]"] { z-index: 80; }
+[class~="z-[85]"] { z-index: 85; }
+[class~="z-[90]"] { z-index: 90; }
+
+/* Sizing */
+[class~="w-2"] { width: 0.5rem; }
+[class~="w-4"] { width: 1rem; }
+[class~="w-8"] { width: 2rem; }
+[class~="w-10"] { width: 2.5rem; }
+[class~="w-56"] { width: 14rem; }
+[class~="w-[240px]"] { width: 240px; }
+[class~="w-auto"] { width: auto; }
+[class~="w-full"] { width: 100%; }
+[class~="h-px"] { height: 1px; }
+[class~="h-2"] { height: 0.5rem; }
+[class~="h-4"] { height: 1rem; }
+[class~="h-8"] { height: 2rem; }
+[class~="h-10"] { height: 2.5rem; }
+[class~="h-11"] { height: 2.75rem; }
+[class~="min-h-0"] { min-height: 0; }
+[class~="min-h-8"] { min-height: 2rem; }
+[class~="min-h-screen"] { min-height: 100vh; }
+[class~="min-w-0"] { min-width: 0; }
+[class~="min-w-[12rem]"] { min-width: 12rem; }
+[class~="max-w-[9rem]"] { max-width: 9rem; }
+[class~="max-w-[22rem]"] { max-width: 22rem; }
+[class~="max-w-[1600px]"] { max-width: 1600px; }
+[class~="max-w-full"] { max-width: 100%; }
+
+/* Flex and grid layout */
+[class~="flex-1"] { -webkit-box-flex: 1; -webkit-flex: 1 1 0%; flex: 1 1 0%; }
+[class~="flex-col"] { -webkit-box-orient: vertical; -webkit-box-direction: normal; -webkit-flex-direction: column; flex-direction: column; }
+[class~="flex-row"] { -webkit-box-orient: horizontal; -webkit-box-direction: normal; -webkit-flex-direction: row; flex-direction: row; }
+[class~="flex-wrap"] { -webkit-flex-wrap: wrap; flex-wrap: wrap; }
+[class~="shrink"] { -webkit-flex-shrink: 1; flex-shrink: 1; }
+[class~="shrink-0"] { -webkit-flex-shrink: 0; flex-shrink: 0; }
+[class~="items-center"] { -webkit-box-align: center; -webkit-align-items: center; align-items: center; }
+[class~="items-start"] { -webkit-box-align: start; -webkit-align-items: flex-start; align-items: flex-start; }
+[class~="justify-center"] { -webkit-box-pack: center; -webkit-justify-content: center; justify-content: center; }
+[class~="justify-self-end"] { justify-self: end; }
+[class~="grid-cols-1"] { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+[class~="grid-cols-2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+[class~="grid-cols-[auto_auto_minmax(0,1fr)_auto]"] { grid-template-columns: auto auto minmax(0, 1fr) auto; }
+[class~="gap-1"] { gap: 0.25rem; }
+[class~="gap-2"] { gap: 0.5rem; }
+[class~="gap-3"] { gap: 0.75rem; }
+[class~="gap-4"] { gap: 1rem; }
+[class~="gap-x-2"] { column-gap: 0.5rem; }
+[class~="gap-y-0"] { row-gap: 0; }
+[class~="gap-y-0.5"] { row-gap: 0.125rem; }
+[class~="space-y-1"] > * + * { margin-top: 0.25rem; }
+[class~="space-y-2"] > * + * { margin-top: 0.5rem; }
+
+/* Spacing */
+[class~="m-0"] { margin: 0; }
+[class~="mx-auto"] { margin-right: auto; margin-left: auto; }
+[class~="my-1"] { margin-top: 0.25rem; margin-bottom: 0.25rem; }
+[class~="mt-0"] { margin-top: 0; }
+[class~="mt-2"] { margin-top: 0.5rem; }
+[class~="mb-2"] { margin-bottom: 0.5rem; }
+[class~="mb-3"] { margin-bottom: 0.75rem; }
+[class~="mb-4"] { margin-bottom: 1rem; }
+[class~="ml-2"] { margin-left: 0.5rem; }
+[class~="px-1"] { padding-right: 0.25rem; padding-left: 0.25rem; }
+[class~="px-2"] { padding-right: 0.5rem; padding-left: 0.5rem; }
+[class~="px-3"] { padding-right: 0.75rem; padding-left: 0.75rem; }
+[class~="px-4"] { padding-right: 1rem; padding-left: 1rem; }
+[class~="py-1"] { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+[class~="py-1.5"] { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+[class~="py-2"] { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+[class~="py-3"] { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+[class~="py-4"] { padding-top: 1rem; padding-bottom: 1rem; }
+[class~="pt-2"] { padding-top: 0.5rem; }
+[class~="pb-3"] { padding-bottom: 0.75rem; }
+[class~="pb-4"] { padding-bottom: 1rem; }
+[class~="pl-2.5"] { padding-left: 0.625rem; }
+[class~="pr-1"] { padding-right: 0.25rem; }
+
+/* Overflow and interaction */
+[class~="overflow-hidden"] { overflow: hidden; }
+[class~="overflow-y-auto"] { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+[class~="pointer-events-auto"] { pointer-events: auto; }
+[class~="pointer-events-none"] { pointer-events: none; }
+[class~="cursor-pointer"] { cursor: pointer; }
+[class~="cursor-help"] { cursor: help; }
+[class~="select-none"] { -webkit-user-select: none; user-select: none; }
+[class~="whitespace-nowrap"] { white-space: nowrap; }
+[class~="truncate"] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[class~="box-border"] { box-sizing: border-box; }
+[class~="outline-none"] { outline: 2px solid transparent; outline-offset: 2px; }
+
+/* Typography */
+[class~="antialiased"] { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+[class~="text-[10px]"] { font-size: 10px; }
+[class~="text-[11px]"] { font-size: 11px; }
+[class~="text-[13px]"] { font-size: 13px; }
+[class~="text-[0.62rem]"] { font-size: 0.62rem; }
+[class~="text-[0.65rem]"] { font-size: 0.65rem; }
+[class~="text-xs"] { font-size: 0.75rem; }
+[class~="text-sm"] { font-size: 0.875rem; }
+[class~="text-base"] { font-size: 1rem; }
+[class~="font-medium"] { font-weight: 500; }
+[class~="font-semibold"] { font-weight: 600; }
+[class~="leading-none"] { line-height: 1; }
+[class~="leading-4"] { line-height: 1rem; }
+[class~="leading-5"] { line-height: 1.25rem; }
+[class~="text-center"] { text-align: center; }
+[class~="uppercase"] { text-transform: uppercase; }
+[class~="tracking-[0.24em]"] { letter-spacing: 0.24em; }
+[class~="tracking-[0.28em]"] { letter-spacing: 0.28em; }
+[class~="tracking-[0.32em]"] { letter-spacing: 0.32em; }
+[class~="text-slate-100"] { color: #f1f5f9; }
+[class~="text-slate-200"] { color: #e2e8f0; }
+[class~="text-slate-300"] { color: #cbd5e1; }
+[class~="text-slate-400"] { color: #94a3b8; }
+[class~="text-slate-500"] { color: #64748b; }
+[class~="text-slate-600"] { color: #475569; }
+[class~="text-cyan-200"] { color: #a5f3fc; }
+[class~="text-cyan-300"] { color: #67e8f9; }
+[class~="text-emerald-300"] { color: #6ee7b7; }
+[class~="text-rose-300"] { color: #fda4af; }
+[class~="text-amber-200"] { color: #fde68a; }
+
+/* Backgrounds */
+[class~="bg-slate-100"] { background-color: #f1f5f9; }
+[class~="bg-slate-400"] { background-color: #94a3b8; }
+[class~="bg-slate-950"] { background-color: #020617; }
+[class~="bg-slate-900/80"] { background-color: rgba(15, 23, 42, 0.8); }
+[class~="bg-slate-950/58"] { background-color: rgba(2, 6, 23, 0.58); }
+[class~="bg-slate-950/78"] { background-color: rgba(2, 6, 23, 0.78); }
+[class~="bg-slate-950/80"] { background-color: rgba(2, 6, 23, 0.8); }
+[class~="bg-slate-950/85"] { background-color: rgba(2, 6, 23, 0.85); }
+[class~="bg-slate-950/88"] { background-color: rgba(2, 6, 23, 0.88); }
+[class~="bg-slate-950/90"] { background-color: rgba(2, 6, 23, 0.9); }
+[class~="bg-slate-950/92"] { background-color: rgba(2, 6, 23, 0.92); }
+[class~="bg-slate-950/96"] { background-color: rgba(2, 6, 23, 0.96); }
+[class~="bg-slate-300/10"] { background-color: rgba(203, 213, 225, 0.1); }
+[class~="bg-cyan-300/10"] { background-color: rgba(103, 232, 249, 0.1); }
+[class~="bg-emerald-300/10"] { background-color: rgba(110, 231, 183, 0.1); }
+[class~="bg-rose-300/10"] { background-color: rgba(253, 164, 175, 0.1); }
+[class~="bg-amber-300/10"] { background-color: rgba(252, 211, 77, 0.1); }
+
+/* Borders */
+[class~="border"] { border-width: 1px; border-style: solid; }
+[class~="border-t"] { border-top-width: 1px; border-top-style: solid; }
+[class~="border-r"] { border-right-width: 1px; border-right-style: solid; }
+[class~="border-b"] { border-bottom-width: 1px; border-bottom-style: solid; }
+[class~="border-b-2"] { border-bottom-width: 2px; border-bottom-style: solid; }
+[class~="border-l"] { border-left-width: 1px; border-left-style: solid; }
+[class~="border-white/10"] { border-color: rgba(255, 255, 255, 0.1); }
+[class~="border-slate-200"] { border-color: #e2e8f0; }
+[class~="border-slate-300/20"] { border-color: rgba(203, 213, 225, 0.2); }
+[class~="border-cyan-300"] { border-color: #67e8f9; }
+[class~="border-cyan-300/30"] { border-color: rgba(103, 232, 249, 0.3); }
+[class~="border-emerald-300/30"] { border-color: rgba(110, 231, 183, 0.3); }
+[class~="border-emerald-300/40"] { border-color: rgba(110, 231, 183, 0.4); }
+[class~="border-rose-300/30"] { border-color: rgba(253, 164, 175, 0.3); }
+[class~="border-rose-300/40"] { border-color: rgba(253, 164, 175, 0.4); }
+[class~="border-amber-300/30"] { border-color: rgba(252, 211, 77, 0.3); }
+[class~="border-transparent"] { border-color: transparent; }
+[class~="rounded-full"] { border-radius: 9999px; }
+[class~="rounded-xl"] { border-radius: 0.75rem; }
+[class~="divide-y"] > * + * { border-top-width: 1px; border-top-style: solid; }
+[class~="divide-white/10"] > * + * { border-color: rgba(255, 255, 255, 0.1); }
+
+/* Form and state styling */
+[class~="accent-cyan-300"] { accent-color: #67e8f9; }
+[class~="transition"] { transition: color 150ms, background-color 150ms, border-color 150ms, opacity 150ms; }
+[class~="transition-transform"] { transition: transform 200ms; }
+[class~="duration-200"] { transition-duration: 200ms; }
+[class~="focus:border-cyan-300/60"]:focus { border-color: rgba(103, 232, 249, 0.6); }
+[class~="focus:ring-2"]:focus { box-shadow: 0 0 0 2px rgba(103, 232, 249, 0.2); }
+[class~="hover:bg-white/5"]:hover { background-color: rgba(255, 255, 255, 0.05); }
+[class~="hover:bg-slate-900"]:hover { background-color: #0f172a; }
+[class~="hover:bg-slate-900/95"]:hover { background-color: rgba(15, 23, 42, 0.95); }
+[class~="hover:bg-slate-300/15"]:hover { background-color: rgba(203, 213, 225, 0.15); }
+[class~="hover:bg-cyan-300/15"]:hover { background-color: rgba(103, 232, 249, 0.15); }
+[class~="hover:bg-emerald-300/15"]:hover { background-color: rgba(110, 231, 183, 0.15); }
+[class~="hover:bg-rose-300/15"]:hover { background-color: rgba(253, 164, 175, 0.15); }
+[class~="hover:bg-amber-300/15"]:hover { background-color: rgba(252, 211, 77, 0.15); }
+[class~="hover:border-cyan-300/40"]:hover { border-color: rgba(103, 232, 249, 0.4); }
+[class~="hover:text-slate-100"]:hover { color: #f1f5f9; }
+
+.sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(103, 232, 249, 0.45) rgba(255, 255, 255, 0.06);
+}
+
+.sidebar-scroll::-webkit-scrollbar { width: 10px; }
+.sidebar-scroll::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.04); }
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(103, 232, 249, 0.4);
+  border: 2px solid rgba(2, 6, 23, 0.8);
+}
+.sidebar-scroll::-webkit-scrollbar-thumb:hover { background: rgba(103, 232, 249, 0.58); }
+
+/* Tailwind-compatible breakpoint behavior used by the existing DOM builder. */
+@media (min-width: 640px) {
+  [class~="sm:block"] { display: block; }
+  [class~="sm:fixed"] { position: fixed; }
+  [class~="sm:inset-x-0"] { right: 0; left: 0; }
+  [class~="sm:top-0"] { top: 0; }
+  [class~="sm:top-3"] { top: 0.75rem; }
+  [class~="sm:top-16"] { top: 4rem; }
+  [class~="sm:top-20"] { top: 5rem; }
+  [class~="sm:top-[4.5rem]"] { top: 4.5rem; }
+  [class~="sm:left-3"] { left: 0.75rem; }
+  [class~="sm:right-3"] { right: 0.75rem; }
+  [class~="sm:ml-2"] { margin-left: 0.5rem; }
+  [class~="sm:max-w-none"] { max-width: none; }
+  [class~="sm:shrink-0"] { -webkit-flex-shrink: 0; flex-shrink: 0; }
+  [class~="sm:justify-self-auto"] { justify-self: auto; }
+  [class~="sm:grid-cols-[auto_auto_minmax(0,1fr)_auto_auto]"] {
+    grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  }
+}
+
+@media (min-width: 1024px) {
+  [class~="lg:flex-row"] { -webkit-box-orient: horizontal; -webkit-box-direction: normal; -webkit-flex-direction: row; flex-direction: row; }
+  [class~="lg:items-start"] { -webkit-box-align: start; -webkit-align-items: flex-start; align-items: flex-start; }
+  [class~="lg:gap-6"] { gap: 1.5rem; }
+  [class~="lg:top-4"] { top: 1rem; }
+  [class~="lg:top-20"] { top: 5rem; }
+  [class~="lg:top-24"] { top: 6rem; }
+  [class~="lg:left-4"] { left: 1rem; }
+  [class~="lg:right-4"] { right: 1rem; }
+  [class~="lg:px-6"] { padding-right: 1.5rem; padding-left: 1.5rem; }
+  [class~="lg:pb-6"] { padding-bottom: 1.5rem; }
+  [class~="lg:w-[21rem]"] { width: 21rem; }
+  [class~="lg:w-[220px]"] { width: 220px; }
+}
+
+@media (min-width: 1280px) {
+  [class~="xl:grid-cols-2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  [class~="xl:gap-3"] { gap: 0.75rem; }
+}

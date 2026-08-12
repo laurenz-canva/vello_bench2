@@ -172,15 +172,19 @@ if [ -n "$AB_VELLO_PATH" ]; then
   trap - EXIT HUP INT TERM
 
   cp web/index.html "$DIST/index.html"
+  cp web/styles.css "$DIST/styles.css"
   cp web/ab_child.html "$DIST/control/ab_child.html"
   cp web/ab_child.html "$DIST/treatment/ab_child.html"
   cp web/index.html "$DIST/control/index.html"
   cp web/index.html "$DIST/treatment/index.html"
+  cp web/styles.css "$DIST/control/styles.css"
+  cp web/styles.css "$DIST/treatment/styles.css"
 else
   rm -rf "$DIST/control" "$DIST/treatment"
   should_build simd && build_variant "-Ctarget-feature=+simd128" simd
   should_build nosimd && build_variant "" nosimd
   cp web/index.html "$DIST/index.html"
+  cp web/styles.css "$DIST/styles.css"
 fi
 
 copy_svg_assets

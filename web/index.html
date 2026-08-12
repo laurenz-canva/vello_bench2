@@ -5,57 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>vello_bench2</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <style type="text/tailwindcss">
-    @theme {
-      --color-ink-950: #040814;
-      --color-ink-900: #0b1220;
-      --color-ink-850: #111a2b;
-      --color-ink-800: #172235;
-      --color-accent-cyan: #67e8f9;
-      --color-accent-blue: #60a5fa;
-      --color-accent-lime: #bef264;
-      --color-accent-rose: #fb7185;
-      --color-accent-amber: #fbbf24;
-    }
-
-    @layer base {
-      html, body {
-        margin: 0;
-        min-height: 100%;
-        background: #020617;
-      }
-
-      body {
-        color: #e2e8f0;
-        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
-      }
-    }
-
-    @layer utilities {
-      .sidebar-scroll {
-        scrollbar-width: thin;
-        scrollbar-color: rgba(103, 232, 249, 0.45) rgba(255, 255, 255, 0.06);
-      }
-
-      .sidebar-scroll::-webkit-scrollbar {
-        width: 10px;
-      }
-
-      .sidebar-scroll::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.04);
-      }
-
-      .sidebar-scroll::-webkit-scrollbar-thumb {
-        background: rgba(103, 232, 249, 0.4);
-        border: 2px solid rgba(2, 6, 23, 0.8);
-      }
-
-      .sidebar-scroll::-webkit-scrollbar-thumb:hover {
-        background: rgba(103, 232, 249, 0.58);
-      }
-    }
-  </style>
+  <link rel="stylesheet" href="./styles.css" />
 </head>
 
 <body class="overflow-hidden antialiased selection:bg-cyan-300/30">
