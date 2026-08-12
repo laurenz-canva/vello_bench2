@@ -74,8 +74,10 @@ jobs:
           wasm-bindgen --target web --out-dir dist/nosimd --no-typescript \
             target/wasm32-unknown-unknown/dist/vello_bench2.wasm
 
-      - name: Copy index.html
-        run: cp web/index.html dist/index.html
+      - name: Copy web assets
+        run: |
+          cp web/index.html dist/index.html
+          cp web/styles.css dist/styles.css
 
       - name: Compress SVG assets
         run: |
