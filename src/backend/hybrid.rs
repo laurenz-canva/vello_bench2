@@ -37,7 +37,7 @@ impl BackendImpl {
             ..Default::default()
         };
 
-        let (renderer, resources) = vello_hybrid::WebGlRenderer::new_with(canvas, settings);
+        let (renderer, resources) = vello_hybrid::WebGlRenderer::new_with(canvas, settings, true);
 
         Self {
             ctx: vello_hybrid::Scene::new(w as u16, h as u16),
