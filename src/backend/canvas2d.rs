@@ -176,6 +176,7 @@ impl BackendImpl {
                 .get(id.as_u32() as usize)
                 .and_then(Option::as_ref),
             ImageSource::Pixmap(_) => None,
+            _ => todo!()
         }
     }
 

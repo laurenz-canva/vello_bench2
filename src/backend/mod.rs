@@ -197,6 +197,7 @@ pub fn uploaded_image_id(image: &ImageSource) -> Option<ImageId> {
     match image {
         ImageSource::OpaqueId { id, .. } => Some(*id),
         ImageSource::Pixmap(_) => None,
+        _ => todo!()
     }
 }
 
