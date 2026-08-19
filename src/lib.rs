@@ -37,6 +37,7 @@ use storage::CalibrationProfile;
 use ui::{AppMode, Ui};
 use vello_common::kurbo::Affine;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::JsFuture;
 use web_sys::{HtmlCanvasElement, HtmlIFrameElement};
 
 type RafClosure = Rc<RefCell<Option<Closure<dyn FnMut()>>>>;
@@ -57,6 +58,16 @@ fn probe_elapsed_ms(started_at: f64) -> f64 {
         .and_then(|window| window.performance())
         .map(|performance| performance.now() - started_at)
         .unwrap_or(0.0)
+}
+
+async fn next_animation_frame() {
+    let promise = js_sys::Promise::new(&mut |resolve, _| {
+        web_sys::window()
+            .unwrap()
+            .request_animation_frame(resolve.unchecked_ref())
+            .unwrap();
+    });
+    JsFuture::from(promise).await.unwrap();
 }
 
 fn poll_probe_completion<F>(pending_probe: vello_hybrid::WebGlPendingProbe, on_complete: F)
@@ -156,6 +167,8 @@ struct AppState {
     bench_defs: Vec<BenchDef>,
     calibration: Option<CalibrationProfile>,
     resources: ResourceStore,
+    webgl_init_pending: bool,
+    webgl_init_poll_deferred: bool,
     // View state (pan in physical pixels, zoom multiplier).
     pan_x: f64,
     pan_y: f64,
@@ -249,6 +262,31 @@ impl std::fmt::Debug for AppState {
 }
 
 impl AppState {
+    fn begin_backend_initialization(&mut self, kind: BackendKind) {
+        self.webgl_init_pending = kind == BackendKind::Hybrid;
+        self.webgl_init_poll_deferred = self.webgl_init_pending;
+        if self.webgl_init_pending {
+            self.ui.set_webgl_initializing();
+        } else {
+            self.ui.hide_webgl_init_status();
+        }
+    }
+
+    fn backend_ready(&mut self) -> bool {
+        if self.webgl_init_pending && self.webgl_init_poll_deferred {
+            self.webgl_init_poll_deferred = false;
+            return false;
+        }
+        if !self.backend.poll_ready() {
+            return false;
+        }
+        if self.webgl_init_pending {
+            self.webgl_init_pending = false;
+            self.ui.set_webgl_initialized();
+        }
+        true
+    }
+
     fn benchmark_running(&self) -> bool {
         self.harness.is_running()
             || self.calibration_harness.is_running()
@@ -331,6 +369,7 @@ impl AppState {
         self.backend_caps = current_backend_capabilities(kind);
         self.canvas = replace_canvas_element(&self.canvas, self.width, self.height, self.ui.mode);
         self.backend = new_backend(&self.canvas, self.width, self.height, kind);
+        self.begin_backend_initialization(kind);
         self.scenes = scenes::all_scenes();
 
         let next_scene = if self
@@ -380,6 +419,7 @@ impl AppState {
         self.resources.clear_all(self.backend.as_mut());
         let kind = self.backend.kind();
         self.backend = new_backend(&self.canvas, self.width, self.height, kind);
+        self.begin_backend_initialization(kind);
         self.scenes = scenes::all_scenes();
         let selected = self.ui.selected_scene();
         if selected < self.scenes.len()
@@ -397,6 +437,10 @@ impl AppState {
     }
 
     fn tick(&mut self, now: f64) {
+        if !self.backend_ready() {
+            self.ui.flush_state();
+            return;
+        }
         match self.ui.mode {
             AppMode::Interactive => self.tick_interactive(now),
             AppMode::Benchmark => self.tick_benchmark(now),
@@ -413,12 +457,14 @@ impl AppState {
             self.current_scene = selected;
             let kind = self.backend.kind();
             self.backend = new_backend(&self.canvas, self.width, self.height, kind);
+            self.begin_backend_initialization(kind);
             self.scenes = scenes::all_scenes();
             self.fps_tracker.reset(now);
             self.reset_view();
             let params = self.scene_params_for_ui(self.current_scene);
             self.ui.rebuild_params(&params);
             self.ui.mark_dirty();
+            return;
         }
 
         let params = self.ui.read_params();
@@ -1022,6 +1068,7 @@ fn event_target_is_in_stage(target: &wasm_bindgen::JsValue) -> bool {
 }
 
 /// Entry point.
+#[wasm_bindgen]
 pub async fn run() {
     init_logging();
 
@@ -1115,7 +1162,18 @@ pub async fn run() {
         px_w,
         px_h,
     );
-    let backend = new_backend(&canvas, px_w, px_h, backend_kind);
+    let mut backend = new_backend(&canvas, px_w, px_h, backend_kind);
+    if backend_kind == BackendKind::Hybrid {
+        ui.set_webgl_initializing();
+        // Allow the browser to present the pending state before polling compilation.
+        next_animation_frame().await;
+        while !backend.poll_ready() {
+            next_animation_frame().await;
+        }
+        ui.set_webgl_initialized();
+    } else {
+        ui.hide_webgl_init_status();
+    }
     let now = performance.now();
 
     configure_canvas(&canvas, px_w, px_h, initial_mode);
@@ -1139,6 +1197,8 @@ pub async fn run() {
         bench_defs: defs,
         calibration: initial_calibration,
         resources: ResourceStore::new(),
+        webgl_init_pending: false,
+        webgl_init_poll_deferred: false,
         pan_x: 0.0,
         pan_y: 0.0,
         zoom: 1.0,

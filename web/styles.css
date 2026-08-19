@@ -49,6 +49,43 @@ canvas {
   background: rgba(103, 232, 249, 0.3);
 }
 
+.webgl-init-status {
+  display: none;
+  position: fixed;
+  top: 0.75rem;
+  left: 50%;
+  z-index: 90;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid transparent;
+  background: rgba(2, 6, 23, 0.92);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  white-space: nowrap;
+  -webkit-transform: translateX(-50%);
+  transform: translateX(-50%);
+}
+
+.webgl-init-status-pending {
+  display: block;
+  color: #93c5fd;
+  border-color: rgba(147, 197, 253, 0.4);
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.webgl-init-status-success {
+  display: block;
+  color: #6ee7b7;
+  border-color: rgba(110, 231, 183, 0.4);
+  background: rgba(16, 185, 129, 0.14);
+}
+
+@media (max-width: 639px) {
+  .webgl-init-status {
+    top: 4rem;
+  }
+}
+
 /* Display and positioning */
 [class~="block"] { display: block; }
 [class~="flex"] { display: -webkit-box; display: -webkit-flex; display: flex; }

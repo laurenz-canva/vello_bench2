@@ -16,7 +16,8 @@ pub(crate) const CAPABILITIES: CapabilityProfile = CapabilityProfile::all();
 pub struct BackendImpl {
     ctx: vello_hybrid::Scene,
     resources: vello_hybrid::Resources,
-    renderer: vello_hybrid::WebGlRenderer,
+    renderer: Option<vello_hybrid::WebGlRenderer>,
+    renderer_init: Option<vello_hybrid::WebGlRendererInit>,
 }
 
 impl std::fmt::Debug for BackendImpl {
@@ -37,12 +38,14 @@ impl BackendImpl {
             ..Default::default()
         };
 
-        let (renderer, resources) = vello_hybrid::WebGlRenderer::new_with(canvas, settings, true);
+        let (renderer_init, resources) =
+            vello_hybrid::WebGlRenderer::begin_with(canvas, settings, true);
 
         Self {
             ctx: vello_hybrid::Scene::new(w as u16, h as u16),
             resources,
-            renderer,
+            renderer: None,
+            renderer_init: Some(renderer_init),
         }
     }
 
@@ -60,6 +63,25 @@ impl Backend for BackendImpl {
         BackendKind::Hybrid
     }
 
+    fn poll_ready(&mut self) -> bool {
+        if self.renderer.is_some() {
+            return true;
+        }
+        let Some(init) = self.renderer_init.take() else {
+            return false;
+        };
+        match init.try_finish() {
+            vello_hybrid::WebGlRendererInitStatus::Pending(init) => {
+                self.renderer_init = Some(init);
+                false
+            }
+            vello_hybrid::WebGlRendererInitStatus::Complete(renderer) => {
+                self.renderer = Some(renderer);
+                true
+            }
+        }
+    }
+
     fn reset(&mut self) {
         self.ctx.reset();
     }
@@ -70,7 +92,14 @@ impl Backend for BackendImpl {
             height: self.ctx.height() as u32,
         };
         self.renderer
-            .render(&self.ctx, &mut self.resources, &rs, &WebGlTextureBindings::default())
+            .as_mut()
+            .expect("WebGL renderer used before initialization completed")
+            .render(
+                &self.ctx,
+                &mut self.resources,
+                &rs,
+                &WebGlTextureBindings::default(),
+            )
             .unwrap();
     }
 
@@ -165,17 +194,27 @@ impl Backend for BackendImpl {
 
     fn upload_image(&mut self, pixmap: Pixmap) -> ImageSource {
         let may_have_transparency = pixmap.may_have_transparency();
-        let id = self.renderer.upload_image(&mut self.resources, &pixmap);
+        let renderer = self
+            .renderer
+            .as_mut()
+            .expect("WebGL renderer used before initialization completed");
+        let id = renderer.upload_image(&mut self.resources, &pixmap);
         ImageSource::opaque_id_with_transparency_hint(id, may_have_transparency)
     }
 
     fn destroy_image(&mut self, image: &ImageSource) {
-        if let Some(id) = uploaded_image_id(image) {
-            self.renderer.destroy_image(&mut self.resources, id);
+        if let Some(id) = uploaded_image_id(image)
+            && let Some(renderer) = self.renderer.as_mut()
+        {
+            renderer.destroy_image(&mut self.resources, id);
         }
     }
 
     fn probe(&mut self) -> Result<vello_hybrid::WebGlPendingProbe, String> {
-        self.renderer.probe().map_err(|error| error.to_string())
+        self.renderer
+            .as_mut()
+            .ok_or_else(|| "WebGL initialization is still in progress".to_string())?
+            .probe()
+            .map_err(|error| error.to_string())
     }
 }

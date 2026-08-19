@@ -191,6 +191,7 @@ pub struct Ui {
     top_timing_wrap: HtmlElement,
     top_timing_label: HtmlElement,
     top_timing_popup: HtmlElement,
+    webgl_init_status: HtmlElement,
     top_probe_btn: HtmlElement,
     renderer_select: HtmlSelectElement,
 
@@ -288,6 +289,7 @@ impl Ui {
             sidebar_toggle_btn,
             tab_interactive,
             tab_benchmark,
+            webgl_init_status,
             top_probe_btn,
             renderer_select,
         ) = build_top_bar(document, crate::backend::current_backend_kind());
@@ -343,6 +345,7 @@ impl Ui {
             top_timing_wrap: iv.top_timing_wrap,
             top_timing_label: iv.top_timing_label,
             top_timing_popup: iv.top_timing_popup,
+            webgl_init_status,
             top_probe_btn,
             renderer_select,
             sidebar: iv.sidebar,
@@ -458,6 +461,28 @@ impl Ui {
     pub fn set_renderer(&self, kind: BackendKind) {
         self.renderer_select.set_value(kind.as_str());
         self.sync_probe_button(kind);
+    }
+
+    pub fn set_webgl_initializing(&self) {
+        self.webgl_init_status
+            .set_text_content(Some("Initializing WebGL…"));
+        class(
+            &self.webgl_init_status,
+            "webgl-init-status webgl-init-status-pending",
+        );
+    }
+
+    pub fn set_webgl_initialized(&self) {
+        self.webgl_init_status
+            .set_text_content(Some("WebGL initialization succeeded"));
+        class(
+            &self.webgl_init_status,
+            "webgl-init-status webgl-init-status-success",
+        );
+    }
+
+    pub fn hide_webgl_init_status(&self) {
+        class(&self.webgl_init_status, "webgl-init-status");
     }
 
     // ── Sidebar toggle ───────────────────────────────────────────────────
@@ -1550,6 +1575,7 @@ fn build_top_bar(
     HtmlElement,
     HtmlElement,
     HtmlElement,
+    HtmlElement,
     HtmlSelectElement,
 ) {
     let top_bar = div(document);
@@ -1585,6 +1611,10 @@ fn build_top_bar(
     nav_group.append_child(&tab_benchmark).unwrap();
     nav_group.append_child(&tab_interactive).unwrap();
     top_bar.append_child(&nav_group).unwrap();
+
+    let webgl_init_status = div(document);
+    class(&webgl_init_status, "webgl-init-status");
+    top_bar.append_child(&webgl_init_status).unwrap();
 
     let presentation_overlay = div(document);
     presentation_overlay.set_text_content(Some("Starting benchmark…"));
@@ -1673,6 +1703,7 @@ fn build_top_bar(
         sidebar_toggle_btn,
         tab_interactive,
         tab_benchmark,
+        webgl_init_status,
         top_probe_btn,
         renderer_select,
     )

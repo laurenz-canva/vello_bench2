@@ -17,7 +17,7 @@ build_variant() {
   out_dir=$2
 
   echo "==> Building $out_dir..."
-  RUSTFLAGS="$rustflags" cargo build --target "$TARGET" --profile "$BUILD_PROFILE"
+  RUSTFLAGS="$rustflags" cargo build --lib --target "$TARGET" --profile "$BUILD_PROFILE"
 
   echo "==> Running wasm-bindgen ($out_dir)..."
   mkdir -p "$DIST/$out_dir"

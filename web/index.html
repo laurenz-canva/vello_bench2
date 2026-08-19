@@ -89,12 +89,15 @@
 
     window.__vello_asset_base = new URL(abMode && abChild ? "../assets/" : "./assets/", location.href).href;
 
-    const { default: init } = await import(mod_path);
-    if (document.readyState === "complete") {
-      init();
-    } else {
-      window.addEventListener("load", () => init());
+    const { default: init, run } = await import(mod_path);
+    const start = async () => {
+      await init();
+      await run();
+    };
+    if (document.readyState !== "complete") {
+      await new Promise((resolve) => window.addEventListener("load", resolve));
     }
+    await start();
   </script>
 
 </body>

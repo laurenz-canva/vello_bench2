@@ -4,24 +4,6 @@
 //! WebGL benchmark tool for Vello Hybrid.
 
 fn main() {
-    #[cfg(target_arch = "wasm32")]
-    {
-        // In child-runner mode, a dedicated entry point handles everything.
-        let is_ab_child = js_sys::Reflect::get(&js_sys::global(), &"__vello_ab_child".into())
-            .ok()
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        if is_ab_child {
-            return;
-        }
-
-        vello_bench2::init_logging();
-
-        wasm_bindgen_futures::spawn_local(async move {
-            vello_bench2::run().await;
-        });
-    }
-
     #[cfg(not(target_arch = "wasm32"))]
     cargo_run_wasm::run_wasm_cli_with_css("body { margin: 0px; }");
 }

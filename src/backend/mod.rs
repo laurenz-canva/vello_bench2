@@ -155,6 +155,10 @@ pub fn webgpu_supported() -> bool {
 
 pub trait Backend {
     fn kind(&self) -> BackendKind;
+    /// Advances asynchronous backend initialization, returning whether rendering may begin.
+    fn poll_ready(&mut self) -> bool {
+        true
+    }
     fn reset(&mut self);
     fn render_offscreen(&mut self);
     fn blit(&mut self);
