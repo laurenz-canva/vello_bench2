@@ -412,30 +412,6 @@ impl AppState {
         true
     }
 
-    fn reset_interactive_state(&mut self, now: f64) {
-        self.dragging = false;
-        self.touch_count = 0;
-        self.pinch_dist = 0.0;
-        self.resources.clear_all(self.backend.as_mut());
-        let kind = self.backend.kind();
-        self.backend = new_backend(&self.canvas, self.width, self.height, kind);
-        self.begin_backend_initialization(kind);
-        self.scenes = scenes::all_scenes();
-        let selected = self.ui.selected_scene();
-        if selected < self.scenes.len()
-            && self
-                .backend_caps
-                .supports_scene(self.scenes[selected].scene_id())
-        {
-            self.current_scene = selected;
-        }
-        for (param_id, value) in self.ui.read_params() {
-            self.scenes[self.current_scene].set_param(param_id, value);
-        }
-        self.fps_tracker.reset(now);
-        self.reset_view();
-    }
-
     fn tick(&mut self, now: f64) {
         if !self.backend_ready() {
             self.ui.flush_state();
@@ -1139,10 +1115,7 @@ pub async fn run() {
         px_w,
         px_h,
     ));
-    let initial_mode = match saved_state.mode.as_deref() {
-        Some("interactive") => AppMode::Interactive,
-        _ => AppMode::Benchmark,
-    };
+    let initial_mode = AppMode::Interactive;
     let initial_sidebar_collapsed = saved_state.sidebar_collapsed.unwrap_or(true);
     let initial_scene = saved_state
         .scene
@@ -1238,56 +1211,6 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         cb.forget();
     }
 
-    // Mode tabs
-    {
-        let borrow = state.borrow();
-        let (itab, btab) = borrow.ui.tab_elements();
-        let itab = itab.clone();
-        let btab = btab.clone();
-        drop(borrow);
-
-        let s = state.clone();
-        let cb = Closure::wrap(Box::new(move || {
-            let mut st = s.borrow_mut();
-            if st.benchmark_running() {
-                return;
-            }
-            let now = web_sys::window().unwrap().performance().unwrap().now();
-            st.reset_interactive_state(now);
-            st.ui.set_mode(AppMode::Interactive);
-            st.ui.set_benchmark_presentation(false);
-            st.ui.flush_state();
-            set_canvas_visibility(&st.canvas, true);
-            set_canvas_visibility(&st.benchmark_canvas, false);
-            let document = web_sys::window().unwrap().document().unwrap();
-            set_stage_shell_presentation(&document, false);
-        }) as Box<dyn FnMut()>);
-        itab.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
-            .unwrap();
-        cb.forget();
-
-        let s = state.clone();
-        let cb = Closure::wrap(Box::new(move || {
-            let mut st = s.borrow_mut();
-            if st.benchmark_running() {
-                return;
-            }
-            let now = web_sys::window().unwrap().performance().unwrap().now();
-            st.reset_interactive_state(now);
-            st.ui.set_mode(AppMode::Benchmark);
-            st.ui.set_benchmark_presentation(false);
-            st.refresh_calibration_state();
-            st.ui.flush_state();
-            set_canvas_visibility(&st.canvas, false);
-            set_canvas_visibility(&st.benchmark_canvas, false);
-            let document = web_sys::window().unwrap().document().unwrap();
-            set_stage_shell_presentation(&document, false);
-        }) as Box<dyn FnMut()>);
-        btab.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
-            .unwrap();
-        cb.forget();
-    }
-
     // Start benchmarks
     {
         let s = state.clone();
@@ -1354,56 +1277,51 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         cb.forget();
     }
 
-    // Probe Vello Hybrid
+    // Probe Vello Hybrid from the top bar.
     {
-        let buttons = {
-            let st = state.borrow();
-            [st.ui.probe_btn().clone(), st.ui.top_probe_btn().clone()]
-        };
-        for btn in buttons {
-            let s = state.clone();
-            let cb = Closure::wrap(Box::new(move || {
-                if let Some(pending) = s.borrow_mut().run_backend_probe() {
-                    let s = s.clone();
-                    poll_probe_completion(pending.pending_probe, move |completion| {
-                        let full_ms = probe_elapsed_ms(pending.started_at);
-                        let st = s.borrow();
-                        match completion.result {
-                            Ok(()) => {
-                                log::info!(
-                                    "Vello Hybrid probe succeeded: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms",
-                                    pending.start_probe_ms,
-                                    completion.readback_ms,
-                                    full_ms
-                                );
-                                st.ui.set_probe_success(
-                                    pending.start_probe_ms,
-                                    completion.readback_ms,
-                                    full_ms,
-                                );
-                            }
-                            Err(error) => {
-                                log::warn!(
-                                    "Vello Hybrid probe failed: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms: {error}",
-                                    pending.start_probe_ms,
-                                    completion.readback_ms,
-                                    full_ms
-                                );
-                                st.ui.set_probe_failure(
-                                    &error,
-                                    pending.start_probe_ms,
-                                    Some(completion.readback_ms),
-                                    full_ms,
-                                );
-                            }
+        let btn = state.borrow().ui.top_probe_btn().clone();
+        let s = state.clone();
+        let cb = Closure::wrap(Box::new(move || {
+            if let Some(pending) = s.borrow_mut().run_backend_probe() {
+                let s = s.clone();
+                poll_probe_completion(pending.pending_probe, move |completion| {
+                    let full_ms = probe_elapsed_ms(pending.started_at);
+                    let st = s.borrow();
+                    match completion.result {
+                        Ok(()) => {
+                            log::info!(
+                                "Vello Hybrid probe succeeded: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms",
+                                pending.start_probe_ms,
+                                completion.readback_ms,
+                                full_ms
+                            );
+                            st.ui.set_probe_success(
+                                pending.start_probe_ms,
+                                completion.readback_ms,
+                                full_ms,
+                            );
                         }
-                    });
-                }
-            }) as Box<dyn FnMut()>);
-            btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
-                .unwrap();
-            cb.forget();
-        }
+                        Err(error) => {
+                            log::warn!(
+                                "Vello Hybrid probe failed: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms: {error}",
+                                pending.start_probe_ms,
+                                completion.readback_ms,
+                                full_ms
+                            );
+                            st.ui.set_probe_failure(
+                                &error,
+                                pending.start_probe_ms,
+                                Some(completion.readback_ms),
+                                full_ms,
+                            );
+                        }
+                    }
+                });
+            }
+        }) as Box<dyn FnMut()>);
+        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
     }
 
     // Start A/B benchmarks

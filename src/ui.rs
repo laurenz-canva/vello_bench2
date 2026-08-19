@@ -1,4 +1,4 @@
-//! DOM-based UI for Interactive and Benchmark modes.
+//! DOM-based UI.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -37,13 +37,9 @@ fn set(el: &HtmlElement, props: &[(&str, &str)]) {
     }
 }
 
-const PROBE_BUTTON_NEUTRAL_CLASS: &str = "mb-3 border border-slate-300/20 bg-slate-300/10 px-4 py-2 text-center text-sm font-semibold text-slate-200 transition hover:bg-slate-300/15";
-const TOP_PROBE_BUTTON_NEUTRAL_CLASS: &str = "shrink-0 cursor-pointer whitespace-nowrap border border-slate-300/20 bg-slate-300/10 px-2 py-1 text-xs font-semibold text-slate-200 transition hover:bg-slate-300/15";
-const TOP_PROBE_BUTTON_SUCCESS_CLASS: &str = "shrink-0 cursor-pointer whitespace-nowrap border border-emerald-300/40 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-300/15";
-const TOP_PROBE_BUTTON_FAILURE_CLASS: &str = "shrink-0 cursor-pointer whitespace-nowrap border border-rose-300/40 bg-rose-300/10 px-2 py-1 text-xs font-semibold text-rose-300 transition hover:bg-rose-300/15";
-const PROBE_STATUS_NEUTRAL_CLASS: &str = "mb-3 text-xs leading-5 text-slate-400";
-const PROBE_STATUS_SUCCESS_CLASS: &str = "mb-3 text-xs leading-5 text-emerald-300";
-const PROBE_STATUS_FAILURE_CLASS: &str = "mb-3 text-xs leading-5 text-rose-300";
+const TOP_PROBE_BUTTON_NEUTRAL_CLASS: &str = "min-w-0 shrink cursor-pointer whitespace-normal break-words border border-slate-300/20 bg-slate-300/10 px-2 py-1 text-left text-xs font-semibold leading-4 text-slate-200 transition hover:bg-slate-300/15";
+const TOP_PROBE_BUTTON_SUCCESS_CLASS: &str = "min-w-0 shrink cursor-pointer whitespace-normal break-words border border-emerald-300/40 bg-emerald-300/10 px-2 py-1 text-left text-xs font-semibold leading-4 text-emerald-300 transition hover:bg-emerald-300/15";
+const TOP_PROBE_BUTTON_FAILURE_CLASS: &str = "min-w-0 shrink cursor-pointer whitespace-normal break-words border border-rose-300/40 bg-rose-300/10 px-2 py-1 text-left text-xs font-semibold leading-4 text-rose-300 transition hover:bg-rose-300/15";
 
 fn set_probe_button_state(button: &HtmlElement, class_name: &str, text: &str, title: Option<&str>) {
     class(button, class_name);
@@ -183,11 +179,8 @@ pub struct Ui {
     top_bar: HtmlElement,
     presentation_overlay: HtmlElement,
     interactive_view: HtmlElement,
-    benchmark_view: HtmlElement,
 
     // Top bar
-    tab_interactive: HtmlElement,
-    tab_benchmark: HtmlElement,
     top_timing_wrap: HtmlElement,
     top_timing_label: HtmlElement,
     top_timing_popup: HtmlElement,
@@ -213,8 +206,6 @@ pub struct Ui {
     calibration_status: HtmlElement,
     /// Start button.
     pub start_btn: HtmlElement,
-    probe_btn: HtmlElement,
-    probe_timing: HtmlElement,
     pub ab_start_btn: Option<HtmlElement>,
     ab_rounds_input: Option<HtmlInputElement>,
     ab_status: Option<HtmlElement>,
@@ -287,8 +278,6 @@ impl Ui {
             top_bar,
             presentation_overlay,
             sidebar_toggle_btn,
-            tab_interactive,
-            tab_benchmark,
             webgl_init_status,
             top_probe_btn,
             renderer_select,
@@ -307,20 +296,7 @@ impl Ui {
         );
         app_overlay.append_child(&iv.view).unwrap();
 
-        let benchmark_view = div(document);
-        class(
-            &benchmark_view,
-            "pointer-events-auto fixed inset-x-0 bottom-0 top-32 z-20 hidden overflow-y-auto bg-slate-950/96 px-3 pb-4 pt-2 sm:top-20 lg:top-24 lg:px-6 lg:pb-6",
-        );
-
-        let bench_layout = div(document);
-        class(
-            &bench_layout,
-            "mx-auto flex max-w-[1600px] flex-col gap-4 lg:flex-row lg:items-start lg:gap-6",
-        );
-
         let cfg = build_bench_config(document, vp_w, vp_h, ab_mode);
-        bench_layout.append_child(&cfg.wrapper).unwrap();
 
         let rows = build_bench_rows(
             document,
@@ -330,18 +306,11 @@ impl Ui {
             capabilities,
             &dirty,
         );
-        bench_layout.append_child(&rows.container).unwrap();
-
-        benchmark_view.append_child(&bench_layout).unwrap();
-        app_overlay.append_child(&benchmark_view).unwrap();
 
         let mut ui = Self {
             top_bar,
             presentation_overlay,
             interactive_view: iv.view,
-            benchmark_view,
-            tab_interactive,
-            tab_benchmark,
             top_timing_wrap: iv.top_timing_wrap,
             top_timing_label: iv.top_timing_label,
             top_timing_popup: iv.top_timing_popup,
@@ -360,8 +329,6 @@ impl Ui {
             calibrate_btn: cfg.calibrate_btn,
             calibration_status: cfg.calibration_status,
             start_btn: cfg.start_btn,
-            probe_btn: cfg.probe_btn,
-            probe_timing: cfg.probe_timing,
             ab_start_btn: cfg.ab_start_btn,
             ab_rounds_input: cfg.ab_rounds_input,
             ab_status: cfg.ab_status,
@@ -377,12 +344,12 @@ impl Ui {
             compare_select: cfg.compare_select,
             delete_btn: cfg.delete_btn,
             compare_report: None,
-            mode: AppMode::Benchmark,
+            mode: AppMode::Interactive,
             dirty,
         };
         ui.set_renderer(crate::backend::current_backend_kind());
         ui.apply_sidebar_state();
-        ui.set_mode(AppMode::Benchmark);
+        ui.set_mode(AppMode::Interactive);
         ui
     }
 
@@ -398,12 +365,6 @@ impl Ui {
                     .style()
                     .set_property("display", "block")
                     .unwrap();
-                self.benchmark_view
-                    .style()
-                    .set_property("display", "none")
-                    .unwrap();
-                style_tab(&self.tab_interactive, true);
-                style_tab(&self.tab_benchmark, false);
                 self.top_timing_wrap
                     .style()
                     .set_property("display", "flex")
@@ -414,12 +375,6 @@ impl Ui {
                     .style()
                     .set_property("display", "none")
                     .unwrap();
-                self.benchmark_view
-                    .style()
-                    .set_property("display", "block")
-                    .unwrap();
-                style_tab(&self.tab_interactive, false);
-                style_tab(&self.tab_benchmark, true);
                 self.top_timing_wrap
                     .style()
                     .set_property("display", "none")
@@ -430,28 +385,16 @@ impl Ui {
 
     pub fn set_benchmark_presentation(&self, active: bool) {
         let top_bar_display = if active { "none" } else { "flex" };
-        let bench_display = if active { "none" } else { "block" };
         self.top_bar
             .style()
             .set_property("display", top_bar_display)
             .unwrap();
-        if self.mode == AppMode::Benchmark {
-            self.benchmark_view
-                .style()
-                .set_property("display", bench_display)
-                .unwrap();
-        }
         if !active {
             self.presentation_overlay
                 .style()
                 .set_property("display", "none")
                 .unwrap();
         }
-    }
-
-    /// Tab elements for event binding.
-    pub fn tab_elements(&self) -> (&HtmlElement, &HtmlElement) {
-        (&self.tab_interactive, &self.tab_benchmark)
     }
 
     pub fn renderer_select(&self) -> &HtmlSelectElement {
@@ -655,10 +598,6 @@ impl Ui {
         &self.start_btn
     }
 
-    pub fn probe_btn(&self) -> &HtmlElement {
-        &self.probe_btn
-    }
-
     pub fn top_probe_btn(&self) -> &HtmlElement {
         &self.top_probe_btn
     }
@@ -701,33 +640,22 @@ impl Ui {
     }
 
     pub fn set_probe_running(&self, running: bool) {
-        for button in [&self.probe_btn, &self.top_probe_btn] {
-            button
-                .style()
-                .set_property("opacity", if running { "0.7" } else { "1" })
-                .unwrap();
-            button
-                .style()
-                .set_property("pointer-events", if running { "none" } else { "auto" })
-                .unwrap();
-        }
+        self.top_probe_btn
+            .style()
+            .set_property("opacity", if running { "0.7" } else { "1" })
+            .unwrap();
+        self.top_probe_btn
+            .style()
+            .set_property("pointer-events", if running { "none" } else { "auto" })
+            .unwrap();
         if running {
-            set_probe_button_state(
-                &self.probe_btn,
-                PROBE_BUTTON_NEUTRAL_CLASS,
-                "Probing...",
-                None,
-            );
             set_probe_button_state(
                 &self.top_probe_btn,
                 TOP_PROBE_BUTTON_NEUTRAL_CLASS,
                 "Probing...",
                 None,
             );
-            class(&self.probe_timing, PROBE_STATUS_NEUTRAL_CLASS);
-            self.probe_timing.set_text_content(Some("Running probe..."));
         } else {
-            set_probe_button_state(&self.probe_btn, PROBE_BUTTON_NEUTRAL_CLASS, "Probe", None);
             set_probe_button_state(
                 &self.top_probe_btn,
                 TOP_PROBE_BUTTON_NEUTRAL_CLASS,
@@ -738,35 +666,37 @@ impl Ui {
     }
 
     pub fn set_probe_sync_complete(&self, synchronous_ms: f64) {
-        class(&self.probe_timing, PROBE_STATUS_NEUTRAL_CLASS);
-        self.probe_timing.set_text_content(Some(&format!(
-            "start_probe: {:.1}ms\nreadback: pending\nfull: pending",
-            synchronous_ms
-        )));
+        set_probe_button_state(
+            &self.top_probe_btn,
+            TOP_PROBE_BUTTON_NEUTRAL_CLASS,
+            &format!(
+                "Probe: Running · start {synchronous_ms:.1}ms · readback pending · full pending"
+            ),
+            Some(&format!(
+                "start_probe: {synchronous_ms:.1}ms, readback: pending, full: pending"
+            )),
+        );
     }
 
     pub fn set_probe_success(&self, start_probe_ms: f64, readback_ms: f64, full_ms: f64) {
-        for button in [&self.probe_btn, &self.top_probe_btn] {
-            button.style().set_property("opacity", "1").unwrap();
-            button
-                .style()
-                .set_property("pointer-events", "auto")
-                .unwrap();
-        }
-        set_probe_button_state(&self.probe_btn, PROBE_BUTTON_NEUTRAL_CLASS, "Probe", None);
+        self.top_probe_btn
+            .style()
+            .set_property("opacity", "1")
+            .unwrap();
+        self.top_probe_btn
+            .style()
+            .set_property("pointer-events", "auto")
+            .unwrap();
         set_probe_button_state(
             &self.top_probe_btn,
             TOP_PROBE_BUTTON_SUCCESS_CLASS,
-            "Probe: Success",
+            &format!(
+                "Probe: Pass · start {start_probe_ms:.1}ms · readback {readback_ms:.1}ms · full {full_ms:.1}ms"
+            ),
             Some(&format!(
                 "start_probe: {start_probe_ms:.1}ms, readback: {readback_ms:.1}ms, full: {full_ms:.1}ms"
             )),
         );
-        class(&self.probe_timing, PROBE_STATUS_SUCCESS_CLASS);
-        self.probe_timing.set_text_content(Some(&format!(
-            "start_probe: {:.1}ms\nreadback: {:.1}ms\nfull: {:.1}ms",
-            start_probe_ms, readback_ms, full_ms
-        )));
     }
 
     pub fn set_probe_failure(
@@ -776,61 +706,52 @@ impl Ui {
         readback_ms: Option<f64>,
         full_ms: f64,
     ) {
-        for button in [&self.probe_btn, &self.top_probe_btn] {
-            button.style().set_property("opacity", "1").unwrap();
-            button
-                .style()
-                .set_property("pointer-events", "auto")
-                .unwrap();
-        }
-        set_probe_button_state(
-            &self.probe_btn,
-            PROBE_BUTTON_NEUTRAL_CLASS,
-            "Probe",
-            Some(message),
-        );
+        self.top_probe_btn
+            .style()
+            .set_property("opacity", "1")
+            .unwrap();
+        self.top_probe_btn
+            .style()
+            .set_property("pointer-events", "auto")
+            .unwrap();
         set_probe_button_state(
             &self.top_probe_btn,
             TOP_PROBE_BUTTON_FAILURE_CLASS,
-            "Probe: Error",
-            Some(message),
+            &format!(
+                "Probe: Error · start {start_probe_ms:.1}ms · readback {} · full {full_ms:.1}ms · {message}",
+                readback_ms
+                    .map(|value| format!("{value:.1}ms"))
+                    .unwrap_or_else(|| "n/a".to_string())
+            ),
+            Some(&format!(
+                "start_probe: {start_probe_ms:.1}ms, readback: {}, full: {full_ms:.1}ms; {message}",
+                readback_ms
+                    .map(|value| format!("{value:.1}ms"))
+                    .unwrap_or_else(|| "n/a".to_string())
+            )),
         );
-        class(&self.probe_timing, PROBE_STATUS_FAILURE_CLASS);
-        let readback_text = readback_ms
-            .map(|value| format!("{value:.1}ms"))
-            .unwrap_or_else(|| "n/a".to_string());
-        self.probe_timing.set_text_content(Some(&format!(
-            "start_probe: {:.1}ms\nreadback: {}\nfull: {:.1}ms\nerror: {message}",
-            start_probe_ms, readback_text, full_ms
-        )));
     }
 
     fn sync_probe_button(&self, kind: BackendKind) {
         let visible = kind == BackendKind::Hybrid;
-        for button in [&self.probe_btn, &self.top_probe_btn] {
-            button
-                .style()
-                .set_property("display", if visible { "block" } else { "none" })
-                .unwrap();
-            button.style().set_property("opacity", "1").unwrap();
-            button
-                .style()
-                .set_property("pointer-events", "auto")
-                .unwrap();
-        }
-        self.probe_timing
+        self.top_probe_btn
             .style()
             .set_property("display", if visible { "block" } else { "none" })
             .unwrap();
-        set_probe_button_state(&self.probe_btn, PROBE_BUTTON_NEUTRAL_CLASS, "Probe", None);
+        self.top_probe_btn
+            .style()
+            .set_property("opacity", "1")
+            .unwrap();
+        self.top_probe_btn
+            .style()
+            .set_property("pointer-events", "auto")
+            .unwrap();
         set_probe_button_state(
             &self.top_probe_btn,
             TOP_PROBE_BUTTON_NEUTRAL_CLASS,
             "Probe",
             None,
         );
-        class(&self.probe_timing, PROBE_STATUS_NEUTRAL_CLASS);
-        self.probe_timing.set_text_content(Some(""));
     }
 
     pub fn set_calibration_status(&self, text: &str) {
@@ -1536,14 +1457,11 @@ struct InteractiveViewParts {
 }
 
 struct BenchConfigParts {
-    wrapper: HtmlElement,
     warmup_input: HtmlInputElement,
     measured_input: HtmlInputElement,
     calibrate_btn: HtmlElement,
     calibration_status: HtmlElement,
     start_btn: HtmlElement,
-    probe_btn: HtmlElement,
-    probe_timing: HtmlElement,
     ab_start_btn: Option<HtmlElement>,
     ab_rounds_input: Option<HtmlInputElement>,
     ab_status: Option<HtmlElement>,
@@ -1574,8 +1492,6 @@ fn build_top_bar(
     HtmlElement,
     HtmlElement,
     HtmlElement,
-    HtmlElement,
-    HtmlElement,
     HtmlSelectElement,
 ) {
     let top_bar = div(document);
@@ -1587,7 +1503,7 @@ fn build_top_bar(
     let nav_group = div(document);
     class(
         &nav_group,
-        "pointer-events-auto flex h-11 items-center gap-4 border border-white/10 bg-slate-950/88 px-4 sm:fixed sm:left-3 sm:top-3 lg:left-4 lg:top-4",
+        "pointer-events-auto sm:fixed sm:left-3 sm:top-3 lg:left-4 lg:top-4",
     );
 
     let sidebar_toggle_btn = div(document);
@@ -1600,16 +1516,6 @@ fn build_top_bar(
     );
     nav_group.append_child(&sidebar_toggle_btn).unwrap();
 
-    let tab_interactive = div(document);
-    tab_interactive.set_text_content(Some("Interactive"));
-    style_tab(&tab_interactive, true);
-
-    let tab_benchmark = div(document);
-    tab_benchmark.set_text_content(Some("Benchmark"));
-    style_tab(&tab_benchmark, false);
-
-    nav_group.append_child(&tab_benchmark).unwrap();
-    nav_group.append_child(&tab_interactive).unwrap();
     top_bar.append_child(&nav_group).unwrap();
 
     let webgl_init_status = div(document);
@@ -1625,7 +1531,7 @@ fn build_top_bar(
     let controls_group = div(document);
     class(
         &controls_group,
-        "pointer-events-auto flex h-11 max-w-full items-center gap-3 border border-white/10 bg-slate-950/88 px-4 sm:fixed sm:right-3 sm:top-3 lg:right-4 lg:top-4",
+        "pointer-events-auto flex min-h-11 max-w-full flex-wrap items-center gap-3 border border-white/10 bg-slate-950/88 px-4 py-2 sm:fixed sm:right-3 sm:top-3 sm:max-w-[calc(100vw-6rem)] lg:right-4 lg:top-4",
     );
 
     let has_toggle = js_sys::Reflect::get(&js_sys::global(), &"__vello_toggle_simd".into())
@@ -1701,8 +1607,6 @@ fn build_top_bar(
         top_bar,
         presentation_overlay,
         sidebar_toggle_btn,
-        tab_interactive,
-        tab_benchmark,
         webgl_init_status,
         top_probe_btn,
         renderer_select,
@@ -1960,23 +1864,6 @@ fn build_bench_config(
     );
     left_col.append_child(&start_btn).unwrap();
 
-    let probe_btn = div(document);
-    set_probe_button_state(&probe_btn, PROBE_BUTTON_NEUTRAL_CLASS, "Probe", None);
-    probe_btn.style().set_property("display", "none").unwrap();
-    left_col.append_child(&probe_btn).unwrap();
-
-    let probe_timing = div(document);
-    class(&probe_timing, PROBE_STATUS_NEUTRAL_CLASS);
-    probe_timing
-        .style()
-        .set_property("display", "none")
-        .unwrap();
-    probe_timing
-        .style()
-        .set_property("white-space", "pre-line")
-        .unwrap();
-    left_col.append_child(&probe_timing).unwrap();
-
     let (ab_start_btn, ab_rounds_input, ab_status) = if ab_mode {
         let rounds_input = sized_num_input(document, "1", "100%");
         rounds_input.set_type("number");
@@ -2099,14 +1986,11 @@ fn build_bench_config(
     wrapper.append_child(&left_col).unwrap();
 
     BenchConfigParts {
-        wrapper,
         warmup_input,
         measured_input,
         calibrate_btn,
         calibration_status,
         start_btn,
-        probe_btn,
-        probe_timing,
         ab_start_btn,
         ab_rounds_input,
         ab_status,
@@ -2511,19 +2395,6 @@ fn bench_def_supported(
     }) && def
         .scale
         .is_none_or(|scale| capabilities.supports_param(scene.scene_id(), scale.param))
-}
-
-// ── Tab styling ──────────────────────────────────────────────────────────────
-
-fn style_tab(el: &HtmlElement, active: bool) {
-    class(
-        el,
-        if active {
-            "shrink-0 cursor-pointer border-b-2 border-cyan-300 px-1 py-2 text-sm font-semibold text-cyan-200 transition"
-        } else {
-            "shrink-0 cursor-pointer border-b-2 border-transparent px-1 py-2 text-sm font-medium text-slate-400 transition hover:text-slate-100"
-        },
-    );
 }
 
 fn sized_num_input(document: &Document, default: &str, width: &str) -> HtmlInputElement {
