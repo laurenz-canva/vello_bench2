@@ -17,14 +17,6 @@
       <div id="canvas-host" class="absolute inset-0 overflow-hidden"></div>
     </div>
 
-    <div
-      id="benchmark-stage-shell"
-      class="fixed inset-x-0 top-16 bottom-0 overflow-hidden border-t border-white/10 bg-slate-950 lg:top-20"
-    >
-      <div id="benchmark-canvas-host" class="absolute inset-0 overflow-hidden"></div>
-      <div id="ab-frame-host" class="absolute inset-0 hidden overflow-hidden"></div>
-    </div>
-
     <div id="app-overlay" class="pointer-events-none relative z-20 min-h-screen"></div>
   </div>
 
@@ -49,47 +41,18 @@
     const simd = simdSupported && simdPreferred;
     const simdStr = simd ? "simd" : "nosimd";
 
-    // Optional integrated A/B support: when served with control/ and treatment/
-    // assets present, the dashboard enables its built-in A/B harness.
-    let abMode = false;
-    try {
-      const probe = await fetch("./control/vello_bench2.js", {
-        method: "GET",
-        cache: "no-store",
-      });
-      abMode = probe.ok;
-    } catch (_) {}
-
-    const query = new URLSearchParams(location.search);
-    const abChild = query.get("ab_child") === "1";
-    const variant = location.pathname.includes("/treatment/") ? "treatment" : "control";
-
-    const mod_path = abMode
-      ? (abChild ? "./vello_bench2.js" : "./control/vello_bench2.js")
-      : `./${simdStr}/vello_bench2.js`;
-
-    if (!abMode) {
-      window.__vello_simd_supported = simdSupported;
-      window.__vello_simd = simd;
-      if (simdSupported) {
-        window.__vello_toggle_simd = () => {
-          localStorage.setItem("vello_bench_simd", simd ? "0" : "1");
-          location.reload();
-        };
-      }
+    window.__vello_simd_supported = simdSupported;
+    window.__vello_simd = simd;
+    if (simdSupported) {
+      window.__vello_toggle_simd = () => {
+        localStorage.setItem("vello_bench_simd", simd ? "0" : "1");
+        location.reload();
+      };
     }
 
-    if (abMode) {
-      window.__vello_ab_mode = !abChild;
-      if (abChild) {
-        window.__vello_ab_child = true;
-        window.__vello_variant = variant;
-      }
-    }
+    window.__vello_asset_base = new URL("./assets/", location.href).href;
 
-    window.__vello_asset_base = new URL(abMode && abChild ? "../assets/" : "./assets/", location.href).href;
-
-    const { default: init, run } = await import(mod_path);
+    const { default: init, run } = await import(`./${simdStr}/vello_bench2.js`);
     const start = async () => {
       await init();
       await run();

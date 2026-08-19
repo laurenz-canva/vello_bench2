@@ -4,7 +4,7 @@
  * Class names remain the compact tokens emitted by the Rust UI, but this file
  * is hand-written CSS: it has no Tailwind dependency and requires no browser-
  * side compilation. The declarations intentionally use conservative CSS so
- * the benchmark UI remains usable in older browsers such as Safari 15.6.
+ * the interactive UI remains usable in older browsers such as Safari 15.6.
  */
 
 html,
