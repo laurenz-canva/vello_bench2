@@ -28,9 +28,15 @@ fn class(el: &impl AsRef<Element>, value: &str) {
     el.as_ref().set_class_name(value);
 }
 
-const TOP_PROBE_BUTTON_NEUTRAL_CLASS: &str = "min-w-0 shrink cursor-pointer whitespace-normal break-words border border-slate-300/20 bg-slate-300/10 px-2 py-1 text-left text-xs font-semibold leading-4 text-slate-200 transition hover:bg-slate-300/15";
-const TOP_PROBE_BUTTON_SUCCESS_CLASS: &str = "min-w-0 shrink cursor-pointer whitespace-normal break-words border border-emerald-300/40 bg-emerald-300/10 px-2 py-1 text-left text-xs font-semibold leading-4 text-emerald-300 transition hover:bg-emerald-300/15";
-const TOP_PROBE_BUTTON_FAILURE_CLASS: &str = "min-w-0 shrink cursor-pointer whitespace-normal break-words border border-rose-300/40 bg-rose-300/10 px-2 py-1 text-left text-xs font-semibold leading-4 text-rose-300 transition hover:bg-rose-300/15";
+const TOP_PROBE_BUTTON_NEUTRAL_CLASS: &str = "app-probe-button shrink-0 cursor-pointer whitespace-nowrap border border-slate-300/20 bg-slate-300/10 px-2 py-1 text-xs font-semibold text-slate-200 transition hover:bg-slate-300/15";
+const TOP_PROBE_BUTTON_SUCCESS_CLASS: &str = "app-probe-button shrink-0 cursor-pointer whitespace-nowrap border border-emerald-300/40 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-300/15";
+const TOP_PROBE_BUTTON_FAILURE_CLASS: &str = "app-probe-button shrink-0 cursor-pointer whitespace-nowrap border border-rose-300/40 bg-rose-300/10 px-2 py-1 text-xs font-semibold text-rose-300 transition hover:bg-rose-300/15";
+const PROBE_DETAILS_NEUTRAL_CLASS: &str =
+    "app-probe-details border border-slate-300/20 bg-slate-300/10 text-slate-200";
+const PROBE_DETAILS_SUCCESS_CLASS: &str =
+    "app-probe-details border border-emerald-300/40 bg-emerald-300/10 text-emerald-300";
+const PROBE_DETAILS_FAILURE_CLASS: &str =
+    "app-probe-details border border-rose-300/40 bg-rose-300/10 text-rose-300";
 
 fn set_probe_button_state(button: &HtmlElement, class_name: &str, text: &str, title: Option<&str>) {
     class(button, class_name);
@@ -39,6 +45,15 @@ fn set_probe_button_state(button: &HtmlElement, class_name: &str, text: &str, ti
         Some(title) => button.set_attribute("title", title).unwrap(),
         None => button.remove_attribute("title").unwrap(),
     }
+}
+
+fn set_probe_details(details: &HtmlElement, class_name: &str, text: Option<&str>) {
+    class(details, class_name);
+    details.set_text_content(text);
+    details
+        .style()
+        .set_property("display", if text.is_some() { "block" } else { "none" })
+        .unwrap();
 }
 
 fn select_style(sel: &HtmlSelectElement) {
@@ -129,6 +144,7 @@ pub struct Ui {
     top_timing_popup: HtmlElement,
     webgl_init_status: HtmlElement,
     top_probe_btn: HtmlElement,
+    top_probe_details: HtmlElement,
     renderer_select: HtmlSelectElement,
 
     // Interactive: sidebar
@@ -176,6 +192,7 @@ impl Ui {
             sidebar_toggle_btn,
             webgl_init_status,
             top_probe_btn,
+            top_probe_details,
             renderer_select,
         ) = build_top_bar(document, crate::backend::current_backend_kind());
         app_overlay.append_child(&top_bar).unwrap();
@@ -197,6 +214,7 @@ impl Ui {
             top_timing_popup: iv.top_timing_popup,
             webgl_init_status,
             top_probe_btn,
+            top_probe_details,
             renderer_select,
             sidebar: iv.sidebar,
             toggle_btn: sidebar_toggle_btn,
@@ -397,11 +415,21 @@ impl Ui {
                 "Probing...",
                 None,
             );
+            set_probe_details(
+                &self.top_probe_details,
+                PROBE_DETAILS_NEUTRAL_CLASS,
+                Some("Starting probe…"),
+            );
         } else {
             set_probe_button_state(
                 &self.top_probe_btn,
                 TOP_PROBE_BUTTON_NEUTRAL_CLASS,
                 "Probe",
+                None,
+            );
+            set_probe_details(
+                &self.top_probe_details,
+                PROBE_DETAILS_NEUTRAL_CLASS,
                 None,
             );
         }
@@ -411,11 +439,14 @@ impl Ui {
         set_probe_button_state(
             &self.top_probe_btn,
             TOP_PROBE_BUTTON_NEUTRAL_CLASS,
-            &format!(
-                "Probe: Running · start {synchronous_ms:.1}ms · readback pending · full pending"
-            ),
+            "Probing…",
+            None,
+        );
+        set_probe_details(
+            &self.top_probe_details,
+            PROBE_DETAILS_NEUTRAL_CLASS,
             Some(&format!(
-                "start_probe: {synchronous_ms:.1}ms, readback: pending, full: pending"
+                "start_probe: {synchronous_ms:.1}ms · readback: pending · full: pending"
             )),
         );
     }
@@ -432,11 +463,14 @@ impl Ui {
         set_probe_button_state(
             &self.top_probe_btn,
             TOP_PROBE_BUTTON_SUCCESS_CLASS,
-            &format!(
-                "Probe: Pass · start {start_probe_ms:.1}ms · readback {readback_ms:.1}ms · full {full_ms:.1}ms"
-            ),
+            "Probe: Pass",
+            None,
+        );
+        set_probe_details(
+            &self.top_probe_details,
+            PROBE_DETAILS_SUCCESS_CLASS,
             Some(&format!(
-                "start_probe: {start_probe_ms:.1}ms, readback: {readback_ms:.1}ms, full: {full_ms:.1}ms"
+                "start_probe: {start_probe_ms:.1}ms · readback: {readback_ms:.1}ms · full: {full_ms:.1}ms"
             )),
         );
     }
@@ -459,14 +493,14 @@ impl Ui {
         set_probe_button_state(
             &self.top_probe_btn,
             TOP_PROBE_BUTTON_FAILURE_CLASS,
-            &format!(
-                "Probe: Error · start {start_probe_ms:.1}ms · readback {} · full {full_ms:.1}ms · {message}",
-                readback_ms
-                    .map(|value| format!("{value:.1}ms"))
-                    .unwrap_or_else(|| "n/a".to_string())
-            ),
+            "Probe: Error",
+            None,
+        );
+        set_probe_details(
+            &self.top_probe_details,
+            PROBE_DETAILS_FAILURE_CLASS,
             Some(&format!(
-                "start_probe: {start_probe_ms:.1}ms, readback: {}, full: {full_ms:.1}ms; {message}",
+                "start_probe: {start_probe_ms:.1}ms · readback: {} · full: {full_ms:.1}ms · error: {message}",
                 readback_ms
                     .map(|value| format!("{value:.1}ms"))
                     .unwrap_or_else(|| "n/a".to_string())
@@ -492,6 +526,11 @@ impl Ui {
             &self.top_probe_btn,
             TOP_PROBE_BUTTON_NEUTRAL_CLASS,
             "Probe",
+            None,
+        );
+        set_probe_details(
+            &self.top_probe_details,
+            PROBE_DETAILS_NEUTRAL_CLASS,
             None,
         );
     }
@@ -576,19 +615,14 @@ fn build_top_bar(
     HtmlElement,
     HtmlElement,
     HtmlElement,
+    HtmlElement,
     HtmlSelectElement,
 ) {
     let top_bar = div(document);
-    class(
-        &top_bar,
-        "pointer-events-none fixed inset-x-3 top-3 z-[80] flex flex-col items-start gap-3 sm:inset-x-0 sm:top-0 sm:block",
-    );
+    class(&top_bar, "app-top-bar");
 
     let nav_group = div(document);
-    class(
-        &nav_group,
-        "pointer-events-auto sm:fixed sm:left-3 sm:top-3 lg:left-4 lg:top-4",
-    );
+    class(&nav_group, "app-nav-control");
 
     let sidebar_toggle_btn = div(document);
     sidebar_toggle_btn.set_inner_html(
@@ -604,13 +638,14 @@ fn build_top_bar(
 
     let webgl_init_status = div(document);
     class(&webgl_init_status, "webgl-init-status");
-    top_bar.append_child(&webgl_init_status).unwrap();
 
     let controls_group = div(document);
-    class(
-        &controls_group,
-        "pointer-events-auto flex min-h-11 max-w-full flex-wrap items-center gap-3 border border-white/10 bg-slate-950/88 px-4 py-2 sm:fixed sm:right-3 sm:top-3 sm:max-w-[calc(100vw-6rem)] lg:right-4 lg:top-4",
-    );
+    class(&controls_group, "app-top-controls");
+
+    let primary_controls = div(document);
+    class(&primary_controls, "app-top-primary");
+    controls_group.append_child(&primary_controls).unwrap();
+    controls_group.append_child(&webgl_init_status).unwrap();
 
     let has_toggle = js_sys::Reflect::get(&js_sys::global(), &"__vello_toggle_simd".into())
         .ok()
@@ -625,9 +660,9 @@ fn build_top_bar(
         class(
             &simd_btn,
             if simd_on {
-                "shrink-0 cursor-pointer whitespace-nowrap border border-emerald-300/40 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-300"
+                "app-simd-toggle shrink-0 cursor-pointer whitespace-nowrap border border-emerald-300/40 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-300"
             } else {
-                "shrink-0 cursor-pointer whitespace-nowrap border border-rose-300/40 bg-rose-300/10 px-2 py-1 text-xs font-semibold text-rose-300"
+                "app-simd-toggle shrink-0 cursor-pointer whitespace-nowrap border border-rose-300/40 bg-rose-300/10 px-2 py-1 text-xs font-semibold text-rose-300"
             },
         );
         {
@@ -645,7 +680,7 @@ fn build_top_bar(
                 .unwrap();
             cb.forget();
         }
-        controls_group.append_child(&simd_btn).unwrap();
+        primary_controls.append_child(&simd_btn).unwrap();
     }
 
     let top_probe_btn = div(document);
@@ -659,7 +694,13 @@ fn build_top_bar(
         .style()
         .set_property("display", "none")
         .unwrap();
-    controls_group.append_child(&top_probe_btn).unwrap();
+    let top_probe_details = div(document);
+    set_probe_details(
+        &top_probe_details,
+        PROBE_DETAILS_NEUTRAL_CLASS,
+        None,
+    );
+    controls_group.append_child(&top_probe_details).unwrap();
 
     let renderer_select: HtmlSelectElement = document
         .create_element("select")
@@ -669,7 +710,7 @@ fn build_top_bar(
     select_style(&renderer_select);
     class(
         &renderer_select,
-        "w-auto max-w-[9rem] shrink border border-white/10 bg-slate-950/80 px-3 py-1 text-sm text-slate-100 sm:ml-2 sm:max-w-none sm:shrink-0",
+        "app-renderer-select w-auto max-w-[9rem] shrink border border-white/10 bg-slate-950/80 px-3 py-1 text-sm text-slate-100",
     );
     for kind in BackendKind::available() {
         let opt = document.create_element("option").unwrap();
@@ -678,7 +719,8 @@ fn build_top_bar(
         renderer_select.append_child(&opt).unwrap();
     }
     renderer_select.set_value(current_backend.as_str());
-    controls_group.append_child(&renderer_select).unwrap();
+    primary_controls.append_child(&renderer_select).unwrap();
+    primary_controls.append_child(&top_probe_btn).unwrap();
     top_bar.append_child(&controls_group).unwrap();
 
     (
@@ -686,6 +728,7 @@ fn build_top_bar(
         sidebar_toggle_btn,
         webgl_init_status,
         top_probe_btn,
+        top_probe_details,
         renderer_select,
     )
 }

@@ -80,9 +80,110 @@ canvas {
   background: rgba(16, 185, 129, 0.14);
 }
 
+.app-top-bar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 80;
+  pointer-events: none;
+}
+
+.app-nav-control {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  pointer-events: auto;
+}
+
+.app-top-controls {
+  position: fixed;
+  top: 0.75rem;
+  right: 0.75rem;
+  display: flex;
+  max-width: calc(100vw - 4.5rem);
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(2, 6, 23, 0.88);
+  pointer-events: auto;
+}
+
+.app-top-primary {
+  display: flex;
+  min-width: 0;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-probe-details {
+  min-width: 0;
+  max-width: 56vw;
+  max-height: 4rem;
+  overflow: auto;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1rem;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 639px) {
-  .webgl-init-status {
-    top: 4rem;
+  .app-nav-control {
+    top: 0.5rem;
+    left: 0.5rem;
+  }
+
+  .app-top-controls {
+    top: 0.5rem;
+    right: 0.5rem;
+    left: 3.25rem;
+    max-width: none;
+    min-height: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.375rem;
+    padding: 0.375rem;
+  }
+
+  .app-top-primary {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .app-renderer-select {
+    min-width: 0;
+    max-width: none;
+    flex: 1 1 auto;
+  }
+
+  .app-simd-toggle {
+    flex: 0 0 auto;
+  }
+
+  .app-probe-details {
+    width: 100%;
+    max-width: none;
+    max-height: 3.75rem;
+    overflow-y: auto;
+  }
+
+  .app-top-controls .webgl-init-status {
+    position: static;
+    width: 100%;
+    padding: 0.25rem 0.5rem;
+    white-space: normal;
+    -webkit-transform: none;
+    transform: none;
+  }
+
+  #canvas-stage-shell {
+    top: 7rem;
   }
 }
 
