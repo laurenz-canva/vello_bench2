@@ -828,7 +828,7 @@ fn build_timing_overlay(document: &Document) -> (HtmlElement, HtmlElement, HtmlE
     let timing_wrap = div(document);
     class(
         &timing_wrap,
-        "pointer-events-auto fixed right-3 top-[7.5rem] z-[70] hidden items-start sm:top-[4.5rem] lg:right-4 lg:top-24",
+        "pointer-events-auto fixed right-3 top-[7.5rem] z-[70] flex items-start sm:top-[4.5rem] lg:right-4 lg:top-24",
     );
 
     let top_timing_label = div(document);
