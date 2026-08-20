@@ -54,7 +54,7 @@ jobs:
 
       # SIMD
       - name: Build simd
-        run: cargo build --target wasm32-unknown-unknown --profile dist
+        run: cargo build --lib --target wasm32-unknown-unknown --profile dist
         env:
           RUSTFLAGS: -Ctarget-feature=+simd128
 
@@ -62,10 +62,11 @@ jobs:
         run: |
           wasm-bindgen --target web --out-dir dist/simd --no-typescript \
             target/wasm32-unknown-unknown/dist/vello_bench2.wasm
+          grep -q "export function run" dist/simd/vello_bench2.js
 
       # no-SIMD
       - name: Build nosimd
-        run: cargo build --target wasm32-unknown-unknown --profile dist
+        run: cargo build --lib --target wasm32-unknown-unknown --profile dist
         env:
           RUSTFLAGS: ""
 
@@ -73,6 +74,7 @@ jobs:
         run: |
           wasm-bindgen --target web --out-dir dist/nosimd --no-typescript \
             target/wasm32-unknown-unknown/dist/vello_bench2.wasm
+          grep -q "export function run" dist/nosimd/vello_bench2.js
 
       - name: Copy web assets
         run: |
