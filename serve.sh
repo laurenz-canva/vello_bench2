@@ -49,7 +49,7 @@ copy_svg_assets() {
     if [ -f "$out" ]; then
       continue
     fi
-    brotli -q11 -c "$asset" > "$out"
+    brotli -q 11 -c "$asset" > "$out"
   done
 }
 
@@ -59,7 +59,7 @@ compress_wasm_assets() {
     exit 1
   fi
 
-  find "$DIST" -type f -name '*.wasm' -exec sh -c 'brotli -q11 -c "$1" > "$1.br"' _ {} \;
+  find "$DIST" -type f -name '*.wasm' -exec sh -c 'brotli -q 11 -c "$1" > "$1.br"' _ {} \;
 }
 
 while [ $# -gt 0 ]; do
