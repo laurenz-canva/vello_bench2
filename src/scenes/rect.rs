@@ -13,10 +13,11 @@ use smallvec::smallvec;
 use vello_common::kurbo::{Affine, Point, Rect};
 use vello_common::paint::Image;
 use vello_common::peniko::{
-    Color, ColorStop, ColorStops, Extend, Gradient, ImageQuality, ImageSampler,
+    Color, ColorStop, ColorStops, Extend, Gradient, ImageAlphaType, ImageQuality, ImageSampler,
     LinearGradientPosition, RadialGradientPosition, SweepGradientPosition, color::DynamicColor,
     color::PremulRgba8,
 };
+use vello_common::pixmap::PixelMetadata;
 
 const NUM_IMAGES: usize = 50;
 const IMAGE_SIZE: u16 = 64;
@@ -259,7 +260,12 @@ fn make_image_pixmap(image_idx: usize, image_opaque: bool) -> Pixmap {
         }
     }
 
-    Pixmap::from_parts_with_opacity(pixels, IMAGE_SIZE, IMAGE_SIZE, !image_opaque)
+    Pixmap::from_parts(
+        bytemuck::cast_vec(pixels),
+        IMAGE_SIZE,
+        IMAGE_SIZE,
+        PixelMetadata::new(ImageAlphaType::AlphaPremultiplied, !image_opaque),
+    )
 }
 
 fn random_rect(rng: &mut Rng, w: f64, h: f64, alpha: u8) -> AnimatedRect {

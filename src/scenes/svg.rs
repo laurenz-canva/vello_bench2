@@ -15,7 +15,10 @@ use usvg::tiny_skia_path::PathSegment;
 use usvg::{Group, ImageKind, ImageRendering, Node};
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::paint::Image as PaintImage;
-use vello_common::peniko::{Color, Extend, ImageQuality, ImageSampler, color::PremulRgba8};
+use vello_common::peniko::{
+    Color, Extend, ImageAlphaType, ImageQuality, ImageSampler, color::PremulRgba8,
+};
+use vello_common::pixmap::PixelMetadata;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{JsFuture, spawn_local};
 
@@ -368,11 +371,11 @@ fn decode_raster_image(kind: &ImageKind) -> Result<Option<Pixmap>, String> {
         })
         .collect();
 
-    Ok(Some(Pixmap::from_parts_with_opacity(
-        pixels,
+    Ok(Some(Pixmap::from_parts(
+        bytemuck::cast_vec(pixels),
         width,
         height,
-        may_have_opacities,
+        PixelMetadata::new(ImageAlphaType::AlphaPremultiplied, may_have_opacities),
     )))
 }
 
