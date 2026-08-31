@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Vello fearless_simd WASM benchmark</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">Vello browser benchmark</p>
+          <h1><code>fearless_simd</code> 0.4 → 0.7</h1>
+          <p class="lede">Core <code>vello_bench</code> workloads across before/after and scalar/SIMD128 builds.</p>
+        </div>
+        <div id="status" class="status">Loading four WASM builds…</div>
+      </header>
+
+      <section class="device" aria-label="Device information">
+        <div><span>Device</span><strong id="device">—</strong></div>
+        <div><span>Logical CPUs</span><strong id="cores">—</strong></div>
+        <div><span>WASM SIMD128</span><strong id="simd-support">—</strong></div>
+        <div><span>Revisions</span><strong id="revisions">—</strong></div>
+      </section>
+
+      <section class="controls">
+        <span>100 ms warm-up · 500 ms measurement per build</span>
+        <button id="run" type="button" disabled>Run all</button>
+        <button id="stop" type="button" disabled>Stop</button>
+        <button id="csv" type="button" disabled>Export CSV</button>
+        <button id="json" type="button" disabled>Export JSON</button>
+      </section>
+
+      <div class="progress" aria-hidden="true"><div id="progress"></div></div>
+
+      <section class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th rowspan="2">Benchmark</th>
+              <th colspan="3">Scalar</th>
+              <th colspan="3">SIMD128</th>
+            </tr>
+            <tr>
+              <th>Before</th><th>After</th><th>Δ</th>
+              <th>Before</th><th>After</th><th>Δ</th>
+            </tr>
+          </thead>
+          <tbody id="results"></tbody>
+        </table>
+      </section>
+
+      <p class="note">Nanoseconds per iteration over the 500 ms measurement window. Negative deltas are faster. Keep this tab foregrounded and close other busy tabs while measuring.</p>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
