@@ -1,12 +1,14 @@
 use glifo::Glyph;
+use vello_common::TextureId;
 use vello_common::filter_effects::Filter;
+use vello_common::geometry::RectU16;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::{Fill, FontData};
 use vello_common::pixmap::Pixmap;
 use vello_hybrid::{LayersConfig, MemorySettings, WebGlTextureBindings};
-use web_sys::HtmlCanvasElement;
+use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
 
 use crate::backend::{Backend, BackendKind, layout_text_glyphs, uploaded_image_id};
 use crate::capability::CapabilityProfile;
@@ -18,6 +20,8 @@ pub struct BackendImpl {
     resources: vello_hybrid::Resources,
     renderer: Option<vello_hybrid::WebGlRenderer>,
     renderer_init: Option<vello_hybrid::WebGlRendererInit>,
+    external_texture_bindings: WebGlTextureBindings,
+    next_external_texture_id: u64,
 }
 
 impl std::fmt::Debug for BackendImpl {
@@ -46,6 +50,8 @@ impl BackendImpl {
             resources,
             renderer: None,
             renderer_init: Some(renderer_init),
+            external_texture_bindings: WebGlTextureBindings::new(),
+            next_external_texture_id: 0,
         }
     }
 
@@ -98,7 +104,7 @@ impl Backend for BackendImpl {
                 &self.ctx,
                 &mut self.resources,
                 &rs,
-                &WebGlTextureBindings::default(),
+                &self.external_texture_bindings,
             )
             .unwrap();
     }
@@ -190,8 +196,6 @@ impl Backend for BackendImpl {
         self.draw_glyphs(font, font_size, hint, &glyphs);
     }
 
-    fn draw_image(&mut self, _image: ImageSource, _rect: &Rect, _bilinear: bool) {}
-
     fn upload_image(&mut self, pixmap: Pixmap) -> ImageSource {
         let may_have_transparency = pixmap.may_have_transparency();
         let renderer = self
@@ -202,7 +206,73 @@ impl Backend for BackendImpl {
         ImageSource::opaque_id_with_transparency_hint(id, may_have_transparency)
     }
 
+    fn upload_external_image(&mut self, pixmap: Pixmap) -> ImageSource {
+        let width = pixmap.width();
+        let height = pixmap.height();
+        let may_have_transparency = pixmap.may_have_transparency();
+        let renderer = self
+            .renderer
+            .as_ref()
+            .expect("WebGL renderer used before initialization completed");
+        let gl = renderer.gl_context();
+        let texture = gl
+            .create_texture()
+            .expect("failed to create external texture");
+        gl.active_texture(WebGl2RenderingContext::TEXTURE0);
+        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, Some(&texture));
+        gl.tex_parameteri(
+            WebGl2RenderingContext::TEXTURE_2D,
+            WebGl2RenderingContext::TEXTURE_MIN_FILTER,
+            WebGl2RenderingContext::NEAREST as i32,
+        );
+        gl.tex_parameteri(
+            WebGl2RenderingContext::TEXTURE_2D,
+            WebGl2RenderingContext::TEXTURE_MAG_FILTER,
+            WebGl2RenderingContext::NEAREST as i32,
+        );
+        gl.tex_parameteri(
+            WebGl2RenderingContext::TEXTURE_2D,
+            WebGl2RenderingContext::TEXTURE_WRAP_S,
+            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+        );
+        gl.tex_parameteri(
+            WebGl2RenderingContext::TEXTURE_2D,
+            WebGl2RenderingContext::TEXTURE_WRAP_T,
+            WebGl2RenderingContext::CLAMP_TO_EDGE as i32,
+        );
+        gl.tex_image_2d_with_i32_and_i32_and_i32_and_format_and_type_and_opt_u8_array(
+            WebGl2RenderingContext::TEXTURE_2D,
+            0,
+            WebGl2RenderingContext::RGBA8 as i32,
+            i32::from(width),
+            i32::from(height),
+            0,
+            WebGl2RenderingContext::RGBA,
+            WebGl2RenderingContext::UNSIGNED_BYTE,
+            Some(pixmap.data_as_u8_slice()),
+        )
+        .expect("failed to upload external texture");
+        gl.bind_texture(WebGl2RenderingContext::TEXTURE_2D, None);
+
+        let texture_id = TextureId(self.next_external_texture_id);
+        self.next_external_texture_id = self.next_external_texture_id.wrapping_add(1);
+        self.external_texture_bindings.insert(texture_id, texture);
+        ImageSource::external_texture(
+            texture_id,
+            RectU16::new(0, 0, width, height),
+            may_have_transparency,
+        )
+    }
+
     fn destroy_image(&mut self, image: &ImageSource) {
+        if let ImageSource::ExternalTexture { id, .. } = image {
+            if let Some(texture) = self.external_texture_bindings.remove(*id)
+                && let Some(renderer) = self.renderer.as_ref()
+            {
+                renderer.gl_context().delete_texture(Some(&texture));
+            }
+            return;
+        }
         if let Some(id) = uploaded_image_id(image)
             && let Some(renderer) = self.renderer.as_mut()
         {

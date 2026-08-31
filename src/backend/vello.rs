@@ -18,7 +18,10 @@ use crate::scenes::{ParamId, SceneId};
 
 pub(crate) const CAPABILITIES: CapabilityProfile = CapabilityProfile::all()
     .deny_scenes(&[SceneId::FilterLayers])
-    .deny_params(SceneId::Rect, &[ParamId::ImageFilter, ParamId::UseDrawImage]);
+    .deny_params(
+        SceneId::Rect,
+        &[ParamId::ImageFilter, ParamId::ImageStorage],
+    );
 
 type SceneBrush = Brush<vello::peniko::ImageBrush, vello::peniko::Gradient>;
 
@@ -316,8 +319,6 @@ impl Backend for BackendImpl {
         let glyphs = layout_text_glyphs(font, font_size, text, x, y);
         self.draw_glyphs(font, font_size, hint, &glyphs);
     }
-
-    fn draw_image(&mut self, _image: ImageSource, _rect: &Rect, _bilinear: bool) {}
 
     fn upload_image(&mut self, pixmap: Pixmap) -> ImageSource {
         ImageSource::Pixmap(std::sync::Arc::new(pixmap))

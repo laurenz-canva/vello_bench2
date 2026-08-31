@@ -189,8 +189,10 @@ pub trait Backend {
         x: f32,
         y: f32,
     );
-    fn draw_image(&mut self, image: ImageSource, rect: &Rect, bilinear: bool);
     fn upload_image(&mut self, pixmap: Pixmap) -> ImageSource;
+    fn upload_external_image(&mut self, pixmap: Pixmap) -> ImageSource {
+        self.upload_image(pixmap)
+    }
     fn destroy_image(&mut self, image: &ImageSource);
     fn probe(&mut self) -> Result<vello_hybrid::WebGlPendingProbe, String> {
         Err("Backend probing is only supported for Vello Hybrid".to_string())
@@ -201,7 +203,7 @@ pub fn uploaded_image_id(image: &ImageSource) -> Option<ImageId> {
     match image {
         ImageSource::OpaqueId { id, .. } => Some(*id),
         ImageSource::Pixmap(_) => None,
-        _ => todo!()
+        _ => None,
     }
 }
 

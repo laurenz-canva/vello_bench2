@@ -45,8 +45,8 @@ impl ClipScene {
     /// Create a new clip path benchmark backend.
     pub fn new() -> Self {
         Self {
-            num_rects: 500,
-            rect_size: 250.0,
+            num_rects: 50,
+            rect_size: 100.0,
             speed: 5.0,
             clip_method: 0,
             clip_mode: 1,

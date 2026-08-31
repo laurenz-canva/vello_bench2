@@ -17,7 +17,7 @@ use crate::capability::CapabilityProfile;
 use crate::scenes::{ParamId, SceneId};
 
 pub(crate) const CAPABILITIES: CapabilityProfile =
-    CapabilityProfile::all().deny_params(SceneId::Rect, &[ParamId::UseDrawImage]);
+    CapabilityProfile::all().deny_params(SceneId::Rect, &[ParamId::ImageStorage]);
 
 extern crate alloc;
 
@@ -254,8 +254,6 @@ impl Backend for BackendImpl {
         let glyphs = layout_text_glyphs(font, font_size, text, x, y);
         self.draw_glyphs(font, font_size, hint, &glyphs);
     }
-
-    fn draw_image(&mut self, _image: ImageSource, _rect: &Rect, _bilinear: bool) {}
 
     fn upload_image(&mut self, pixmap: Pixmap) -> ImageSource {
         ImageSource::Pixmap(Arc::new(pixmap))

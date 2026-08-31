@@ -38,7 +38,6 @@ pub(crate) const CAPABILITIES: CapabilityProfile = CapabilityProfile::none()
             ParamId::Rotated,
             ParamId::ImageFilter,
             ParamId::ImageOpaque,
-            ParamId::UseDrawImage,
             ParamId::GradientShape,
             ParamId::DynamicGradient,
         ],
@@ -395,13 +394,6 @@ impl Backend for BackendImpl {
         self.ctx.set_font(&format!("{font_size}px sans-serif"));
         self.ctx.set_text_baseline("alphabetic");
         let _ = self.ctx.fill_text(text, x as f64, y as f64);
-    }
-
-    fn draw_image(&mut self, image: ImageSource, rect: &Rect, bilinear: bool) {
-        let Some(uploaded) = self.resolve_image(&image) else {
-            return;
-        };
-        self.draw_uploaded_image(uploaded, rect, bilinear, 1.0);
     }
 
     fn upload_image(&mut self, pixmap: Pixmap) -> ImageSource {

@@ -252,6 +252,8 @@ impl AppState {
             .rebuild_scene_options(&self.scenes, self.backend_caps, self.current_scene);
         let params = self.scene_params_for_ui(self.current_scene);
         self.ui.rebuild_params(&params);
+        let values = self.ui.read_params();
+        self.ui.sync_param_visibility(scene_id, &values);
         self.fps_tracker.reset(now);
         self.update_reset_btn();
         self.ui.mark_dirty();
@@ -282,6 +284,9 @@ impl AppState {
             self.reset_view();
             let params = self.scene_params_for_ui(self.current_scene);
             self.ui.rebuild_params(&params);
+            let values = self.ui.read_params();
+            self.ui
+                .sync_param_visibility(self.scenes[self.current_scene].scene_id(), &values);
             self.ui.mark_dirty();
             return;
         }
@@ -291,6 +296,8 @@ impl AppState {
         for &(param_id, value) in &params {
             self.scenes[idx].set_param(param_id, value);
         }
+        self.ui
+            .sync_param_visibility(self.scenes[idx].scene_id(), &params);
 
         let perf = web_sys::window().unwrap().performance().unwrap();
         let t0 = perf.now();
@@ -556,6 +563,9 @@ pub async fn run() {
     {
         let st = state.borrow();
         st.ui.apply_saved_params(&saved_state);
+        let values = st.ui.read_params();
+        st.ui
+            .sync_param_visibility(st.scenes[st.current_scene].scene_id(), &values);
         st.ui.save_state();
     }
 

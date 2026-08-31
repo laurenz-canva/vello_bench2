@@ -150,8 +150,8 @@ pub struct RectScene {
     image_filter: u32,
     /// Whether images are fully opaque (no alpha fade).
     image_opaque: bool,
-    /// Use `draw_image` API instead of image paint (hybrid GPU fast path).
-    use_draw_image: bool,
+    /// Upload images as external textures instead of using the Hybrid image atlas.
+    use_external_textures: bool,
     /// When true, fill colors use alpha 255 instead of semi-transparent.
     opaque: bool,
     /// When true, gradient colors and positions animate every frame.
@@ -174,14 +174,14 @@ impl RectScene {
     /// Create a new rectangle benchmark scene with default parameters.
     pub fn new() -> Self {
         Self {
-            num_rects: 200,
+            num_rects: 2,
             speed: 5.0,
             paint_mode: 0,
-            rect_size: 50.0,
+            rect_size: 300.0,
             rotated: false,
-            image_filter: 0,
+            image_filter: 1,
             image_opaque: false,
-            use_draw_image: false,
+            use_external_textures: false,
             opaque: false,
             dynamic_gradient: false,
             gradient_shape: 0,
@@ -350,10 +350,13 @@ impl BenchScene for RectScene {
                 value: if self.image_opaque { 1.0 } else { 0.0 },
             },
             Param {
-                id: ParamId::UseDrawImage,
-                label: "Use draw_image",
-                kind: ParamKind::Select(vec![("No", 0.0), ("Yes", 1.0)]),
-                value: if self.use_draw_image { 1.0 } else { 0.0 },
+                id: ParamId::ImageStorage,
+                label: "Image Storage",
+                kind: ParamKind::Select(vec![
+                    ("Image Atlas", 0.0),
+                    ("External Textures", 1.0),
+                ]),
+                value: if self.use_external_textures { 1.0 } else { 0.0 },
             },
             Param {
                 id: ParamId::Opaque,
@@ -381,7 +384,13 @@ impl BenchScene for RectScene {
                     self.image_epoch = self.image_epoch.wrapping_add(1);
                 }
             }
-            ParamId::UseDrawImage => self.use_draw_image = value >= 0.5,
+            ParamId::ImageStorage => {
+                let use_external_textures = value >= 0.5;
+                if use_external_textures != self.use_external_textures {
+                    self.use_external_textures = use_external_textures;
+                    self.image_epoch = self.image_epoch.wrapping_add(1);
+                }
+            }
             ParamId::Opaque => {
                 let new_val = value >= 0.5;
                 if new_val != self.opaque {
@@ -548,36 +557,6 @@ impl BenchScene for RectScene {
                     };
                     backend.set_paint(gradient.into());
                 }
-                _ if self.use_draw_image => {
-                    // draw_image expects the rect in image-native coordinates;
-                    // the scene transform handles positioning and scaling.
-                    let source = resources.get_or_upload_image(
-                        SceneId::Rect,
-                        image_epoch,
-                        r.image_idx as u64,
-                        backend,
-                        || make_image_pixmap(r.image_idx, image_opaque),
-                    );
-                    let bilinear = self.image_filter != 0;
-                    let scale = size / IMAGE_SIZE as f64;
-                    let img_rect = Rect::new(0.0, 0.0, IMAGE_SIZE as f64, IMAGE_SIZE as f64);
-                    if self.rotated {
-                        // Rotation transform already positions at origin.
-                        backend.set_transform(
-                            view * Affine::translate((r.x + half, r.y + half))
-                                * Affine::rotate(r.angle)
-                                * Affine::translate((-half, -half))
-                                * Affine::scale(scale),
-                        );
-                    } else {
-                        backend.set_transform(
-                            view * Affine::translate((r.x, r.y)) * Affine::scale(scale),
-                        );
-                    }
-                    backend.draw_image(source, &img_rect, bilinear);
-                    backend.set_transform(view);
-                    continue;
-                }
                 _ => {
                     // Image paint mode.
                     let image = Image {
@@ -585,6 +564,7 @@ impl BenchScene for RectScene {
                             SceneId::Rect,
                             image_epoch,
                             r.image_idx as u64,
+                            self.use_external_textures,
                             backend,
                             || make_image_pixmap(r.image_idx, image_opaque),
                         ),

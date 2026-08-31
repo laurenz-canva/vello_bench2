@@ -61,7 +61,7 @@ pub enum ParamId {
     DynamicGradient,
     ImageFilter,
     ImageOpaque,
-    UseDrawImage,
+    ImageStorage,
     NumStrokes,
     CurveType,
     Segments,
@@ -97,7 +97,7 @@ impl ParamId {
             Self::DynamicGradient => 5,
             Self::ImageFilter => 6,
             Self::ImageOpaque => 7,
-            Self::UseDrawImage => 8,
+            Self::ImageStorage => 8,
             Self::NumStrokes => 9,
             Self::CurveType => 10,
             Self::Segments => 11,
@@ -134,7 +134,7 @@ impl ParamId {
             Self::DynamicGradient => "dynamic_gradient",
             Self::ImageFilter => "image_filter",
             Self::ImageOpaque => "image_opaque",
-            Self::UseDrawImage => "use_draw_image",
+            Self::ImageStorage => "image_storage",
             Self::NumStrokes => "num_strokes",
             Self::CurveType => "curve_type",
             Self::Segments => "segments",
@@ -241,6 +241,28 @@ pub fn visible_params(scene: &dyn BenchScene, capabilities: BackendCapabilities)
             Some(param)
         })
         .collect()
+}
+
+/// Return whether a supported parameter affects the scene's current configuration.
+///
+/// Parameters remain mounted in the UI so their values survive configuration changes, but
+/// inactive controls can be hidden until the setting they apply to is selected.
+pub fn param_is_relevant(scene_id: SceneId, param_id: ParamId, values: &[(ParamId, f64)]) -> bool {
+    if scene_id != SceneId::Rect {
+        return true;
+    }
+
+    let paint_mode = values
+        .iter()
+        .find_map(|(id, value)| (*id == ParamId::PaintMode).then_some(*value as u32))
+        .unwrap_or(0);
+
+    match param_id {
+        ParamId::GradientShape | ParamId::DynamicGradient => paint_mode == 1,
+        ParamId::ImageFilter | ParamId::ImageOpaque | ParamId::ImageStorage => paint_mode == 2,
+        ParamId::Opaque => paint_mode != 2,
+        _ => true,
+    }
 }
 
 // ── Shared animation helpers ─────────────────────────────────────────────────

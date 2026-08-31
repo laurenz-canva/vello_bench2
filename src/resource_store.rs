@@ -6,7 +6,7 @@ use crate::scenes::SceneId;
 #[derive(Debug, Default)]
 pub struct ResourceStore {
     scene_epochs: HashMap<SceneId, u64>,
-    images: HashMap<(SceneId, u64, u64), ImageSource>,
+    images: HashMap<(SceneId, u64, u64, bool), ImageSource>,
 }
 
 impl ResourceStore {
@@ -27,6 +27,7 @@ impl ResourceStore {
         scene_id: SceneId,
         epoch: u64,
         key: u64,
+        external_texture: bool,
         backend: &mut dyn Backend,
         make_pixmap: F,
     ) -> ImageSource
@@ -34,10 +35,17 @@ impl ResourceStore {
         F: FnOnce() -> Pixmap,
     {
         self.prepare_scene(scene_id, epoch, backend);
-        let cache_key = (scene_id, epoch, key);
+        let cache_key = (scene_id, epoch, key, external_texture);
         self.images
             .entry(cache_key)
-            .or_insert_with(|| backend.upload_image(make_pixmap()))
+            .or_insert_with(|| {
+                let pixmap = make_pixmap();
+                if external_texture {
+                    backend.upload_external_image(pixmap)
+                } else {
+                    backend.upload_image(pixmap)
+                }
+            })
             .clone()
     }
 
@@ -46,7 +54,7 @@ impl ResourceStore {
             .images
             .keys()
             .copied()
-            .filter(|(id, _, _)| *id == scene_id)
+            .filter(|(id, _, _, _)| *id == scene_id)
             .collect();
         for key in doomed {
             if let Some(image) = self.images.remove(&key) {

@@ -132,6 +132,14 @@ enum ParamCtrl {
     },
 }
 
+impl ParamCtrl {
+    fn root(&self) -> &HtmlElement {
+        match self {
+            Self::Stepper { root, .. } | Self::Select { root, .. } => root,
+        }
+    }
+}
+
 // ── UI ───────────────────────────────────────────────────────────────────────
 
 /// Full UI state.
@@ -155,6 +163,8 @@ pub struct Ui {
     /// Scene selector.
     pub scene_select: HtmlSelectElement,
     controls: Vec<(ParamCtrl, HtmlElement, ParamId)>,
+    /// Cached relevance mask, avoiding DOM writes when configuration is unchanged.
+    param_visibility_mask: Cell<Option<u64>>,
     /// Reset view button.
     pub reset_view_btn: HtmlElement,
 
@@ -222,11 +232,14 @@ impl Ui {
             viewport_label: iv.viewport_label,
             scene_select: iv.scene_select,
             controls: iv.controls,
+            param_visibility_mask: Cell::new(None),
             reset_view_btn: iv.reset_view_btn,
             dirty,
         };
         ui.set_renderer(crate::backend::current_backend_kind());
         ui.apply_sidebar_state();
+        let values = ui.read_params();
+        ui.sync_param_visibility(scenes[current_scene].scene_id(), &values);
         ui
     }
 
@@ -355,6 +368,37 @@ impl Ui {
             .collect()
     }
 
+    /// Show only controls that affect the scene's current configuration.
+    pub fn sync_param_visibility(
+        &self,
+        scene_id: crate::scenes::SceneId,
+        values: &[(ParamId, f64)],
+    ) {
+        let visibility_mask = self.controls.iter().fold(0_u64, |mask, (_, _, param_id)| {
+            if crate::scenes::param_is_relevant(scene_id, *param_id, values) {
+                mask | param_id.bit()
+            } else {
+                mask
+            }
+        });
+        if self.param_visibility_mask.get() == Some(visibility_mask) {
+            return;
+        }
+
+        for (ctrl, _, param_id) in &self.controls {
+            let display = if visibility_mask & param_id.bit() != 0 {
+                ""
+            } else {
+                "none"
+            };
+            ctrl.root()
+                .style()
+                .set_property("display", display)
+                .unwrap();
+        }
+        self.param_visibility_mask.set(Some(visibility_mask));
+    }
+
     /// Rebuild interactive params.
     pub fn rebuild_params(&mut self, params: &[Param]) {
         for (ctrl, _, _) in self.controls.drain(..) {
@@ -363,6 +407,7 @@ impl Ui {
                 ParamCtrl::Select { root, .. } => root.remove(),
             }
         }
+        self.param_visibility_mask.set(None);
         let document = doc();
         self.controls = build_controls(&document, &self.sidebar, params, None, Some(&self.dirty));
     }

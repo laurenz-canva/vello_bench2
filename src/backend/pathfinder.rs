@@ -52,7 +52,6 @@ pub(crate) const CAPABILITIES: CapabilityProfile = CapabilityProfile::none()
             ParamId::Rotated,
             ParamId::ImageFilter,
             ParamId::ImageOpaque,
-            ParamId::UseDrawImage,
             ParamId::GradientShape,
             ParamId::DynamicGradient,
         ],
@@ -230,13 +229,8 @@ impl Backend for BackendImpl {
         // to build for our `wasm32-unknown-unknown` serve/build pipeline.
     }
 
-    fn draw_image(&mut self, image: ImageSource, rect: &Rect, bilinear: bool) {
-        self.ctx
-            .draw_image(image, rect, bilinear, &self.uploaded_images);
-    }
-
     fn upload_image(&mut self, pixmap: Pixmap) -> ImageSource {
-        let may_have_opacities = pixmap.may_have_opacities();
+        let may_have_transparency = pixmap.may_have_transparency();
         let uploaded = UploadedImage::from_pixmap(pixmap);
         let idx = self
             .uploaded_images
@@ -249,7 +243,7 @@ impl Backend for BackendImpl {
             self.uploaded_images[idx] = Some(uploaded);
         }
         let id = ImageId::new(idx as u32);
-        ImageSource::opaque_id_with_opacity_hint(id, may_have_opacities)
+        ImageSource::opaque_id_with_transparency_hint(id, may_have_transparency)
     }
 
     fn destroy_image(&mut self, image: &ImageSource) {
@@ -455,30 +449,6 @@ impl DrawContext {
     fn pop_layer(&mut self) {
         self.pop_clip_path();
     }
-
-    fn draw_image(
-        &mut self,
-        image: ImageSource,
-        rect: &Rect,
-        bilinear: bool,
-        uploaded_images: &[Option<UploadedImage>],
-    ) {
-        let Some(uploaded) = resolve_uploaded_image(uploaded_images, &image) else {
-            return;
-        };
-        draw_pathfinder_image(
-            &mut self.canvas,
-            &ImagePaint {
-                image: uploaded.image.clone(),
-                bilinear,
-                alpha: 1.0,
-            },
-            RectF::new(
-                Vector2F::new(rect.x0 as f32, rect.y0 as f32),
-                Vector2F::new(rect.width() as f32, rect.height() as f32),
-            ),
-        );
-    }
 }
 
 fn make_canvas_context(
@@ -548,6 +518,7 @@ fn resolve_uploaded_image<'a>(
             .get(id.as_u32() as usize)
             .and_then(Option::as_ref),
         ImageSource::Pixmap(_) => None,
+        ImageSource::ExternalTexture { .. } => None,
     }
 }
 
