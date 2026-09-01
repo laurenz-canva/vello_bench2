@@ -121,12 +121,35 @@ fn probe_result_to_result(
 ) -> Result<(), String> {
     match probe {
         vello_common::probe::Probe::Success => Ok(()),
-        vello_common::probe::Probe::Error(_) => {
-            Err("Probe output did not match the bundled reference".to_string())
-        }
+        vello_common::probe::Probe::Error(result) => Err(probe_mismatch_message(&result)),
         vello_common::probe::Probe::RenderError(error) => {
             Err(format!("Probe render failed: {error:?}"))
         }
+    }
+}
+
+fn probe_mismatch_message(result: &vello_common::probe::ProbeResult) -> String {
+    let statistics = result.statistics();
+    let failing_features = vello_common::probe::PROBE_ELEMENTS
+        .iter()
+        .copied()
+        .filter(|feature| statistics.differs(*feature))
+        .map(|feature| format!("{feature:?}"))
+        .collect::<Vec<_>>();
+
+    if failing_features.is_empty() {
+        format!(
+            "Probe output did not match the bundled reference; failing features could not be isolated (expected {}x{}, actual {}x{})",
+            result.expected.width,
+            result.expected.height,
+            result.actual.width,
+            result.actual.height,
+        )
+    } else {
+        format!(
+            "Probe output did not match the bundled reference; failing features: {}",
+            failing_features.join(", ")
+        )
     }
 }
 
