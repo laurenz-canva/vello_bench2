@@ -384,6 +384,7 @@ impl Backend for BackendImpl {
         font: &FontData,
         font_size: f32,
         hint: bool,
+        _glyph_caching: bool,
         text: &str,
         x: f32,
         y: f32,

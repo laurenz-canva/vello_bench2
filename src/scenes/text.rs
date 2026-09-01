@@ -40,6 +40,8 @@ pub struct TextScene {
     num_runs: usize,
     speed: f64,
     font_size: f32,
+    /// Whether rendered glyphs are cached in an atlas.
+    glyph_caching: bool,
     /// When true, text colors use alpha 255 instead of 220.
     opaque: bool,
     runs: Vec<AnimatedText>,
@@ -64,6 +66,7 @@ impl TextScene {
             num_runs: 200,
             speed: 5.0,
             font_size: 24.0,
+            glyph_caching: false,
             opaque: false,
             runs: Vec::new(),
             rng: Rng::new(0xBAAD_F00D),
@@ -160,6 +163,12 @@ impl BenchScene for TextScene {
                 value: self.font_size as f64,
             },
             Param {
+                id: ParamId::GlyphCaching,
+                label: "Glyph Caching",
+                kind: ParamKind::Select(vec![("Off", 0.0), ("On", 1.0)]),
+                value: if self.glyph_caching { 1.0 } else { 0.0 },
+            },
+            Param {
                 id: ParamId::Opaque,
                 label: "Opaque",
                 kind: ParamKind::Select(vec![("No", 0.0), ("Yes", 1.0)]),
@@ -179,6 +188,7 @@ impl BenchScene for TextScene {
                     self.runs.clear();
                 }
             }
+            ParamId::GlyphCaching => self.glyph_caching = value >= 0.5,
             ParamId::Opaque => {
                 let new_val = value >= 0.5;
                 if new_val != self.opaque {
@@ -221,6 +231,7 @@ impl BenchScene for TextScene {
                 &self.font_data,
                 self.font_size,
                 true,
+                self.glyph_caching,
                 &run.text,
                 run.x as f32,
                 run.y as f32,

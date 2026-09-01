@@ -81,10 +81,11 @@ pub enum ParamId {
     ShadowAlpha,
     Opaque,
     TargetOverlap,
+    GlyphCaching,
 }
 
 impl ParamId {
-    pub const COUNT: usize = 28;
+    pub const COUNT: usize = 29;
     pub const ALL_MASK: u64 = (1u64 << Self::COUNT) - 1;
 
     pub(crate) const fn index(self) -> usize {
@@ -117,6 +118,7 @@ impl ParamId {
             Self::ShadowAlpha => 25,
             Self::Opaque => 26,
             Self::TargetOverlap => 27,
+            Self::GlyphCaching => 28,
         }
     }
 
@@ -154,6 +156,7 @@ impl ParamId {
             Self::ShadowAlpha => "shadow_alpha",
             Self::Opaque => "opaque",
             Self::TargetOverlap => "target_overlap",
+            Self::GlyphCaching => "glyph_caching",
         }
     }
 }

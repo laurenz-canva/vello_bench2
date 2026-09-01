@@ -185,6 +185,7 @@ pub trait Backend {
         font: &FontData,
         font_size: f32,
         hint: bool,
+        glyph_caching: bool,
         text: &str,
         x: f32,
         y: f32,

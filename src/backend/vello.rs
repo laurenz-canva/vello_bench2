@@ -21,7 +21,8 @@ pub(crate) const CAPABILITIES: CapabilityProfile = CapabilityProfile::all()
     .deny_params(
         SceneId::Rect,
         &[ParamId::ImageFilter, ParamId::ImageStorage],
-    );
+    )
+    .deny_params(SceneId::Text, &[ParamId::GlyphCaching]);
 
 type SceneBrush = Brush<vello::peniko::ImageBrush, vello::peniko::Gradient>;
 
@@ -312,6 +313,7 @@ impl Backend for BackendImpl {
         font: &FontData,
         font_size: f32,
         hint: bool,
+        _glyph_caching: bool,
         text: &str,
         x: f32,
         y: f32,

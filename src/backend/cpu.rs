@@ -111,11 +111,19 @@ impl BackendImpl {
         }
     }
 
-    fn draw_glyphs(&mut self, font: &FontData, font_size: f32, hint: bool, glyphs: &[Glyph]) {
+    fn draw_glyphs(
+        &mut self,
+        font: &FontData,
+        font_size: f32,
+        hint: bool,
+        glyph_caching: bool,
+        glyphs: &[Glyph],
+    ) {
         self.ctx
             .glyph_run(&mut self.resources, font)
             .font_size(font_size)
             .hint(hint)
+            .atlas_cache(glyph_caching)
             .fill_glyphs(glyphs.iter().copied());
     }
 }
@@ -247,12 +255,13 @@ impl Backend for BackendImpl {
         font: &FontData,
         font_size: f32,
         hint: bool,
+        glyph_caching: bool,
         text: &str,
         x: f32,
         y: f32,
     ) {
         let glyphs = layout_text_glyphs(font, font_size, text, x, y);
-        self.draw_glyphs(font, font_size, hint, &glyphs);
+        self.draw_glyphs(font, font_size, hint, glyph_caching, &glyphs);
     }
 
     fn upload_image(&mut self, pixmap: Pixmap) -> ImageSource {
