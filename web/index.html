@@ -52,10 +52,22 @@
 
     window.__vello_asset_base = new URL("./assets/", location.href).href;
 
-    const { default: init, run } = await import(`./${simdStr}/vello_bench2.js`);
+    const { default: init, run, encode_png_default: encodePngDefault } =
+      await import(`./${simdStr}/vello_bench2.js`);
+    const { installPngBenchmark } = await import("./png-benchmark.js");
     const start = async () => {
       await init();
       await run();
+      installPngBenchmark({
+        encodePngDefault,
+        loadZlibEncoder: async () => {
+          const module = await import(
+            `./${simdStr}/png-zlib/vello_png_zlib_bench.js`
+          );
+          await module.default();
+          return module.encode_png_zlib_rs;
+        },
+      });
     };
     if (document.readyState !== "complete") {
       await new Promise((resolve) => window.addEventListener("load", resolve));

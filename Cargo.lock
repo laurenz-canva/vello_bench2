@@ -2259,6 +2259,7 @@ dependencies = [
  "pathfinder_resources",
  "pathfinder_simd",
  "pathfinder_webgl",
+ "png",
  "serde",
  "serde_json",
  "skrifa 0.42.1",

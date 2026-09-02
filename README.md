@@ -20,6 +20,10 @@ Or build both SIMD and scalar variants, then serve them with the runtime toggle:
 
 Open http://localhost:8080. The script requires a matching `wasm-bindgen-cli` installation.
 
+The temporary PNG benchmark is available from the button in the lower-right corner. `serve.sh`
+also builds its small companion WASM module separately so the default `png`/miniz_oxide and
+`png`/zlib-rs backends do not get unified by Cargo features.
+
 Useful options:
 
 ```sh

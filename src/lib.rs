@@ -9,6 +9,7 @@
 pub(crate) mod backend;
 pub(crate) mod capability;
 mod fps;
+mod png_benchmark;
 pub(crate) mod resource_store;
 pub(crate) mod rng;
 pub mod scenes;
@@ -30,6 +31,8 @@ use vello_common::kurbo::Affine;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::HtmlCanvasElement;
+
+pub use png_benchmark::encode_png_default;
 
 type RafClosure = Rc<RefCell<Option<Closure<dyn FnMut()>>>>;
 

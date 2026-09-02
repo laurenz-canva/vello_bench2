@@ -1,0 +1,21 @@
+[package]
+name = "vello_png_zlib_bench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+png = { version = "0.18.1", features = ["zlib-rs"] }
+wasm-bindgen = "=0.2.121"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
+[profile.instrument]
+inherits = "release"
+debug = true
+lto = false

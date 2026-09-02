@@ -24,6 +24,20 @@ build_variant() {
     --out-dir "$DIST/$out_dir" \
     --no-typescript \
     "target/$TARGET/$BUILD_PROFILE/vello_bench2.wasm"
+
+  echo "==> Building PNG zlib-rs benchmark helper ($out_dir)..."
+  RUSTFLAGS="$rustflags" cargo build \
+    --manifest-path png_zlib_bench/Cargo.toml \
+    --target "$TARGET" \
+    --profile "$BUILD_PROFILE"
+
+  echo "==> Running wasm-bindgen for PNG zlib-rs helper ($out_dir)..."
+  mkdir -p "$DIST/$out_dir/png-zlib"
+  wasm-bindgen \
+    --target web \
+    --out-dir "$DIST/$out_dir/png-zlib" \
+    --no-typescript \
+    "png_zlib_bench/target/$TARGET/$BUILD_PROFILE/vello_png_zlib_bench.wasm"
 }
 
 should_build() {
@@ -88,6 +102,7 @@ should_build simd && build_variant "$RUSTFLAGS_SIMD" simd
 should_build nosimd && build_variant "" nosimd
 cp web/index.html "$DIST/index.html"
 cp web/styles.css "$DIST/styles.css"
+cp web/png-benchmark.js "$DIST/png-benchmark.js"
 
 copy_svg_assets
 if [ "$SERVE_BROTLI_WASM" = 1 ]; then

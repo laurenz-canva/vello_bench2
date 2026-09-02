@@ -27,6 +27,7 @@ console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
 image = { version = "0.25.10", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 log = "0.4.29"
+png = "0.18.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.149" }
 smallvec = {version = "1.15.1" }
