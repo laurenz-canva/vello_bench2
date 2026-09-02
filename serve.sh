@@ -67,6 +67,11 @@ copy_svg_assets() {
   done
 }
 
+copy_png_benchmark_assets() {
+  mkdir -p "$DIST/assets/png-benchmark"
+  cp -R assets/png-benchmark/. "$DIST/assets/png-benchmark/"
+}
+
 compress_wasm_assets() {
   if ! command -v brotli >/dev/null 2>&1; then
     echo "Error: brotli is required to compress Wasm assets" >&2
@@ -101,10 +106,12 @@ rm -rf "$DIST/control" "$DIST/treatment"
 should_build simd && build_variant "$RUSTFLAGS_SIMD" simd
 should_build nosimd && build_variant "" nosimd
 cp web/index.html "$DIST/index.html"
+cp web/png-benchmark.html "$DIST/png-benchmark.html"
 cp web/styles.css "$DIST/styles.css"
 cp web/png-benchmark.js "$DIST/png-benchmark.js"
 
 copy_svg_assets
+copy_png_benchmark_assets
 if [ "$SERVE_BROTLI_WASM" = 1 ]; then
   echo "==> Compressing Wasm assets..."
   compress_wasm_assets

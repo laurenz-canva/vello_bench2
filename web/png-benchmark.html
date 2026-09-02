@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PNG encoding benchmark</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body class="png-bench-page antialiased selection:bg-cyan-300/30">
+  <div class="png-bench-loading">Loading PNG encoders…</div>
+
+  <script type="module">
+    function supportsWasmSimd() {
+      try {
+        return WebAssembly.validate(
+          new Uint8Array([
+            0, 97, 115, 109, 1, 0, 0, 0,
+            1, 5, 1, 96, 0, 1, 123,
+            3, 2, 1, 0,
+            10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11,
+          ]),
+        );
+      } catch (_) {
+        return false;
+      }
+    }
+
+    const simdSupported = supportsWasmSimd();
+    const simdPreferred = localStorage.getItem("vello_bench_simd") !== "0";
+    const simdStr = simdSupported && simdPreferred ? "simd" : "nosimd";
+
+    // Initialize the main WASM module for its default PNG encoder export only.
+    // Deliberately do not call run(): no renderer, WebGL context, or frame loop is created.
+    const mainModule = await import(`./${simdStr}/vello_bench2.js`);
+    await mainModule.default();
+
+    const { installPngBenchmark } = await import("./png-benchmark.js");
+    installPngBenchmark({
+      encodePngDefault: mainModule.encode_png_default,
+      loadZlibEncoder: async () => {
+        const module = await import(
+          `./${simdStr}/png-zlib/vello_png_zlib_bench.js`
+        );
+        await module.default();
+        return module.encode_png_zlib_rs;
+      },
+    });
+    document.querySelector(".png-bench-loading")?.remove();
+  </script>
+</body>
+
+</html>
