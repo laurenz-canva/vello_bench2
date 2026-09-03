@@ -5,7 +5,7 @@ use vello_common::kurbo::{Affine, BezPath, PathEl, Rect, Stroke};
 use vello_common::paint::{ImageId, ImageSource, PaintType};
 use vello_common::peniko::color::Srgb;
 use vello_common::peniko::{
-    Fill, FontData, Gradient, GradientKind, ImageQuality, LinearGradientPosition,
+    Fill, FontData, Gradient, GradientKind, ImageAlphaType, ImageQuality, LinearGradientPosition,
     RadialGradientPosition, SweepGradientPosition,
 };
 use vello_common::pixmap::Pixmap;
@@ -175,7 +175,7 @@ impl BackendImpl {
                 .get(id.as_u32() as usize)
                 .and_then(Option::as_ref),
             ImageSource::Pixmap(_) => None,
-            _ => todo!()
+            _ => todo!(),
         }
     }
 
@@ -428,11 +428,7 @@ impl UploadedImage {
     fn from_pixmap(pixmap: Pixmap) -> Self {
         let width = pixmap.width();
         let height = pixmap.height();
-        let data = pixmap
-            .take_unpremultiplied()
-            .into_iter()
-            .flat_map(|rgba| [rgba.r, rgba.g, rgba.b, rgba.a])
-            .collect::<Vec<_>>();
+        let data = pixmap.take_rgba8(ImageAlphaType::Alpha);
         let image_data = ImageData::new_with_u8_clamped_array_and_sh(
             Clamped(&data),
             width as u32,
