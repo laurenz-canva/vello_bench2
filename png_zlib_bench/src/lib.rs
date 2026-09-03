@@ -17,6 +17,7 @@ pub fn encode_png_zlib_rs(
     width: u32,
     height: u32,
     has_alpha: bool,
+    compression_variant: u8,
 ) -> Result<Vec<u8>, JsValue> {
     let channels = if has_alpha { 4 } else { 3 };
     let pixel_format = if has_alpha { "RGBA" } else { "RGB" };
@@ -37,10 +38,7 @@ pub fn encode_png_zlib_rs(
             png::ColorType::Rgb
         });
         encoder.set_depth(png::BitDepth::Eight);
-        encoder.set_deflate_compression(png::DeflateCompression::Level(
-            config::PNG_ZLIB_RS_DEFLATE_LEVEL,
-        ));
-        encoder.set_filter(png::Filter::Up);
+        configure_compression(&mut encoder, compression_variant)?;
         let mut writer = encoder
             .write_header()
             .map_err(|error| JsValue::from_str(&error.to_string()))?;
@@ -52,4 +50,34 @@ pub fn encode_png_zlib_rs(
             .map_err(|error| JsValue::from_str(&error.to_string()))?;
     }
     Ok(bytes)
+}
+
+fn configure_compression<W: std::io::Write>(
+    encoder: &mut png::Encoder<'_, W>,
+    compression_variant: u8,
+) -> Result<(), JsValue> {
+    match compression_variant {
+        0 => {
+            encoder.set_compression(png::Compression::Balanced);
+            encoder.set_filter(png::Filter::Adaptive);
+        }
+        1 => {
+            encoder.set_deflate_compression(png::DeflateCompression::Level(
+                config::PNG_DEFLATE_LEVEL_1,
+            ));
+            encoder.set_filter(png::Filter::Up);
+        }
+        2 => {
+            encoder.set_deflate_compression(png::DeflateCompression::Level(
+                config::PNG_DEFLATE_LEVEL_2,
+            ));
+            encoder.set_filter(png::Filter::Up);
+        }
+        _ => {
+            return Err(JsValue::from_str(&format!(
+                "unknown PNG compression variant: {compression_variant}"
+            )));
+        }
+    }
+    Ok(())
 }

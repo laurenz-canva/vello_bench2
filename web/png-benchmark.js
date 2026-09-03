@@ -1,7 +1,11 @@
 const METHODS = [
   { id: "browser", label: "Browser canvas.toBlob", shortLabel: "canvas.toBlob", color: "#22d3ee" },
-  { id: "png", label: "png + miniz_oxide · level 1", shortLabel: "png / miniz L1", color: "#a78bfa" },
-  { id: "zlib", label: "png + zlib-rs · level 2", shortLabel: "png / zlib-rs L2", color: "#fbbf24" },
+  { id: "miniz-l1", label: "png + miniz_oxide · level 1 + Up", shortLabel: "miniz L1 up", color: "#a78bfa" },
+  { id: "zlib-l1", label: "png + zlib-rs · level 1 + Up", shortLabel: "zlib-rs L1 up", color: "#fbbf24" },
+  { id: "miniz-l2", label: "png + miniz_oxide · level 2 + Up", shortLabel: "miniz L2 up", color: "#7c3aed" },
+  { id: "zlib-l2", label: "png + zlib-rs · level 2 + Up", shortLabel: "zlib-rs L2 up", color: "#d97706" },
+  { id: "miniz-l6-adaptive", label: "png + miniz_oxide · level 6 + Adaptive", shortLabel: "miniz L6 adaptive", color: "#ddd6fe" },
+  { id: "zlib-l6-adaptive", label: "png + zlib-rs · level 6 + Adaptive", shortLabel: "zlib-rs L6 adaptive", color: "#fef3c7" },
 ];
 
 const RESOLUTIONS = [
@@ -11,8 +15,9 @@ const RESOLUTIONS = [
 ];
 
 const REAL_DESIGNS = [
-  { id: "transparent", label: "Design 2", detail: "Transparent design", hasAlpha: true },
-  { id: "opaque", label: "Design 3", detail: "Opaque design", hasAlpha: false },
+  { id: "transparent", label: "Design 2", detail: "Transparent design", hasAlpha: true, pages: [1, 2] },
+  { id: "opaque", label: "Design 3", detail: "Opaque design", hasAlpha: false, pages: [1, 2] },
+  { id: "design11", label: "Design 11", detail: "Opaque design", hasAlpha: false, pages: [1] },
 ];
 
 const SYNTHETIC_KINDS = [
@@ -70,6 +75,7 @@ export function installPngBenchmark({ encodePngDefault, loadZlibEncoder }) {
             </select>
           </label>
           <button class="png-bench-run" type="button">Run benchmark</button>
+          <button class="png-bench-copy" type="button" disabled>Copy results</button>
           <span class="png-bench-status">Ready</span>
         </div>
         <p class="png-bench-note">
@@ -90,16 +96,43 @@ export function installPngBenchmark({ encodePngDefault, loadZlibEncoder }) {
   const budget = root.querySelector(".png-bench-budget");
   const status = root.querySelector(".png-bench-status");
   const results = root.querySelector(".png-bench-results");
+  const copyResults = root.querySelector(".png-bench-copy");
 
   let activeRun = 0;
   let zlibEncoderPromise;
+  let latestResults = [];
+  let latestSettings;
+
+  copyResults.addEventListener("click", async () => {
+    if (latestResults.length === 0 || latestSettings == null) return;
+    try {
+      await copyText(formatResultsExport(latestResults, latestSettings));
+      copyResults.textContent = "Copied!";
+      window.setTimeout(() => {
+        copyResults.textContent = "Copy results";
+      }, 1500);
+    } catch (error) {
+      console.error("Could not copy PNG benchmark results", error);
+      copyResults.textContent = "Copy failed";
+    }
+  });
+
   run.addEventListener("click", async () => {
     const runId = ++activeRun;
     setBusy(true, run, workload, resolution, warmups, budget);
+    copyResults.disabled = true;
+    latestResults = [];
+    latestSettings = undefined;
     results.innerHTML = '<div class="png-bench-empty">Preparing benchmark cases…</div>';
     try {
       const warmupCount = Number(warmups.value);
       const timeBudgetMs = Number(budget.value);
+      const runSettings = {
+        workload: workload.options[workload.selectedIndex].text,
+        resolution: resolution.options[resolution.selectedIndex].text,
+        warmupCount,
+        timeBudgetMs,
+      };
       const definitions = buildCaseDefinitions(workload.value, resolution.value);
       zlibEncoderPromise ??= loadZlibEncoder();
       const zlibEncoder = await zlibEncoderPromise;
@@ -138,6 +171,9 @@ export function installPngBenchmark({ encodePngDefault, loadZlibEncoder }) {
           }
 
           allResults.push(summarizeCase(image, samples, byteSizes));
+          latestResults = [...allResults];
+          latestSettings = runSettings;
+          copyResults.disabled = false;
           renderResults(results, allResults);
         } finally {
           image.bitmap.close();
@@ -154,6 +190,68 @@ export function installPngBenchmark({ encodePngDefault, loadZlibEncoder }) {
   });
 }
 
+function formatResultsExport(cases, settings) {
+  const lines = [
+    "PNG benchmark results",
+    `Workload\t${settings.workload}`,
+    `Resolution\t${settings.resolution}`,
+    `Warmups\t${settings.warmupCount}`,
+    `Time budget (ms)\t${settings.timeBudgetMs}`,
+    "",
+    [
+      "Case",
+      "Dimensions",
+      "Format",
+      "Encoder",
+      "Average (ms)",
+      "Std dev (ms)",
+      "PNG size (bytes)",
+      "Measured runs",
+      "Outliers excluded",
+    ].join("\t"),
+  ];
+
+  for (const image of cases) {
+    for (const method of image.methods) {
+      lines.push([
+        image.label,
+        `${image.width}x${image.height}`,
+        image.hasAlpha ? "RGBA8" : "RGB8",
+        method.shortLabel,
+        method.average.toFixed(3),
+        method.standardDeviation.toFixed(3),
+        method.bytes,
+        method.samples.length,
+        method.excludedCount,
+      ].join("\t"));
+    }
+  }
+
+  lines.push("", "canvas.toBlob raw timings (ms)", "Case\tValues");
+  for (const image of cases) {
+    const browser = image.methods.find(method => method.id === "browser");
+    lines.push(`${image.label}\t${browser.samples.map(value => value.toFixed(3)).join(", ")}`);
+  }
+  return lines.join("\n");
+}
+
+async function copyText(value) {
+  if (navigator.clipboard?.writeText != null) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.append(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("Clipboard API is unavailable");
+}
+
 function setBusy(busy, run, ...controls) {
   run.disabled = busy;
   for (const control of controls) control.disabled = busy;
@@ -167,7 +265,7 @@ function buildCaseDefinitions(workload, selectedResolution) {
   if (resolutions.length === 0) throw new Error(`Unknown resolution: ${selectedResolution}`);
 
   if (workload === "designs") {
-    return resolutions.flatMap(resolution => REAL_DESIGNS.flatMap(design => [1, 2].map(page => ({
+    return resolutions.flatMap(resolution => REAL_DESIGNS.flatMap(design => design.pages.map(page => ({
       id: `${design.id}-${resolution.id}-page-${page}`,
       label: `${design.label} · Page ${page}`,
       detail: design.detail,
@@ -273,20 +371,21 @@ function rgbaToRgb(rgba) {
 }
 
 function makeEncoders(image, encodePngDefault, encodePngZlibRs) {
+  const encodeRust = (encode, compressionVariant) => () => encode(
+    image.pixels,
+    image.width,
+    image.height,
+    image.hasAlpha,
+    compressionVariant,
+  ).byteLength;
   return {
     browser: () => encodeWithBrowser(image.bitmap, image.hasAlpha),
-    png: () => encodePngDefault(
-      image.pixels,
-      image.width,
-      image.height,
-      image.hasAlpha,
-    ).byteLength,
-    zlib: () => encodePngZlibRs(
-      image.pixels,
-      image.width,
-      image.height,
-      image.hasAlpha,
-    ).byteLength,
+    "miniz-l6-adaptive": encodeRust(encodePngDefault, 0),
+    "miniz-l1": encodeRust(encodePngDefault, 1),
+    "miniz-l2": encodeRust(encodePngDefault, 2),
+    "zlib-l6-adaptive": encodeRust(encodePngZlibRs, 0),
+    "zlib-l1": encodeRust(encodePngZlibRs, 1),
+    "zlib-l2": encodeRust(encodePngZlibRs, 2),
   };
 }
 
