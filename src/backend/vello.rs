@@ -289,13 +289,11 @@ impl Backend for BackendImpl {
     }
 
     fn push_clip_path(&mut self, path: &BezPath) {
-        self.scene
-            .push_clip_layer(self.fill, self.transform, path);
+        self.scene.push_clip_layer(self.fill, self.transform, path);
     }
 
     fn push_clip_layer(&mut self, path: &BezPath) {
-        self.scene
-            .push_clip_layer(self.fill, self.transform, path);
+        self.scene.push_clip_layer(self.fill, self.transform, path);
     }
 
     fn set_filter_effect(&mut self, _filter: Filter) {}

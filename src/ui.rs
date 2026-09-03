@@ -472,11 +472,7 @@ impl Ui {
                 "Probe",
                 None,
             );
-            set_probe_details(
-                &self.top_probe_details,
-                PROBE_DETAILS_NEUTRAL_CLASS,
-                None,
-            );
+            set_probe_details(&self.top_probe_details, PROBE_DETAILS_NEUTRAL_CLASS, None);
         }
     }
 
@@ -573,11 +569,7 @@ impl Ui {
             "Probe",
             None,
         );
-        set_probe_details(
-            &self.top_probe_details,
-            PROBE_DETAILS_NEUTRAL_CLASS,
-            None,
-        );
+        set_probe_details(&self.top_probe_details, PROBE_DETAILS_NEUTRAL_CLASS, None);
     }
 
     /// Mark state as needing a save.
@@ -636,7 +628,6 @@ impl Ui {
             }
         }
     }
-
 }
 
 struct InteractiveViewParts {
@@ -740,11 +731,7 @@ fn build_top_bar(
         .set_property("display", "none")
         .unwrap();
     let top_probe_details = div(document);
-    set_probe_details(
-        &top_probe_details,
-        PROBE_DETAILS_NEUTRAL_CLASS,
-        None,
-    );
+    set_probe_details(&top_probe_details, PROBE_DETAILS_NEUTRAL_CLASS, None);
     controls_group.append_child(&top_probe_details).unwrap();
 
     let renderer_select: HtmlSelectElement = document

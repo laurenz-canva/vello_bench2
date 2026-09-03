@@ -352,10 +352,7 @@ impl BenchScene for RectScene {
             Param {
                 id: ParamId::ImageStorage,
                 label: "Image Storage",
-                kind: ParamKind::Select(vec![
-                    ("Image Atlas", 0.0),
-                    ("External Textures", 1.0),
-                ]),
+                kind: ParamKind::Select(vec![("Image Atlas", 0.0), ("External Textures", 1.0)]),
                 value: if self.use_external_textures { 1.0 } else { 0.0 },
             },
             Param {

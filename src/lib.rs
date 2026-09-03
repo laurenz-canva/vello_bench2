@@ -419,7 +419,6 @@ impl AppState {
             }
         }
     }
-
 }
 
 fn configure_canvas(canvas: &HtmlCanvasElement, px_w: u32, px_h: u32) {
@@ -459,11 +458,7 @@ fn make_canvas(document: &web_sys::Document, px_w: u32, px_h: u32) -> HtmlCanvas
     canvas
 }
 
-fn replace_canvas_element(
-    current: &HtmlCanvasElement,
-    px_w: u32,
-    px_h: u32,
-) -> HtmlCanvasElement {
+fn replace_canvas_element(current: &HtmlCanvasElement, px_w: u32, px_h: u32) -> HtmlCanvasElement {
     let document = web_sys::window().unwrap().document().unwrap();
     let new_canvas = make_canvas(&document, px_w, px_h);
     let parent = current.parent_node().unwrap();
