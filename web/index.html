@@ -57,10 +57,45 @@
       await init();
       await run();
     };
+
+    function startSchedulerIndicators() {
+      const menu = document.querySelector(".app-nav-control");
+      if (!menu) {
+        return;
+      }
+
+      const indicators = document.createElement("div");
+      indicators.className = "app-scheduler-indicators";
+      indicators.innerHTML = `
+        <span class="app-scheduler-indicator"><span id="raf-pulse" class="app-scheduler-dot"></span>rAF</span>
+        <span class="app-scheduler-indicator"><span id="timer-pulse" class="app-scheduler-dot"></span>timer</span>
+      `;
+      menu.append(indicators);
+
+      const rafPulse = indicators.querySelector("#raf-pulse");
+      const timerPulse = indicators.querySelector("#timer-pulse");
+
+      const updateRafPulse = (time) => {
+        rafPulse.style.opacity = String(0.2 + 0.8 * ((Math.sin(time / 125) + 1) / 2));
+        requestAnimationFrame(updateRafPulse);
+      };
+
+      let timerBright = false;
+      const updateTimerPulse = () => {
+        timerBright = !timerBright;
+        timerPulse.style.opacity = timerBright ? "1" : "0.2";
+        setTimeout(updateTimerPulse, 125);
+      };
+
+      requestAnimationFrame(updateRafPulse);
+      setTimeout(updateTimerPulse, 125);
+    }
+
     if (document.readyState !== "complete") {
       await new Promise((resolve) => window.addEventListener("load", resolve));
     }
     await start();
+    startSchedulerIndicators();
   </script>
 
 </body>

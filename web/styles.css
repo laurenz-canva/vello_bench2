@@ -93,7 +93,42 @@ canvas {
   position: fixed;
   top: 0.75rem;
   left: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   pointer-events: auto;
+}
+
+.app-scheduler-indicators {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(2, 6, 23, 0.88);
+  color: #94a3b8;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 1rem;
+  pointer-events: none;
+}
+
+.app-scheduler-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+.app-scheduler-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  flex: 0 0 auto;
+  border-radius: 9999px;
+  background: #f43f5e;
+  box-shadow: 0 0 0.45rem rgba(244, 63, 94, 0.8);
+  opacity: 0.2;
 }
 
 .app-top-controls {
@@ -142,7 +177,7 @@ canvas {
   .app-top-controls {
     top: 0.5rem;
     right: 0.5rem;
-    left: 3.25rem;
+    left: 8.75rem;
     max-width: none;
     min-height: 0;
     flex-direction: column;
