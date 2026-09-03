@@ -1,7 +1,7 @@
 const METHODS = [
   { id: "browser", label: "Browser canvas.toBlob", shortLabel: "canvas.toBlob", color: "#22d3ee" },
-  { id: "png", label: "png + miniz_oxide", shortLabel: "png / miniz", color: "#a78bfa" },
-  { id: "zlib", label: "png + zlib-rs", shortLabel: "png / zlib-rs", color: "#fbbf24" },
+  { id: "png", label: "png + miniz_oxide · level 1", shortLabel: "png / miniz L1", color: "#a78bfa" },
+  { id: "zlib", label: "png + zlib-rs · level 2", shortLabel: "png / zlib-rs L2", color: "#fbbf24" },
 ];
 
 const RESOLUTIONS = [
@@ -390,40 +390,81 @@ function summarizeCase(image, samples, byteSizes) {
     hasAlpha: image.hasAlpha,
     methods: METHODS.map(method => {
       const values = samples[method.id];
-      const average = values.reduce((sum, value) => sum + value, 0) / values.length;
-      const variance = values.length > 1
-        ? values.reduce((sum, value) => sum + (value - average) ** 2, 0) / (values.length - 1)
+      const { included, excludedCount } = method.id === "browser"
+        ? excludeOutliers(values)
+        : { included: values, excludedCount: 0 };
+      const average = included.reduce((sum, value) => sum + value, 0) / included.length;
+      const variance = included.length > 1
+        ? included.reduce((sum, value) => sum + (value - average) ** 2, 0) / (included.length - 1)
         : 0;
       return {
         ...method,
         average,
         standardDeviation: Math.sqrt(variance),
         bytes: byteSizes[method.id],
+        samples: values,
+        excludedCount,
       };
     }),
   };
 }
 
+function excludeOutliers(values) {
+  if (values.length < 5) return { included: values, excludedCount: 0 };
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const q1 = quantile(sorted, 0.25);
+  const q3 = quantile(sorted, 0.75);
+  const iqr = q3 - q1;
+  const lowerFence = q1 - 1.5 * iqr;
+  const upperFence = q3 + 1.5 * iqr;
+  const included = values.filter(value => value >= lowerFence && value <= upperFence);
+
+  // Always retain the original data if an unusually small sample would be emptied.
+  return included.length === 0
+    ? { included: values, excludedCount: 0 }
+    : { included, excludedCount: values.length - included.length };
+}
+
+function quantile(sorted, percentile) {
+  const position = (sorted.length - 1) * percentile;
+  const lowerIndex = Math.floor(position);
+  const upperIndex = Math.ceil(position);
+  const fraction = position - lowerIndex;
+  return sorted[lowerIndex] * (1 - fraction) + sorted[upperIndex] * fraction;
+}
+
 function renderResults(container, cases) {
-  container.innerHTML = cases.map(image => html`
-    <div class="png-bench-table-wrap">
-      <table class="png-bench-table">
-        <caption>
-          <strong>${image.label}</strong>
-          <span>${image.width} × ${image.height} · ${image.hasAlpha ? "RGBA8" : "RGB8"}</span>
-        </caption>
-        <thead><tr><th>Encoder</th><th>Average</th><th>Std dev</th><th>PNG size</th></tr></thead>
-          <tbody>
-            ${image.methods.map(method => html`
-              <tr>
-                <td class="png-bench-encoder"><i style="background:${method.color}"></i>${method.shortLabel}</td>
-                <td>${formatMs(method.average)}</td>
-                <td>${formatMs(method.standardDeviation)}</td>
-                <td>${formatBytes(method.bytes)}</td>
-              </tr>`).join("")}
-          </tbody>
-      </table>
-    </div>`).join("");
+  container.innerHTML = cases.map(image => {
+    const browser = image.methods.find(method => method.id === "browser");
+    return html`
+      <div class="png-bench-table-wrap">
+        <table class="png-bench-table">
+          <caption>
+            <strong>${image.label}</strong>
+            <span>${image.width} × ${image.height} · ${image.hasAlpha ? "RGBA8" : "RGB8"}</span>
+          </caption>
+          <thead><tr><th>Encoder</th><th>Average</th><th>Std dev</th><th>PNG size</th></tr></thead>
+            <tbody>
+              ${image.methods.map(method => html`
+                <tr>
+                  <td class="png-bench-encoder"><i style="background:${method.color}"></i>${method.shortLabel}</td>
+                  <td>${formatMs(method.average)}</td>
+                  <td>${formatMs(method.standardDeviation)}</td>
+                  <td>${formatBytes(method.bytes)}</td>
+                </tr>`).join("")}
+            </tbody>
+        </table>
+        <details class="png-bench-raw">
+          <summary>
+            canvas.toBlob raw values · ${browser.samples.length} runs${browser.excludedCount > 0
+              ? ` · ${browser.excludedCount} outliers excluded`
+              : ""}
+          </summary>
+          <div>${browser.samples.map(value => `${value.toFixed(3)} ms`).join(", ")}</div>
+        </details>
+      </div>`;
+  }).join("");
 }
 
 function formatMs(value) {

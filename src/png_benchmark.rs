@@ -7,8 +7,7 @@ use wasm_bindgen::prelude::*;
 
 /// Encodes RGB8 or RGBA8 pixels with `png`'s default `flate2`/miniz_oxide backend.
 ///
-/// Keep this configuration in sync with the companion zlib-rs crate so that
-/// the benchmark changes only the DEFLATE backend.
+/// Uses Chromium's level-1 low-compression setting as the miniz baseline.
 #[wasm_bindgen]
 pub fn encode_png_default(
     pixels: &[u8],
@@ -44,7 +43,9 @@ fn encode_pixels(
             png::ColorType::Rgb
         });
         encoder.set_depth(png::BitDepth::Eight);
-        encoder.set_deflate_compression(png::DeflateCompression::Level(config::PNG_DEFLATE_LEVEL));
+        encoder.set_deflate_compression(png::DeflateCompression::Level(
+            config::PNG_MINIZ_DEFLATE_LEVEL,
+        ));
         encoder.set_filter(png::Filter::Up);
         let mut writer = encoder.write_header().map_err(|error| error.to_string())?;
         writer

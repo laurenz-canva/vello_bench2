@@ -1,8 +1,10 @@
-//! Shared settings for both temporary PNG benchmark encoder crates.
+//! Shared settings for the temporary PNG benchmark encoder crates.
 
-/// DEFLATE compression level used by both Rust encoders (valid range: 1–9).
-///
-/// Chromium's current low-compression canvas PNG path uses level 1.
-pub const PNG_DEFLATE_LEVEL: u8 = 1;
+/// Chromium's current low-compression canvas PNG path uses level 1 with miniz.
+pub const PNG_MINIZ_DEFLATE_LEVEL: u8 = 1;
 
-const _: () = assert!(PNG_DEFLATE_LEVEL >= 1 && PNG_DEFLATE_LEVEL <= 9);
+/// Level 2 avoids zlib-rs's fixed-Huffman level-1 quick path.
+pub const PNG_ZLIB_RS_DEFLATE_LEVEL: u8 = 2;
+
+const _: () = assert!(PNG_MINIZ_DEFLATE_LEVEL >= 1 && PNG_MINIZ_DEFLATE_LEVEL <= 9);
+const _: () = assert!(PNG_ZLIB_RS_DEFLATE_LEVEL >= 1 && PNG_ZLIB_RS_DEFLATE_LEVEL <= 9);

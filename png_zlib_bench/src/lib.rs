@@ -37,7 +37,9 @@ pub fn encode_png_zlib_rs(
             png::ColorType::Rgb
         });
         encoder.set_depth(png::BitDepth::Eight);
-        encoder.set_deflate_compression(png::DeflateCompression::Level(config::PNG_DEFLATE_LEVEL));
+        encoder.set_deflate_compression(png::DeflateCompression::Level(
+            config::PNG_ZLIB_RS_DEFLATE_LEVEL,
+        ));
         encoder.set_filter(png::Filter::Up);
         let mut writer = encoder
             .write_header()

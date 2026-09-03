@@ -149,6 +149,9 @@ canvas {
 .png-bench-table tbody tr:last-child td { border-bottom: 0; }
 .png-bench-encoder { color: #cbd5e1 !important; text-align: left !important; }
 .png-bench-encoder i { display: inline-block; width: 0.35rem; height: 0.35rem; margin-right: 0.25rem; vertical-align: 0; }
+.png-bench-raw { padding: 0.25rem 0.4rem; border-top: 1px solid rgba(148, 163, 184, 0.12); color: #64748b; font: 0.65rem/1.35 ui-monospace, monospace; }
+.png-bench-raw summary { cursor: pointer; user-select: none; }
+.png-bench-raw div { max-height: 8rem; margin-top: 0.25rem; overflow: auto; color: #94a3b8; overflow-wrap: anywhere; }
 
 @media (max-width: 760px) {
   .png-bench-header { padding: 0.4rem 0.5rem; }
