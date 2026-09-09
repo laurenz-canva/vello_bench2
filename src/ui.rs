@@ -31,6 +31,8 @@ fn class(el: &impl AsRef<Element>, value: &str) {
 const TOP_PROBE_BUTTON_NEUTRAL_CLASS: &str = "app-probe-button shrink-0 cursor-pointer whitespace-nowrap border border-slate-300/20 bg-slate-300/10 px-2 py-1 text-xs font-semibold text-slate-200 transition hover:bg-slate-300/15";
 const TOP_PROBE_BUTTON_SUCCESS_CLASS: &str = "app-probe-button shrink-0 cursor-pointer whitespace-nowrap border border-emerald-300/40 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-300/15";
 const TOP_PROBE_BUTTON_FAILURE_CLASS: &str = "app-probe-button shrink-0 cursor-pointer whitespace-nowrap border border-rose-300/40 bg-rose-300/10 px-2 py-1 text-xs font-semibold text-rose-300 transition hover:bg-rose-300/15";
+const DEPTH_BUFFER_BUTTON_ON_CLASS: &str = "app-depth-buffer-toggle shrink-0 cursor-pointer whitespace-nowrap border border-emerald-300/40 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-300/15";
+const DEPTH_BUFFER_BUTTON_OFF_CLASS: &str = "app-depth-buffer-toggle shrink-0 cursor-pointer whitespace-nowrap border border-rose-300/40 bg-rose-300/10 px-2 py-1 text-xs font-semibold text-rose-300 transition hover:bg-rose-300/15";
 const PROBE_DETAILS_NEUTRAL_CLASS: &str =
     "app-probe-details border border-slate-300/20 bg-slate-300/10 text-slate-200";
 const PROBE_DETAILS_SUCCESS_CLASS: &str =
@@ -154,6 +156,8 @@ pub struct Ui {
     top_probe_btn: HtmlElement,
     top_probe_details: HtmlElement,
     renderer_select: HtmlSelectElement,
+    depth_buffer_btn: HtmlElement,
+    use_depth_buffer: Cell<bool>,
 
     // Interactive: sidebar
     sidebar: HtmlElement,
@@ -187,9 +191,10 @@ impl Ui {
         capabilities: BackendCapabilities,
         current_scene: usize,
         sidebar_collapsed: bool,
-        vp_w: u32,
-        vp_h: u32,
+        use_depth_buffer: bool,
+        viewport: (u32, u32),
     ) -> Self {
+        let (vp_w, vp_h) = viewport;
         let body = document.body().unwrap();
         class(&body, "overflow-hidden antialiased");
         let app_overlay = document
@@ -204,6 +209,7 @@ impl Ui {
             top_probe_btn,
             top_probe_details,
             renderer_select,
+            depth_buffer_btn,
         ) = build_top_bar(document, crate::backend::current_backend_kind());
         app_overlay.append_child(&top_bar).unwrap();
 
@@ -226,6 +232,8 @@ impl Ui {
             top_probe_btn,
             top_probe_details,
             renderer_select,
+            depth_buffer_btn,
+            use_depth_buffer: Cell::new(use_depth_buffer),
             sidebar: iv.sidebar,
             toggle_btn: sidebar_toggle_btn,
             sidebar_collapsed,
@@ -236,6 +244,7 @@ impl Ui {
             reset_view_btn: iv.reset_view_btn,
             dirty,
         };
+        ui.set_use_depth_buffer(use_depth_buffer);
         ui.set_renderer(crate::backend::current_backend_kind());
         ui.apply_sidebar_state();
         let values = ui.read_params();
@@ -250,6 +259,42 @@ impl Ui {
     pub fn set_renderer(&self, kind: BackendKind) {
         self.renderer_select.set_value(kind.as_str());
         self.sync_probe_button(kind);
+        self.depth_buffer_btn
+            .style()
+            .set_property(
+                "display",
+                if kind == BackendKind::Gpu {
+                    "block"
+                } else {
+                    "none"
+                },
+            )
+            .unwrap();
+    }
+
+    pub fn depth_buffer_btn(&self) -> &HtmlElement {
+        &self.depth_buffer_btn
+    }
+
+    pub fn use_depth_buffer(&self) -> bool {
+        self.use_depth_buffer.get()
+    }
+
+    pub fn set_use_depth_buffer(&self, enabled: bool) {
+        self.use_depth_buffer.set(enabled);
+        self.depth_buffer_btn.set_text_content(Some(if enabled {
+            "Depth: ON"
+        } else {
+            "Depth: OFF"
+        }));
+        class(
+            &self.depth_buffer_btn,
+            if enabled {
+                DEPTH_BUFFER_BUTTON_ON_CLASS
+            } else {
+                DEPTH_BUFFER_BUTTON_OFF_CLASS
+            },
+        );
     }
 
     pub fn set_webgl_initializing(&self) {
@@ -550,7 +595,7 @@ impl Ui {
     }
 
     fn sync_probe_button(&self, kind: BackendKind) {
-        let visible = kind == BackendKind::Hybrid;
+        let visible = kind == BackendKind::Gpu;
         self.top_probe_btn
             .style()
             .set_property("display", if visible { "block" } else { "none" })
@@ -609,6 +654,7 @@ impl Ui {
         crate::storage::save_ui_state(&UiState {
             sidebar_collapsed: Some(self.sidebar_collapsed),
             scene: Some(scene),
+            use_depth_buffer: Some(self.use_depth_buffer()),
             params,
         });
     }
@@ -653,6 +699,7 @@ fn build_top_bar(
     HtmlElement,
     HtmlElement,
     HtmlSelectElement,
+    HtmlElement,
 ) {
     let top_bar = div(document);
     class(&top_bar, "app-top-bar");
@@ -752,6 +799,15 @@ fn build_top_bar(
     }
     renderer_select.set_value(current_backend.as_str());
     primary_controls.append_child(&renderer_select).unwrap();
+
+    let depth_buffer_btn = div(document);
+    depth_buffer_btn
+        .set_attribute(
+            "title",
+            "Toggle WebGL depth-buffer allocation and opaque-strip occlusion",
+        )
+        .unwrap();
+    primary_controls.append_child(&depth_buffer_btn).unwrap();
     primary_controls.append_child(&top_probe_btn).unwrap();
     top_bar.append_child(&controls_group).unwrap();
 
@@ -762,6 +818,7 @@ fn build_top_bar(
         top_probe_btn,
         top_probe_details,
         renderer_select,
+        depth_buffer_btn,
     )
 }
 

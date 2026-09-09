@@ -1,8 +1,8 @@
-//! Backend abstraction over vello_hybrid, vello_cpu, Pathfinder, and Canvas 2D.
+//! Backend abstraction over vello_gpu, vello_cpu, Pathfinder, and Canvas 2D.
 
 mod canvas2d;
 mod cpu;
-mod hybrid;
+mod gpu;
 #[cfg(feature = "pathfinder")]
 mod pathfinder;
 #[cfg(feature = "vello")]
@@ -25,7 +25,7 @@ pub use vello_common::pixmap::Pixmap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendKind {
-    Hybrid,
+    Gpu,
     #[cfg(feature = "vello")]
     Vello,
     Cpu,
@@ -38,7 +38,7 @@ pub enum BackendKind {
 impl BackendKind {
     #[cfg(all(feature = "pathfinder", feature = "vello"))]
     pub const ALL: [Self; 6] = [
-        Self::Hybrid,
+        Self::Gpu,
         Self::Vello,
         Self::Cpu,
         Self::Pathfinder,
@@ -47,7 +47,7 @@ impl BackendKind {
     ];
     #[cfg(all(feature = "pathfinder", not(feature = "vello")))]
     pub const ALL: [Self; 5] = [
-        Self::Hybrid,
+        Self::Gpu,
         Self::Cpu,
         Self::Pathfinder,
         Self::Canvas2d,
@@ -55,18 +55,18 @@ impl BackendKind {
     ];
     #[cfg(all(not(feature = "pathfinder"), feature = "vello"))]
     pub const ALL: [Self; 5] = [
-        Self::Hybrid,
+        Self::Gpu,
         Self::Vello,
         Self::Cpu,
         Self::Canvas2d,
         Self::Canvas2dCpu,
     ];
     #[cfg(all(not(feature = "pathfinder"), not(feature = "vello")))]
-    pub const ALL: [Self; 4] = [Self::Hybrid, Self::Cpu, Self::Canvas2d, Self::Canvas2dCpu];
+    pub const ALL: [Self; 4] = [Self::Gpu, Self::Cpu, Self::Canvas2d, Self::Canvas2dCpu];
 
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Hybrid => "hybrid",
+            Self::Gpu => "gpu",
             #[cfg(feature = "vello")]
             Self::Vello => "vello",
             Self::Cpu => "cpu",
@@ -79,7 +79,7 @@ impl BackendKind {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Hybrid => "Vello Hybrid",
+            Self::Gpu => "Vello GPU",
             #[cfg(feature = "vello")]
             Self::Vello => "Vello",
             Self::Cpu => "Vello CPU",
@@ -92,7 +92,7 @@ impl BackendKind {
 
     pub fn from_str(value: &str) -> Option<Self> {
         match value {
-            "hybrid" => Some(Self::Hybrid),
+            "gpu" | "hybrid" => Some(Self::Gpu),
             #[cfg(feature = "vello")]
             "vello" | "webgpu" => Some(Self::Vello),
             "cpu" => Some(Self::Cpu),
@@ -106,7 +106,7 @@ impl BackendKind {
 
     fn capabilities(self) -> &'static CapabilityProfile {
         match self {
-            Self::Hybrid => &hybrid::CAPABILITIES,
+            Self::Gpu => &gpu::CAPABILITIES,
             #[cfg(feature = "vello")]
             Self::Vello => &vello::CAPABILITIES,
             Self::Cpu => &cpu::CAPABILITIES,
@@ -134,7 +134,7 @@ pub fn current_backend_kind() -> BackendKind {
         .as_deref()
         .and_then(BackendKind::from_str)
         .filter(|kind| kind.is_available())
-        .unwrap_or(BackendKind::Hybrid)
+        .unwrap_or(BackendKind::Gpu)
 }
 
 #[cfg(feature = "vello")]
@@ -195,8 +195,8 @@ pub trait Backend {
         self.upload_image(pixmap)
     }
     fn destroy_image(&mut self, image: &ImageSource);
-    fn probe(&mut self) -> Result<vello_hybrid::WebGlPendingProbe, String> {
-        Err("Backend probing is only supported for Vello Hybrid".to_string())
+    fn probe(&mut self) -> Result<vello_gpu::WebGlPendingProbe, String> {
+        Err("Backend probing is only supported for Vello GPU".to_string())
     }
 }
 
@@ -266,9 +266,10 @@ pub fn new_backend(
     w: u32,
     h: u32,
     kind: BackendKind,
+    use_depth_buffer: bool,
 ) -> Box<dyn Backend> {
     match kind {
-        BackendKind::Hybrid => Box::new(hybrid::BackendImpl::new(canvas, w, h)),
+        BackendKind::Gpu => Box::new(gpu::BackendImpl::new(canvas, w, h, use_depth_buffer)),
         #[cfg(feature = "vello")]
         BackendKind::Vello => Box::new(vello::BackendImpl::new(canvas, w, h)),
         BackendKind::Cpu => Box::new(cpu::BackendImpl::new(canvas, w, h)),

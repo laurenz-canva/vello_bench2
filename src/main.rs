@@ -1,7 +1,7 @@
 // Copyright 2025 the Vello Authors
 // SPDX-License-Identifier: Apache-2.0 OR MIT
 
-//! Interactive renderer playground for Vello Hybrid.
+//! Interactive renderer playground for Vello GPU.
 
 fn main() {
     #[cfg(not(target_arch = "wasm32"))]

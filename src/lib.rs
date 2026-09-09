@@ -1,4 +1,4 @@
-//! Interactive renderer playground for Vello Hybrid.
+//! Interactive renderer playground for Vello GPU.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -61,7 +61,7 @@ async fn next_animation_frame() {
     JsFuture::from(promise).await.unwrap();
 }
 
-fn poll_probe_completion<F>(pending_probe: vello_hybrid::WebGlPendingProbe, on_complete: F)
+fn poll_probe_completion<F>(pending_probe: vello_gpu::WebGlPendingProbe, on_complete: F)
 where
     F: FnOnce(ProbeCompletion) + 'static,
 {
@@ -82,13 +82,13 @@ where
             .map(|performance| performance.now())
             .unwrap_or(0.0);
         match pending_probe.try_finish() {
-            Ok(vello_hybrid::WebGlProbeStatus::Pending(pending_probe)) => {
+            Ok(vello_gpu::WebGlProbeStatus::Pending(pending_probe)) => {
                 *pending_probe_ref.borrow_mut() = Some(pending_probe);
                 if let Some(callback) = callback_ref.borrow().as_ref() {
                     request_animation_frame(callback);
                 }
             }
-            Ok(vello_hybrid::WebGlProbeStatus::Complete(probe)) => {
+            Ok(vello_gpu::WebGlProbeStatus::Complete(probe)) => {
                 let readback_ms = probe_elapsed_ms(readback_started_at);
                 callback_ref.borrow_mut().take();
                 if let Some(on_complete) = on_complete_ref.borrow_mut().take() {
@@ -117,7 +117,7 @@ where
 }
 
 fn probe_result_to_result(
-    probe: vello_common::probe::Probe<vello_hybrid::RenderError>,
+    probe: vello_common::probe::Probe<vello_gpu::RenderError>,
 ) -> Result<(), String> {
     match probe {
         vello_common::probe::Probe::Success => Ok(()),
@@ -156,7 +156,7 @@ fn probe_mismatch_message(result: &vello_common::probe::ProbeResult) -> String {
 struct PendingProbeCompletion {
     started_at: f64,
     start_probe_ms: f64,
-    pending_probe: vello_hybrid::WebGlPendingProbe,
+    pending_probe: vello_gpu::WebGlPendingProbe,
 }
 
 struct ProbeCompletion {
@@ -203,7 +203,7 @@ impl std::fmt::Debug for AppState {
 
 impl AppState {
     fn begin_backend_initialization(&mut self, kind: BackendKind) {
-        self.webgl_init_pending = kind == BackendKind::Hybrid;
+        self.webgl_init_pending = kind == BackendKind::Gpu;
         self.webgl_init_poll_deferred = self.webgl_init_pending;
         if self.webgl_init_pending {
             self.ui.set_webgl_initializing();
@@ -244,7 +244,13 @@ impl AppState {
 
         self.backend_caps = current_backend_capabilities(kind);
         self.canvas = replace_canvas_element(&self.canvas, self.width, self.height);
-        self.backend = new_backend(&self.canvas, self.width, self.height, kind);
+        self.backend = new_backend(
+            &self.canvas,
+            self.width,
+            self.height,
+            kind,
+            self.ui.use_depth_buffer(),
+        );
         self.begin_backend_initialization(kind);
         self.scenes = scenes::all_scenes();
 
@@ -283,6 +289,32 @@ impl AppState {
         true
     }
 
+    fn toggle_depth_buffer(&mut self, now: f64) -> bool {
+        let use_depth_buffer = !self.ui.use_depth_buffer();
+        self.ui.set_use_depth_buffer(use_depth_buffer);
+        self.ui.mark_dirty();
+
+        if self.backend.kind() != BackendKind::Gpu {
+            return false;
+        }
+
+        self.dragging = false;
+        self.resources.clear_all(self.backend.as_mut());
+        // WebGL context attributes are fixed when a canvas first creates its context, so changing
+        // the depth-buffer option requires a fresh canvas as well as a fresh renderer.
+        self.canvas = replace_canvas_element(&self.canvas, self.width, self.height);
+        self.backend = new_backend(
+            &self.canvas,
+            self.width,
+            self.height,
+            BackendKind::Gpu,
+            use_depth_buffer,
+        );
+        self.begin_backend_initialization(BackendKind::Gpu);
+        self.fps_tracker.reset(now);
+        true
+    }
+
     fn tick(&mut self, now: f64) {
         if !self.backend_ready() {
             self.ui.flush_state();
@@ -300,7 +332,13 @@ impl AppState {
                 .clear_scene(old_scene_id, self.backend.as_mut());
             self.current_scene = selected;
             let kind = self.backend.kind();
-            self.backend = new_backend(&self.canvas, self.width, self.height, kind);
+            self.backend = new_backend(
+                &self.canvas,
+                self.width,
+                self.height,
+                kind,
+                self.ui.use_depth_buffer(),
+            );
             self.begin_backend_initialization(kind);
             self.scenes = scenes::all_scenes();
             self.fps_tracker.reset(now);
@@ -389,7 +427,7 @@ impl AppState {
     }
 
     fn run_backend_probe(&mut self) -> Option<PendingProbeCompletion> {
-        if self.backend.kind() != BackendKind::Hybrid {
+        if self.backend.kind() != BackendKind::Gpu {
             return None;
         }
         let started_at = web_sys::window()
@@ -400,7 +438,7 @@ impl AppState {
         match self.backend.probe() {
             Ok(pending_probe) => {
                 let start_probe_ms = probe_elapsed_ms(started_at);
-                log::info!("Vello Hybrid probe start_probe finished in {start_probe_ms:.1}ms");
+                log::info!("Vello GPU probe start_probe finished in {start_probe_ms:.1}ms");
                 self.ui.set_probe_sync_complete(start_probe_ms);
                 Some(PendingProbeCompletion {
                     started_at,
@@ -411,7 +449,7 @@ impl AppState {
             Err(error) => {
                 let start_probe_ms = probe_elapsed_ms(started_at);
                 log::warn!(
-                    "Vello Hybrid probe failed: start_probe {start_probe_ms:.1}ms, full {start_probe_ms:.1}ms: {error}"
+                    "Vello GPU probe failed: start_probe {start_probe_ms:.1}ms, full {start_probe_ms:.1}ms: {error}"
                 );
                 self.ui
                     .set_probe_failure(&error, start_probe_ms, None, start_probe_ms);
@@ -521,6 +559,7 @@ pub async fn run() {
 
     let saved_state = storage::load_ui_state();
     let initial_sidebar_collapsed = saved_state.sidebar_collapsed.unwrap_or(true);
+    let use_depth_buffer = saved_state.use_depth_buffer.unwrap_or(true);
     let initial_scene = saved_state
         .scene
         .filter(|&i| i < app_scenes.len())
@@ -534,11 +573,11 @@ pub async fn run() {
         backend_caps,
         initial_scene,
         initial_sidebar_collapsed,
-        px_w,
-        px_h,
+        use_depth_buffer,
+        (px_w, px_h),
     );
-    let mut backend = new_backend(&canvas, px_w, px_h, backend_kind);
-    if backend_kind == BackendKind::Hybrid {
+    let mut backend = new_backend(&canvas, px_w, px_h, backend_kind, use_depth_buffer);
+    if backend_kind == BackendKind::Gpu {
         ui.set_webgl_initializing();
         // Allow the browser to present the pending state before polling compilation.
         next_animation_frame().await;
@@ -603,7 +642,7 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         cb.forget();
     }
 
-    // Probe Vello Hybrid from the top bar.
+    // Probe Vello GPU from the top bar.
     {
         let btn = state.borrow().ui.top_probe_btn().clone();
         let s = state.clone();
@@ -616,7 +655,7 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
                     match completion.result {
                         Ok(()) => {
                             log::info!(
-                                "Vello Hybrid probe succeeded: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms",
+                                "Vello GPU probe succeeded: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms",
                                 pending.start_probe_ms,
                                 completion.readback_ms,
                                 full_ms
@@ -629,7 +668,7 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
                         }
                         Err(error) => {
                             log::warn!(
-                                "Vello Hybrid probe failed: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms: {error}",
+                                "Vello GPU probe failed: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms: {error}",
                                 pending.start_probe_ms,
                                 completion.readback_ms,
                                 full_ms
@@ -698,6 +737,22 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         }) as Box<dyn FnMut()>);
         select
             .add_event_listener_with_callback("change", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
+
+    // Depth-buffer toggle → recreate the WebGL context with the new context attributes.
+    {
+        let s = state.clone();
+        let btn = state.borrow().ui.depth_buffer_btn().clone();
+        let cb = Closure::wrap(Box::new(move || {
+            let now = web_sys::window().unwrap().performance().unwrap().now();
+            let replaced_canvas = s.borrow_mut().toggle_depth_buffer(now);
+            if replaced_canvas {
+                wire_touch(&s);
+            }
+        }) as Box<dyn FnMut()>);
+        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
             .unwrap();
         cb.forget();
     }

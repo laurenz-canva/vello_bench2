@@ -150,7 +150,7 @@ pub struct RectScene {
     image_filter: u32,
     /// Whether images are fully opaque (no alpha fade).
     image_opaque: bool,
-    /// Upload images as external textures instead of using the Hybrid image atlas.
+    /// Upload images as external textures instead of using the GPU image atlas.
     use_external_textures: bool,
     /// When true, fill colors use alpha 255 instead of semi-transparent.
     opaque: bool,

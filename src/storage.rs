@@ -9,6 +9,7 @@ const BACKEND_KEY: &str = "vello_bench_renderer";
 pub(crate) struct UiState {
     pub(crate) sidebar_collapsed: Option<bool>,
     pub(crate) scene: Option<usize>,
+    pub(crate) use_depth_buffer: Option<bool>,
     #[serde(default)]
     pub(crate) params: Vec<(String, f64)>,
 }

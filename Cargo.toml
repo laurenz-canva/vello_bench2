@@ -32,14 +32,14 @@ serde_json = { version = "1.0.149" }
 smallvec = {version = "1.15.1" }
 skrifa = { version = "0.42.0" }
 usvg = { version = "0.47.0" }
-vello = { git = "https://github.com/linebender/vello", rev = "9376c29e5be5be5076fcebcd083362759345ab74", optional = true }
-vello_common = { git = "https://github.com/linebender/vello", rev = "9376c29e5be5be5076fcebcd083362759345ab74" }
-vello_hybrid = { git = "https://github.com/linebender/vello", rev = "9376c29e5be5be5076fcebcd083362759345ab74", default-features = false, features = ["webgl", "text", "probe"] }
-vello_cpu = { git = "https://github.com/linebender/vello", rev = "9376c29e5be5be5076fcebcd083362759345ab74", default-features = false, features = ["text", "u8_pipeline", "png", "std"] }
-glifo = {  git = "https://github.com/linebender/vello", rev = "9376c29e5be5be5076fcebcd083362759345ab74" }
+vello = { git = "https://github.com/linebender/vello", rev = "113ecc9b80b4a9306e1e53f43e9ddfb657083faf", optional = true }
+vello_common = { git = "https://github.com/linebender/vello", rev = "113ecc9b80b4a9306e1e53f43e9ddfb657083faf" }
+vello_gpu = { git = "https://github.com/linebender/vello", rev = "113ecc9b80b4a9306e1e53f43e9ddfb657083faf", default-features = false, features = ["webgl", "text", "probe"] }
+vello_cpu = { git = "https://github.com/linebender/vello", rev = "113ecc9b80b4a9306e1e53f43e9ddfb657083faf", default-features = false, features = ["text", "u8_pipeline", "png", "std"] }
+glifo = {  git = "https://github.com/linebender/vello", rev = "113ecc9b80b4a9306e1e53f43e9ddfb657083faf" }
 #vello = { path = "../vello/vello", optional = true }
 #vello_common = { path = "../vello/sparse_strips/vello_common" }
-#vello_hybrid = { path = "../vello/sparse_strips/vello_hybrid", default-features = false, features = ["webgl", "text", "probe"]  }
+#vello_gpu = { path = "../vello/vello_gpu", default-features = false, features = ["webgl", "text", "probe"]  }
 #vello_cpu = { path = "../vello/sparse_strips/vello_cpu", default-features = false, features = ["text", "u8_pipeline", "png", "std"]  }
 #glifo = { path = "../vello/glifo" }
 pathfinder_canvas = { git = "https://github.com/servo/pathfinder", branch = "main", optional = true }

@@ -7,7 +7,7 @@ use vello_common::multi_atlas::AtlasConfig;
 use vello_common::paint::{ImageSource, PaintType};
 use vello_common::peniko::{Fill, FontData};
 use vello_common::pixmap::Pixmap;
-use vello_hybrid::{LayersConfig, MemorySettings, WebGlTextureBindings};
+use vello_gpu::{LayersConfig, MemorySettings, WebGlTextureBindings};
 use web_sys::{HtmlCanvasElement, WebGl2RenderingContext};
 
 use crate::backend::{Backend, BackendKind, layout_text_glyphs, uploaded_image_id};
@@ -16,37 +16,37 @@ use crate::capability::CapabilityProfile;
 pub(crate) const CAPABILITIES: CapabilityProfile = CapabilityProfile::all();
 
 pub struct BackendImpl {
-    ctx: vello_hybrid::Scene,
-    resources: vello_hybrid::Resources,
-    renderer: Option<vello_hybrid::WebGlRenderer>,
-    renderer_init: Option<vello_hybrid::WebGlRendererInit>,
+    ctx: vello_gpu::Scene,
+    resources: vello_gpu::Resources,
+    renderer: Option<vello_gpu::WebGlRenderer>,
+    renderer_init: Option<vello_gpu::WebGlRendererInit>,
     external_texture_bindings: WebGlTextureBindings,
     next_external_texture_id: u64,
 }
 
 impl std::fmt::Debug for BackendImpl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Backend(hybrid)").finish()
+        f.debug_struct("Backend(gpu)").finish()
     }
 }
 
 impl BackendImpl {
-    pub fn new(canvas: &HtmlCanvasElement, w: u32, h: u32) -> Self {
+    pub fn new(canvas: &HtmlCanvasElement, w: u32, h: u32, use_depth_buffer: bool) -> Self {
         let image_atlas_config = AtlasConfig::default();
         let memory_settings = MemorySettings {
             layers_config: LayersConfig::default(),
             image_atlas_config,
         };
-        let settings = vello_hybrid::RenderSettings {
+        let settings = vello_gpu::RenderSettings {
             memory_settings,
             ..Default::default()
         };
 
         let (renderer_init, resources) =
-            vello_hybrid::WebGlRenderer::begin_with(canvas, settings, true);
+            vello_gpu::WebGlRenderer::begin_with(canvas, settings, use_depth_buffer);
 
         Self {
-            ctx: vello_hybrid::Scene::new(w as u16, h as u16),
+            ctx: vello_gpu::Scene::new(w as u16, h as u16),
             resources,
             renderer: None,
             renderer_init: Some(renderer_init),
@@ -74,7 +74,7 @@ impl BackendImpl {
 
 impl Backend for BackendImpl {
     fn kind(&self) -> BackendKind {
-        BackendKind::Hybrid
+        BackendKind::Gpu
     }
 
     fn poll_ready(&mut self) -> bool {
@@ -85,11 +85,11 @@ impl Backend for BackendImpl {
             return false;
         };
         match init.try_finish() {
-            vello_hybrid::WebGlRendererInitStatus::Pending(init) => {
+            vello_gpu::WebGlRendererInitStatus::Pending(init) => {
                 self.renderer_init = Some(init);
                 false
             }
-            vello_hybrid::WebGlRendererInitStatus::Complete(renderer) => {
+            vello_gpu::WebGlRendererInitStatus::Complete(renderer) => {
                 self.renderer = Some(renderer);
                 true
             }
@@ -101,7 +101,7 @@ impl Backend for BackendImpl {
     }
 
     fn render_offscreen(&mut self) {
-        let rs = vello_hybrid::RenderSize {
+        let rs = vello_gpu::RenderSize {
             width: self.ctx.width() as u32,
             height: self.ctx.height() as u32,
         };
@@ -128,7 +128,7 @@ impl Backend for BackendImpl {
     }
 
     fn resize(&mut self, w: u32, h: u32) {
-        self.ctx = vello_hybrid::Scene::new(w as u16, h as u16);
+        self.ctx = vello_gpu::Scene::new(w as u16, h as u16);
     }
 
     fn set_paint(&mut self, paint: PaintType) {
@@ -289,7 +289,7 @@ impl Backend for BackendImpl {
         }
     }
 
-    fn probe(&mut self) -> Result<vello_hybrid::WebGlPendingProbe, String> {
+    fn probe(&mut self) -> Result<vello_gpu::WebGlPendingProbe, String> {
         self.renderer
             .as_mut()
             .ok_or_else(|| "WebGL initialization is still in progress".to_string())?
