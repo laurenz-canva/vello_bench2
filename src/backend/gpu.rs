@@ -1,4 +1,5 @@
 use glifo::Glyph;
+use vello_common::color::palette::css::TRANSPARENT;
 use vello_common::TextureId;
 use vello_common::filter_effects::Filter;
 use vello_common::geometry::RectU16;
@@ -102,8 +103,8 @@ impl Backend for BackendImpl {
 
     fn render_offscreen(&mut self) {
         let rs = vello_gpu::RenderSize {
-            width: self.ctx.width() as u32,
-            height: self.ctx.height() as u32,
+            width: self.ctx.width(),
+            height: self.ctx.height(),
         };
         self.renderer
             .as_mut()
@@ -113,6 +114,7 @@ impl Backend for BackendImpl {
                 &mut self.resources,
                 &rs,
                 &self.external_texture_bindings,
+                TRANSPARENT
             )
             .unwrap();
     }
