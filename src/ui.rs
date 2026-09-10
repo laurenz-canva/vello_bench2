@@ -33,6 +33,7 @@ const TOP_PROBE_BUTTON_SUCCESS_CLASS: &str = "app-probe-button shrink-0 cursor-p
 const TOP_PROBE_BUTTON_FAILURE_CLASS: &str = "app-probe-button shrink-0 cursor-pointer whitespace-nowrap border border-rose-300/40 bg-rose-300/10 px-2 py-1 text-xs font-semibold text-rose-300 transition hover:bg-rose-300/15";
 const DEPTH_BUFFER_BUTTON_ON_CLASS: &str = "app-depth-buffer-toggle shrink-0 cursor-pointer whitespace-nowrap border border-emerald-300/40 bg-emerald-300/10 px-2 py-1 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-300/15";
 const DEPTH_BUFFER_BUTTON_OFF_CLASS: &str = "app-depth-buffer-toggle shrink-0 cursor-pointer whitespace-nowrap border border-rose-300/40 bg-rose-300/10 px-2 py-1 text-xs font-semibold text-rose-300 transition hover:bg-rose-300/15";
+const GPU_INFO_BUTTON_CLASS: &str = "app-gpu-info-button shrink-0 cursor-pointer whitespace-nowrap border border-slate-300/20 bg-slate-300/10 px-2 py-1 text-xs font-semibold text-slate-200 transition hover:bg-slate-300/15";
 const PROBE_DETAILS_NEUTRAL_CLASS: &str =
     "app-probe-details border border-slate-300/20 bg-slate-300/10 text-slate-200";
 const PROBE_DETAILS_SUCCESS_CLASS: &str =
@@ -158,6 +159,8 @@ pub struct Ui {
     renderer_select: HtmlSelectElement,
     depth_buffer_btn: HtmlElement,
     use_depth_buffer: Cell<bool>,
+    gpu_info_btn: HtmlElement,
+    gpu_info_details: HtmlElement,
 
     // Interactive: sidebar
     sidebar: HtmlElement,
@@ -210,6 +213,8 @@ impl Ui {
             top_probe_details,
             renderer_select,
             depth_buffer_btn,
+            gpu_info_btn,
+            gpu_info_details,
         ) = build_top_bar(document, crate::backend::current_backend_kind());
         app_overlay.append_child(&top_bar).unwrap();
 
@@ -234,6 +239,8 @@ impl Ui {
             renderer_select,
             depth_buffer_btn,
             use_depth_buffer: Cell::new(use_depth_buffer),
+            gpu_info_btn,
+            gpu_info_details,
             sidebar: iv.sidebar,
             toggle_btn: sidebar_toggle_btn,
             sidebar_collapsed,
@@ -270,6 +277,18 @@ impl Ui {
                 },
             )
             .unwrap();
+        self.gpu_info_btn
+            .style()
+            .set_property(
+                "display",
+                if kind == BackendKind::Gpu {
+                    "block"
+                } else {
+                    "none"
+                },
+            )
+            .unwrap();
+        set_probe_details(&self.gpu_info_details, PROBE_DETAILS_NEUTRAL_CLASS, None);
     }
 
     pub fn depth_buffer_btn(&self) -> &HtmlElement {
@@ -294,6 +313,22 @@ impl Ui {
             } else {
                 DEPTH_BUFFER_BUTTON_OFF_CLASS
             },
+        );
+    }
+
+    pub fn gpu_info_btn(&self) -> &HtmlElement {
+        &self.gpu_info_btn
+    }
+
+    pub fn set_gpu_info(&self, text: &str, success: bool) {
+        set_probe_details(
+            &self.gpu_info_details,
+            if success {
+                PROBE_DETAILS_NEUTRAL_CLASS
+            } else {
+                PROBE_DETAILS_FAILURE_CLASS
+            },
+            Some(text),
         );
     }
 
@@ -700,6 +735,8 @@ fn build_top_bar(
     HtmlElement,
     HtmlSelectElement,
     HtmlElement,
+    HtmlElement,
+    HtmlElement,
 ) {
     let top_bar = div(document);
     class(&top_bar, "app-top-bar");
@@ -781,6 +818,10 @@ fn build_top_bar(
     set_probe_details(&top_probe_details, PROBE_DETAILS_NEUTRAL_CLASS, None);
     controls_group.append_child(&top_probe_details).unwrap();
 
+    let gpu_info_details = div(document);
+    set_probe_details(&gpu_info_details, PROBE_DETAILS_NEUTRAL_CLASS, None);
+    controls_group.append_child(&gpu_info_details).unwrap();
+
     let renderer_select: HtmlSelectElement = document
         .create_element("select")
         .unwrap()
@@ -808,6 +849,14 @@ fn build_top_bar(
         )
         .unwrap();
     primary_controls.append_child(&depth_buffer_btn).unwrap();
+
+    let gpu_info_btn = div(document);
+    gpu_info_btn.set_text_content(Some("GPU Info"));
+    gpu_info_btn
+        .set_attribute("title", "Print the unmasked WebGL vendor and renderer")
+        .unwrap();
+    class(&gpu_info_btn, GPU_INFO_BUTTON_CLASS);
+    primary_controls.append_child(&gpu_info_btn).unwrap();
     primary_controls.append_child(&top_probe_btn).unwrap();
     top_bar.append_child(&controls_group).unwrap();
 
@@ -819,6 +868,8 @@ fn build_top_bar(
         top_probe_details,
         renderer_select,
         depth_buffer_btn,
+        gpu_info_btn,
+        gpu_info_details,
     )
 }
 

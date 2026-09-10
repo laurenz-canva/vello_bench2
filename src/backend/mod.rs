@@ -198,6 +198,9 @@ pub trait Backend {
     fn probe(&mut self) -> Result<vello_gpu::WebGlPendingProbe, String> {
         Err("Backend probing is only supported for Vello GPU".to_string())
     }
+    fn unmasked_gpu_info(&self) -> Result<(String, String), String> {
+        Err("GPU information is only available for Vello GPU".to_string())
+    }
 }
 
 pub fn uploaded_image_id(image: &ImageSource) -> Option<ImageId> {

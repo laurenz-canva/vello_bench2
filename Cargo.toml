@@ -37,10 +37,10 @@ vello_common = { git = "https://github.com/linebender/vello", rev = "113ecc9b80b
 vello_gpu = { git = "https://github.com/linebender/vello", rev = "113ecc9b80b4a9306e1e53f43e9ddfb657083faf", default-features = false, features = ["webgl", "text", "probe"] }
 vello_cpu = { git = "https://github.com/linebender/vello", rev = "113ecc9b80b4a9306e1e53f43e9ddfb657083faf", default-features = false, features = ["text", "u8_pipeline", "png", "std"] }
 glifo = {  git = "https://github.com/linebender/vello", rev = "113ecc9b80b4a9306e1e53f43e9ddfb657083faf" }
-#vello = { path = "../vello/vello", optional = true }
-#vello_common = { path = "../vello/sparse_strips/vello_common" }
+#vello = { path = "../vello/research/vello_research", optional = true }
+#vello_common = { path = "../vello/vello_common" }
 #vello_gpu = { path = "../vello/vello_gpu", default-features = false, features = ["webgl", "text", "probe"]  }
-#vello_cpu = { path = "../vello/sparse_strips/vello_cpu", default-features = false, features = ["text", "u8_pipeline", "png", "std"]  }
+#vello_cpu = { path = "../vello/vello_cpu", default-features = false, features = ["text", "u8_pipeline", "png", "std"]  }
 #glifo = { path = "../vello/glifo" }
 pathfinder_canvas = { git = "https://github.com/servo/pathfinder", branch = "main", optional = true }
 pathfinder_color = { git = "https://github.com/servo/pathfinder", branch = "main", optional = true }

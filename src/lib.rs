@@ -315,6 +315,20 @@ impl AppState {
         true
     }
 
+    fn print_unmasked_gpu_info(&self) {
+        match self.backend.unmasked_gpu_info() {
+            Ok((vendor, renderer)) => {
+                let message = format!("Vendor: {vendor} · Renderer: {renderer}");
+                log::info!("Unmasked WebGL {message}");
+                self.ui.set_gpu_info(&message, true);
+            }
+            Err(error) => {
+                log::warn!("Could not query unmasked WebGL GPU information: {error}");
+                self.ui.set_gpu_info(&error, false);
+            }
+        }
+    }
+
     fn tick(&mut self, now: f64) {
         if !self.backend_ready() {
             self.ui.flush_state();
@@ -751,6 +765,18 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
             if replaced_canvas {
                 wire_touch(&s);
             }
+        }) as Box<dyn FnMut()>);
+        btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
+
+    // Print the unmasked WebGL vendor and renderer.
+    {
+        let s = state.clone();
+        let btn = state.borrow().ui.gpu_info_btn().clone();
+        let cb = Closure::wrap(Box::new(move || {
+            s.borrow().print_unmasked_gpu_info();
         }) as Box<dyn FnMut()>);
         btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
             .unwrap();

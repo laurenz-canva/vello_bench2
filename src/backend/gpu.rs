@@ -127,6 +127,35 @@ impl Backend for BackendImpl {
         true
     }
 
+    fn unmasked_gpu_info(&self) -> Result<(String, String), String> {
+        const UNMASKED_VENDOR_WEBGL: u32 = 0x9245;
+        const UNMASKED_RENDERER_WEBGL: u32 = 0x9246;
+
+        let renderer = self
+            .renderer
+            .as_ref()
+            .ok_or_else(|| "WebGL renderer is still initializing".to_string())?;
+        let gl = renderer.gl_context();
+        let extension = gl
+            .get_extension("WEBGL_debug_renderer_info")
+            .map_err(|error| format!("Failed to query WEBGL_debug_renderer_info: {error:?}"))?;
+        if extension.is_none() {
+            return Err("WEBGL_debug_renderer_info is unavailable".to_string());
+        }
+
+        let vendor = gl
+            .get_parameter(UNMASKED_VENDOR_WEBGL)
+            .map_err(|error| format!("Failed to query the unmasked GPU vendor: {error:?}"))?
+            .as_string()
+            .ok_or_else(|| "The unmasked GPU vendor was not a string".to_string())?;
+        let renderer = gl
+            .get_parameter(UNMASKED_RENDERER_WEBGL)
+            .map_err(|error| format!("Failed to query the unmasked GPU renderer: {error:?}"))?
+            .as_string()
+            .ok_or_else(|| "The unmasked GPU renderer was not a string".to_string())?;
+        Ok((vendor, renderer))
+    }
+
     fn resize(&mut self, w: u32, h: u32) {
         self.ctx = vello_gpu::Scene::new(w as u16, h as u16);
     }
