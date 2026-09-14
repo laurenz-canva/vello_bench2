@@ -288,7 +288,7 @@ impl Ui {
                 },
             )
             .unwrap();
-        set_probe_details(&self.gpu_info_details, PROBE_DETAILS_NEUTRAL_CLASS, None);
+        self.hide_gpu_info();
     }
 
     pub fn depth_buffer_btn(&self) -> &HtmlElement {
@@ -332,21 +332,23 @@ impl Ui {
         );
     }
 
+    pub fn gpu_info_is_expanded(&self) -> bool {
+        self.gpu_info_details
+            .style()
+            .get_property_value("display")
+            .is_ok_and(|display| display == "block")
+    }
+
+    pub fn hide_gpu_info(&self) {
+        set_probe_details(&self.gpu_info_details, PROBE_DETAILS_NEUTRAL_CLASS, None);
+    }
+
     pub fn set_webgl_initializing(&self) {
         self.webgl_init_status
             .set_text_content(Some("Initializing WebGL…"));
         class(
             &self.webgl_init_status,
             "webgl-init-status webgl-init-status-pending",
-        );
-    }
-
-    pub fn set_webgl_initialized(&self) {
-        self.webgl_init_status
-            .set_text_content(Some("WebGL initialization succeeded"));
-        class(
-            &self.webgl_init_status,
-            "webgl-init-status webgl-init-status-success",
         );
     }
 
@@ -758,6 +760,7 @@ fn build_top_bar(
 
     let webgl_init_status = div(document);
     class(&webgl_init_status, "webgl-init-status");
+    top_bar.append_child(&webgl_init_status).unwrap();
 
     let controls_group = div(document);
     class(&controls_group, "app-top-controls");
@@ -765,7 +768,68 @@ fn build_top_bar(
     let primary_controls = div(document);
     class(&primary_controls, "app-top-primary");
     controls_group.append_child(&primary_controls).unwrap();
-    controls_group.append_child(&webgl_init_status).unwrap();
+
+    let renderer_select: HtmlSelectElement = document
+        .create_element("select")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    select_style(&renderer_select);
+    class(
+        &renderer_select,
+        "app-renderer-select w-auto max-w-[9rem] shrink border border-white/10 bg-slate-950/80 px-3 py-1 text-sm text-slate-100",
+    );
+    renderer_select
+        .set_attribute("aria-label", "Renderer")
+        .unwrap();
+    for kind in BackendKind::available() {
+        let opt = document.create_element("option").unwrap();
+        opt.set_text_content(Some(kind.label()));
+        opt.set_attribute("value", kind.as_str()).unwrap();
+        renderer_select.append_child(&opt).unwrap();
+    }
+    renderer_select.set_value(current_backend.as_str());
+    primary_controls.append_child(&renderer_select).unwrap();
+
+    let diagnostics_toggle: HtmlElement = document
+        .create_element("button")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    diagnostics_toggle.set_text_content(Some("Diagnostics"));
+    diagnostics_toggle.set_attribute("type", "button").unwrap();
+    diagnostics_toggle
+        .set_attribute("aria-expanded", "false")
+        .unwrap();
+    diagnostics_toggle
+        .set_attribute("aria-controls", "app-diagnostics-panel")
+        .unwrap();
+    class(&diagnostics_toggle, "app-diagnostics-toggle");
+    primary_controls.append_child(&diagnostics_toggle).unwrap();
+
+    let diagnostics_panel = div(document);
+    diagnostics_panel.set_id("app-diagnostics-panel");
+    class(&diagnostics_panel, "app-diagnostics-panel");
+
+    let diagnostics_header = div(document);
+    class(&diagnostics_header, "app-diagnostics-header");
+    let diagnostics_title = div(document);
+    diagnostics_title.set_text_content(Some("Renderer diagnostics"));
+    class(&diagnostics_title, "app-diagnostics-title");
+    diagnostics_header.append_child(&diagnostics_title).unwrap();
+    diagnostics_panel.append_child(&diagnostics_header).unwrap();
+
+    let scheduler_status_slot = div(document);
+    class(&scheduler_status_slot, "app-diagnostics-status-slot");
+    diagnostics_panel
+        .append_child(&scheduler_status_slot)
+        .unwrap();
+
+    let diagnostics_actions = div(document);
+    class(&diagnostics_actions, "app-diagnostics-actions");
+    diagnostics_panel
+        .append_child(&diagnostics_actions)
+        .unwrap();
 
     let has_toggle = js_sys::Reflect::get(&js_sys::global(), &"__vello_toggle_simd".into())
         .ok()
@@ -800,7 +864,7 @@ fn build_top_bar(
                 .unwrap();
             cb.forget();
         }
-        primary_controls.append_child(&simd_btn).unwrap();
+        diagnostics_actions.append_child(&simd_btn).unwrap();
     }
 
     let top_probe_btn = div(document);
@@ -816,30 +880,11 @@ fn build_top_bar(
         .unwrap();
     let top_probe_details = div(document);
     set_probe_details(&top_probe_details, PROBE_DETAILS_NEUTRAL_CLASS, None);
-    controls_group.append_child(&top_probe_details).unwrap();
+    diagnostics_panel.append_child(&top_probe_details).unwrap();
 
     let gpu_info_details = div(document);
     set_probe_details(&gpu_info_details, PROBE_DETAILS_NEUTRAL_CLASS, None);
-    controls_group.append_child(&gpu_info_details).unwrap();
-
-    let renderer_select: HtmlSelectElement = document
-        .create_element("select")
-        .unwrap()
-        .dyn_into()
-        .unwrap();
-    select_style(&renderer_select);
-    class(
-        &renderer_select,
-        "app-renderer-select w-auto max-w-[9rem] shrink border border-white/10 bg-slate-950/80 px-3 py-1 text-sm text-slate-100",
-    );
-    for kind in BackendKind::available() {
-        let opt = document.create_element("option").unwrap();
-        opt.set_text_content(Some(kind.label()));
-        opt.set_attribute("value", kind.as_str()).unwrap();
-        renderer_select.append_child(&opt).unwrap();
-    }
-    renderer_select.set_value(current_backend.as_str());
-    primary_controls.append_child(&renderer_select).unwrap();
+    diagnostics_panel.append_child(&gpu_info_details).unwrap();
 
     let depth_buffer_btn = div(document);
     depth_buffer_btn
@@ -848,7 +893,7 @@ fn build_top_bar(
             "Toggle WebGL depth-buffer allocation and opaque-strip occlusion",
         )
         .unwrap();
-    primary_controls.append_child(&depth_buffer_btn).unwrap();
+    diagnostics_actions.append_child(&depth_buffer_btn).unwrap();
 
     let gpu_info_btn = div(document);
     gpu_info_btn.set_text_content(Some("GPU Info"));
@@ -856,9 +901,36 @@ fn build_top_bar(
         .set_attribute("title", "Print the unmasked WebGL vendor and renderer")
         .unwrap();
     class(&gpu_info_btn, GPU_INFO_BUTTON_CLASS);
-    primary_controls.append_child(&gpu_info_btn).unwrap();
-    primary_controls.append_child(&top_probe_btn).unwrap();
+    diagnostics_actions.append_child(&gpu_info_btn).unwrap();
+    diagnostics_actions.append_child(&top_probe_btn).unwrap();
+
+    {
+        let is_open = Rc::new(Cell::new(false));
+        let panel = diagnostics_panel.clone();
+        let toggle = diagnostics_toggle.clone();
+        let cb = Closure::wrap(Box::new(move || {
+            let next = !is_open.get();
+            is_open.set(next);
+            class(
+                &panel,
+                if next {
+                    "app-diagnostics-panel is-open"
+                } else {
+                    "app-diagnostics-panel"
+                },
+            );
+            toggle
+                .set_attribute("aria-expanded", if next { "true" } else { "false" })
+                .unwrap();
+        }) as Box<dyn FnMut()>);
+        diagnostics_toggle
+            .add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
+            .unwrap();
+        cb.forget();
+    }
+
     top_bar.append_child(&controls_group).unwrap();
+    top_bar.append_child(&diagnostics_panel).unwrap();
 
     (
         top_bar,
@@ -891,7 +963,7 @@ fn build_interactive_view(
     let sidebar = div(document);
     class(
         &sidebar,
-        "sidebar-scroll pointer-events-auto fixed bottom-0 left-0 top-28 z-20 flex w-[240px] flex-col overflow-y-auto border-r border-white/10 bg-slate-950/58 px-3 py-4 transition-transform duration-200 sm:top-16 lg:top-20 lg:w-[220px]",
+        "sidebar-scroll pointer-events-auto fixed bottom-0 left-0 top-16 z-20 flex w-[240px] flex-col overflow-y-auto border-r border-white/10 bg-slate-950/58 px-3 py-4 transition-transform duration-200 lg:w-[220px]",
     );
 
     let viewport_label = div(document);
@@ -968,7 +1040,7 @@ fn build_timing_overlay(document: &Document) -> (HtmlElement, HtmlElement, HtmlE
     let timing_wrap = div(document);
     class(
         &timing_wrap,
-        "pointer-events-auto fixed right-3 top-[7.5rem] z-[70] flex items-start sm:top-[4.5rem] lg:right-4 lg:top-24",
+        "app-timing-overlay pointer-events-auto fixed right-3 z-[70] flex items-start lg:right-4",
     );
 
     let top_timing_label = div(document);

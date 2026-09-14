@@ -222,7 +222,7 @@ impl AppState {
         }
         if self.webgl_init_pending {
             self.webgl_init_pending = false;
-            self.ui.set_webgl_initialized();
+            self.ui.hide_webgl_init_status();
         }
         true
     }
@@ -315,7 +315,12 @@ impl AppState {
         true
     }
 
-    fn print_unmasked_gpu_info(&self) {
+    fn toggle_unmasked_gpu_info(&self) {
+        if self.ui.gpu_info_is_expanded() {
+            self.ui.hide_gpu_info();
+            return;
+        }
+
         match self.backend.unmasked_gpu_info() {
             Ok((vendor, renderer)) => {
                 let message = format!("Vendor: {vendor} · Renderer: {renderer}");
@@ -598,7 +603,7 @@ pub async fn run() {
         while !backend.poll_ready() {
             next_animation_frame().await;
         }
-        ui.set_webgl_initialized();
+        ui.hide_webgl_init_status();
     } else {
         ui.hide_webgl_init_status();
     }
@@ -771,12 +776,12 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         cb.forget();
     }
 
-    // Print the unmasked WebGL vendor and renderer.
+    // Toggle the unmasked WebGL vendor and renderer details.
     {
         let s = state.clone();
         let btn = state.borrow().ui.gpu_info_btn().clone();
         let cb = Closure::wrap(Box::new(move || {
-            s.borrow().print_unmasked_gpu_info();
+            s.borrow().toggle_unmasked_gpu_info();
         }) as Box<dyn FnMut()>);
         btn.add_event_listener_with_callback("click", cb.as_ref().unchecked_ref())
             .unwrap();

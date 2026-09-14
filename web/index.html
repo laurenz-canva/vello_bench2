@@ -12,7 +12,7 @@
   <div id="dashboard-root" class="relative min-h-screen">
     <div
       id="canvas-stage-shell"
-      class="fixed inset-x-0 top-16 bottom-0 overflow-hidden border-t border-white/10 bg-slate-950 lg:top-20"
+      class="fixed inset-x-0 top-16 bottom-0 overflow-hidden border-t border-white/10 bg-slate-950"
     >
       <div id="canvas-host" class="absolute inset-0 overflow-hidden"></div>
     </div>
@@ -59,8 +59,8 @@
     };
 
     function startSchedulerIndicators() {
-      const menu = document.querySelector(".app-nav-control");
-      if (!menu) {
+      const statusSlot = document.querySelector(".app-diagnostics-status-slot");
+      if (!statusSlot) {
         return;
       }
 
@@ -70,7 +70,7 @@
         <span class="app-scheduler-indicator"><span id="raf-pulse" class="app-scheduler-dot"></span>rAF</span>
         <span class="app-scheduler-indicator"><span id="timer-pulse" class="app-scheduler-dot"></span>timer</span>
       `;
-      menu.append(indicators);
+      statusSlot.append(indicators);
 
       const rafPulse = indicators.querySelector("#raf-pulse");
       const timerPulse = indicators.querySelector("#timer-pulse");
