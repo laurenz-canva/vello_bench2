@@ -973,7 +973,11 @@ fn build_top_bar(
     }
 
     top_bar.append_child(&controls_group).unwrap();
-    top_bar.append_child(&diagnostics_panel).unwrap();
+    document
+        .body()
+        .unwrap()
+        .append_child(&diagnostics_panel)
+        .unwrap();
 
     (
         top_bar,
