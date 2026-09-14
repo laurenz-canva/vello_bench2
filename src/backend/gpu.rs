@@ -44,7 +44,8 @@ impl BackendImpl {
         };
 
         let (renderer_init, resources) =
-            vello_gpu::WebGlRenderer::begin_with(canvas, settings, use_depth_buffer);
+            vello_gpu::WebGlRenderer::begin_with(canvas, settings, use_depth_buffer)
+                .expect("failed to begin WebGL renderer initialization");
 
         Self {
             ctx: vello_gpu::Scene::new(w as u16, h as u16),
@@ -85,7 +86,10 @@ impl Backend for BackendImpl {
         let Some(init) = self.renderer_init.take() else {
             return false;
         };
-        match init.try_finish() {
+        match init
+            .try_finish()
+            .expect("failed to finish WebGL renderer initialization")
+        {
             vello_gpu::WebGlRendererInitStatus::Pending(init) => {
                 self.renderer_init = Some(init);
                 false
@@ -242,7 +246,9 @@ impl Backend for BackendImpl {
             .renderer
             .as_mut()
             .expect("WebGL renderer used before initialization completed");
-        let id = renderer.upload_image(&mut self.resources, &pixmap);
+        let id = renderer
+            .upload_image(&mut self.resources, &pixmap)
+            .expect("failed to upload image to the WebGL atlas");
         ImageSource::opaque_id_with_transparency_hint(id, may_have_transparency)
     }
 
@@ -316,7 +322,9 @@ impl Backend for BackendImpl {
         if let Some(id) = uploaded_image_id(image)
             && let Some(renderer) = self.renderer.as_mut()
         {
-            renderer.destroy_image(&mut self.resources, id);
+            renderer
+                .destroy_image(&mut self.resources, id)
+                .expect("failed to destroy image in the WebGL atlas");
         }
     }
 
