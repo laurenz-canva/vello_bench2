@@ -235,7 +235,7 @@ canvas {
 
 .app-probe-details {
   width: 100%;
-  max-height: 7rem;
+  max-height: 24rem;
   margin-top: 0.75rem;
   overflow: auto;
   padding: 0.55rem 0.65rem;
@@ -245,6 +245,25 @@ canvas {
   text-align: left;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+.app-probe-actual-label {
+  margin-top: 0.75rem;
+  color: #cbd5e1;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.app-probe-actual-image {
+  display: block;
+  width: min(100%, 14rem);
+  height: auto;
+  margin-top: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #fff;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
 }
 
 @media (max-width: 639px) {
@@ -307,7 +326,7 @@ canvas {
   }
 
   .app-probe-details {
-    max-height: 8rem;
+    max-height: none;
     overflow-y: auto;
   }
 

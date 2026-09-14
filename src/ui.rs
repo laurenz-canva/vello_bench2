@@ -11,8 +11,11 @@ use std::rc::Rc;
 use crate::backend::{BackendCapabilities, BackendKind};
 use crate::scenes::{BenchScene, Param, ParamId, ParamKind};
 use crate::storage::UiState;
-use wasm_bindgen::{JsCast, prelude::*};
-use web_sys::{Document, Element, HtmlElement, HtmlInputElement, HtmlSelectElement};
+use wasm_bindgen::{Clamped, JsCast, prelude::*};
+use web_sys::{
+    CanvasRenderingContext2d, Document, Element, HtmlCanvasElement, HtmlElement, HtmlInputElement,
+    HtmlSelectElement, ImageData,
+};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -57,6 +60,42 @@ fn set_probe_details(details: &HtmlElement, class_name: &str, text: Option<&str>
         .style()
         .set_property("display", if text.is_some() { "block" } else { "none" })
         .unwrap();
+}
+
+fn append_probe_actual_image(details: &HtmlElement, actual: &vello_common::probe::ProbeImage) {
+    let document = doc();
+    let label = div(&document);
+    label.set_text_content(Some("Actual probe output"));
+    class(&label, "app-probe-actual-label");
+
+    let canvas: HtmlCanvasElement = document
+        .create_element("canvas")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    canvas.set_width(u32::from(actual.width));
+    canvas.set_height(u32::from(actual.height));
+    canvas
+        .set_attribute("aria-label", "Actual probe output")
+        .unwrap();
+    class(&canvas, "app-probe-actual-image");
+
+    let image_data = ImageData::new_with_u8_clamped_array_and_sh(
+        Clamped(&actual.data),
+        u32::from(actual.width),
+        u32::from(actual.height),
+    )
+    .unwrap();
+    let context: CanvasRenderingContext2d = canvas
+        .get_context("2d")
+        .unwrap()
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    context.put_image_data(&image_data, 0.0, 0.0).unwrap();
+
+    details.append_child(&label).unwrap();
+    details.append_child(&canvas).unwrap();
 }
 
 fn select_style(sel: &HtmlSelectElement) {
@@ -604,6 +643,7 @@ impl Ui {
         start_probe_ms: f64,
         readback_ms: Option<f64>,
         full_ms: f64,
+        actual: Option<&vello_common::probe::ProbeImage>,
     ) {
         self.top_probe_btn
             .style()
@@ -629,6 +669,9 @@ impl Ui {
                     .unwrap_or_else(|| "n/a".to_string())
             )),
         );
+        if let Some(actual) = actual {
+            append_probe_actual_image(&self.top_probe_details, actual);
+        }
     }
 
     fn sync_probe_button(&self, kind: BackendKind) {

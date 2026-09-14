@@ -104,7 +104,10 @@ where
                 if let Some(on_complete) = on_complete_ref.borrow_mut().take() {
                     on_complete(ProbeCompletion {
                         readback_ms,
-                        result: Err(error.to_string()),
+                        result: Err(ProbeFailure {
+                            message: error.to_string(),
+                            actual: None,
+                        }),
                     });
                 }
             }
@@ -118,13 +121,20 @@ where
 
 fn probe_result_to_result(
     probe: vello_common::probe::Probe<vello_gpu::RenderError>,
-) -> Result<(), String> {
+) -> Result<(), ProbeFailure> {
     match probe {
         vello_common::probe::Probe::Success => Ok(()),
-        vello_common::probe::Probe::Error(result) => Err(probe_mismatch_message(&result)),
-        vello_common::probe::Probe::RenderError(error) => {
-            Err(format!("Probe render failed: {error:?}"))
+        vello_common::probe::Probe::Error(result) => {
+            let message = probe_mismatch_message(&result);
+            Err(ProbeFailure {
+                message,
+                actual: Some(result.actual),
+            })
         }
+        vello_common::probe::Probe::RenderError(error) => Err(ProbeFailure {
+            message: format!("Probe render failed: {error:?}"),
+            actual: None,
+        }),
     }
 }
 
@@ -161,7 +171,12 @@ struct PendingProbeCompletion {
 
 struct ProbeCompletion {
     readback_ms: f64,
-    result: Result<(), String>,
+    result: Result<(), ProbeFailure>,
+}
+
+struct ProbeFailure {
+    message: String,
+    actual: Option<vello_common::probe::ProbeImage>,
 }
 
 struct AppState {
@@ -471,7 +486,7 @@ impl AppState {
                     "Vello GPU probe failed: start_probe {start_probe_ms:.1}ms, full {start_probe_ms:.1}ms: {error}"
                 );
                 self.ui
-                    .set_probe_failure(&error, start_probe_ms, None, start_probe_ms);
+                    .set_probe_failure(&error, start_probe_ms, None, start_probe_ms, None);
                 None
             }
         }
@@ -687,16 +702,18 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
                         }
                         Err(error) => {
                             log::warn!(
-                                "Vello GPU probe failed: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms: {error}",
+                                "Vello GPU probe failed: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms: {}",
                                 pending.start_probe_ms,
                                 completion.readback_ms,
-                                full_ms
+                                full_ms,
+                                error.message,
                             );
                             st.ui.set_probe_failure(
-                                &error,
+                                &error.message,
                                 pending.start_probe_ms,
                                 Some(completion.readback_ms),
                                 full_ms,
+                                error.actual.as_ref(),
                             );
                         }
                     }
