@@ -1,6 +1,6 @@
 use glifo::Glyph;
-use vello_common::color::palette::css::TRANSPARENT;
 use vello_common::TextureId;
+use vello_common::color::palette::css::TRANSPARENT;
 use vello_common::filter_effects::Filter;
 use vello_common::geometry::RectU16;
 use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
@@ -118,7 +118,7 @@ impl Backend for BackendImpl {
                 &mut self.resources,
                 &rs,
                 &self.external_texture_bindings,
-                TRANSPARENT
+                TRANSPARENT,
             )
             .unwrap();
     }
@@ -328,11 +328,14 @@ impl Backend for BackendImpl {
         }
     }
 
-    fn probe(&mut self) -> Result<vello_gpu::WebGlPendingProbe, String> {
+    fn probe(
+        &mut self,
+        elements: &[vello_common::probe::ProbeFeature],
+    ) -> Result<vello_gpu::WebGlPendingProbe, String> {
         self.renderer
             .as_mut()
             .ok_or_else(|| "WebGL initialization is still in progress".to_string())?
-            .probe()
+            .probe(elements)
             .map_err(|error| error.to_string())
     }
 }

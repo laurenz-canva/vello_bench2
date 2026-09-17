@@ -61,8 +61,11 @@ async fn next_animation_frame() {
     JsFuture::from(promise).await.unwrap();
 }
 
-fn poll_probe_completion<F>(pending_probe: vello_gpu::WebGlPendingProbe, on_complete: F)
-where
+fn poll_probe_completion<F>(
+    pending_probe: vello_gpu::WebGlPendingProbe,
+    probe_features: Vec<vello_common::probe::ProbeFeature>,
+    on_complete: F,
+) where
     F: FnOnce(ProbeCompletion) + 'static,
 {
     let callback: RafClosure = Rc::new(RefCell::new(None));
@@ -94,7 +97,7 @@ where
                 if let Some(on_complete) = on_complete_ref.borrow_mut().take() {
                     on_complete(ProbeCompletion {
                         readback_ms,
-                        result: probe_result_to_result(probe),
+                        result: probe_result_to_result(probe, &probe_features),
                     });
                 }
             }
@@ -121,11 +124,12 @@ where
 
 fn probe_result_to_result(
     probe: vello_common::probe::Probe<vello_gpu::RenderError>,
+    probe_features: &[vello_common::probe::ProbeFeature],
 ) -> Result<(), ProbeFailure> {
     match probe {
         vello_common::probe::Probe::Success => Ok(()),
         vello_common::probe::Probe::Error(result) => {
-            let message = probe_mismatch_message(&result);
+            let message = probe_mismatch_message(&result, probe_features);
             Err(ProbeFailure {
                 message,
                 actual: Some(result.actual),
@@ -138,22 +142,22 @@ fn probe_result_to_result(
     }
 }
 
-fn probe_mismatch_message(result: &vello_common::probe::ProbeResult) -> String {
-    let statistics = result.statistics();
-    let failing_features = vello_common::probe::PROBE_ELEMENTS
+fn probe_mismatch_message(
+    result: &vello_common::probe::ProbeResult,
+    probe_features: &[vello_common::probe::ProbeFeature],
+) -> String {
+    let failing_features = result
+        .statistics
         .iter()
-        .copied()
-        .filter(|feature| statistics.differs(*feature))
-        .map(|feature| format!("{feature:?}"))
+        .filter(|statistics| statistics.different_pixel_count != 0)
+        .map(|statistics| format!("{:?}", statistics.feature))
         .collect::<Vec<_>>();
 
     if failing_features.is_empty() {
+        let (expected_width, expected_height) = vello_common::probe::canvas_size(probe_features);
         format!(
             "Probe output did not match the bundled reference; failing features could not be isolated (expected {}x{}, actual {}x{})",
-            result.expected.width,
-            result.expected.height,
-            result.actual.width,
-            result.actual.height,
+            expected_width, expected_height, result.actual.width, result.actual.height,
         )
     } else {
         format!(
@@ -167,6 +171,7 @@ struct PendingProbeCompletion {
     started_at: f64,
     start_probe_ms: f64,
     pending_probe: vello_gpu::WebGlPendingProbe,
+    probe_features: Vec<vello_common::probe::ProbeFeature>,
 }
 
 struct ProbeCompletion {
@@ -468,8 +473,9 @@ impl AppState {
             .and_then(|window| window.performance())
             .map(|performance| performance.now())
             .unwrap_or(0.0);
+        let probe_features = self.ui.probe_features();
         self.ui.set_probe_running(true);
-        match self.backend.probe() {
+        match self.backend.probe(&probe_features) {
             Ok(pending_probe) => {
                 let start_probe_ms = probe_elapsed_ms(started_at);
                 log::info!("Vello GPU probe start_probe finished in {start_probe_ms:.1}ms");
@@ -478,6 +484,7 @@ impl AppState {
                     started_at,
                     start_probe_ms,
                     pending_probe,
+                    probe_features,
                 })
             }
             Err(error) => {
@@ -682,20 +689,26 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
         let s = state.clone();
         let cb = Closure::wrap(Box::new(move || {
             if let Some(pending) = s.borrow_mut().run_backend_probe() {
+                let PendingProbeCompletion {
+                    started_at,
+                    start_probe_ms,
+                    pending_probe,
+                    probe_features,
+                } = pending;
                 let s = s.clone();
-                poll_probe_completion(pending.pending_probe, move |completion| {
-                    let full_ms = probe_elapsed_ms(pending.started_at);
+                poll_probe_completion(pending_probe, probe_features, move |completion| {
+                    let full_ms = probe_elapsed_ms(started_at);
                     let st = s.borrow();
                     match completion.result {
                         Ok(()) => {
                             log::info!(
                                 "Vello GPU probe succeeded: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms",
-                                pending.start_probe_ms,
+                                start_probe_ms,
                                 completion.readback_ms,
                                 full_ms
                             );
                             st.ui.set_probe_success(
-                                pending.start_probe_ms,
+                                start_probe_ms,
                                 completion.readback_ms,
                                 full_ms,
                             );
@@ -703,14 +716,14 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
                         Err(error) => {
                             log::warn!(
                                 "Vello GPU probe failed: start_probe {:.1}ms, readback {:.1}ms, full {:.1}ms: {}",
-                                pending.start_probe_ms,
+                                start_probe_ms,
                                 completion.readback_ms,
                                 full_ms,
                                 error.message,
                             );
                             st.ui.set_probe_failure(
                                 &error.message,
-                                pending.start_probe_ms,
+                                start_probe_ms,
                                 Some(completion.readback_ms),
                                 full_ms,
                                 error.actual.as_ref(),

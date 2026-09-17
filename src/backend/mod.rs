@@ -195,7 +195,10 @@ pub trait Backend {
         self.upload_image(pixmap)
     }
     fn destroy_image(&mut self, image: &ImageSource);
-    fn probe(&mut self) -> Result<vello_gpu::WebGlPendingProbe, String> {
+    fn probe(
+        &mut self,
+        _elements: &[vello_common::probe::ProbeFeature],
+    ) -> Result<vello_gpu::WebGlPendingProbe, String> {
         Err("Backend probing is only supported for Vello GPU".to_string())
     }
     fn unmasked_gpu_info(&self) -> Result<(String, String), String> {

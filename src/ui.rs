@@ -17,6 +17,65 @@ use web_sys::{
     HtmlSelectElement, ImageData,
 };
 
+type ProbeFeatureInput = (
+    vello_common::probe::ProbeFeature,
+    &'static str,
+    HtmlInputElement,
+);
+
+const PROBE_FEATURE_OPTIONS: &[(vello_common::probe::ProbeFeature, &str, &str)] = &[
+    (
+        vello_common::probe::ProbeFeature::SolidRect,
+        "solid_rect",
+        "Solid rectangle",
+    ),
+    (
+        vello_common::probe::ProbeFeature::AlphaBlending,
+        "alpha_blending",
+        "Alpha blending",
+    ),
+    (
+        vello_common::probe::ProbeFeature::Gradient,
+        "gradient",
+        "Gradient",
+    ),
+    (
+        vello_common::probe::ProbeFeature::ImageNearest,
+        "image_nearest",
+        "Nearest image",
+    ),
+    (
+        vello_common::probe::ProbeFeature::Filter,
+        "filter",
+        "Filter",
+    ),
+    (
+        vello_common::probe::ProbeFeature::ImageBilinear,
+        "image_bilinear",
+        "Bilinear image",
+    ),
+    (
+        vello_common::probe::ProbeFeature::OpacityLayer,
+        "opacity_layer",
+        "Opacity layer",
+    ),
+    (
+        vello_common::probe::ProbeFeature::Blending,
+        "blending",
+        "Blend mode",
+    ),
+    (
+        vello_common::probe::ProbeFeature::Transformed,
+        "transformed",
+        "Transform",
+    ),
+    (
+        vello_common::probe::ProbeFeature::DepthBuffer,
+        "depth_buffer",
+        "Depth buffer",
+    ),
+];
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 fn doc() -> Document {
@@ -195,6 +254,8 @@ pub struct Ui {
     webgl_init_status: HtmlElement,
     top_probe_btn: HtmlElement,
     top_probe_details: HtmlElement,
+    probe_features_section: HtmlElement,
+    probe_feature_inputs: Vec<ProbeFeatureInput>,
     renderer_select: HtmlSelectElement,
     depth_buffer_btn: HtmlElement,
     use_depth_buffer: Cell<bool>,
@@ -250,11 +311,13 @@ impl Ui {
             webgl_init_status,
             top_probe_btn,
             top_probe_details,
+            probe_features_section,
+            probe_feature_inputs,
             renderer_select,
             depth_buffer_btn,
             gpu_info_btn,
             gpu_info_details,
-        ) = build_top_bar(document, crate::backend::current_backend_kind());
+        ) = build_top_bar(document, crate::backend::current_backend_kind(), &dirty);
         app_overlay.append_child(&top_bar).unwrap();
 
         let iv = build_interactive_view(
@@ -275,6 +338,8 @@ impl Ui {
             webgl_init_status,
             top_probe_btn,
             top_probe_details,
+            probe_features_section,
+            probe_feature_inputs,
             renderer_select,
             depth_buffer_btn,
             use_depth_buffer: Cell::new(use_depth_buffer),
@@ -317,6 +382,17 @@ impl Ui {
             )
             .unwrap();
         self.gpu_info_btn
+            .style()
+            .set_property(
+                "display",
+                if kind == BackendKind::Gpu {
+                    "block"
+                } else {
+                    "none"
+                },
+            )
+            .unwrap();
+        self.probe_features_section
             .style()
             .set_property(
                 "display",
@@ -565,6 +641,14 @@ impl Ui {
         &self.top_probe_btn
     }
 
+    pub fn probe_features(&self) -> Vec<vello_common::probe::ProbeFeature> {
+        self.probe_feature_inputs
+            .iter()
+            .filter(|(_, _, input)| input.checked())
+            .map(|(feature, _, _)| *feature)
+            .collect()
+    }
+
     pub fn set_probe_running(&self, running: bool) {
         self.top_probe_btn
             .style()
@@ -735,12 +819,24 @@ impl Ui {
             sidebar_collapsed: Some(self.sidebar_collapsed),
             scene: Some(scene),
             use_depth_buffer: Some(self.use_depth_buffer()),
+            probe_features: Some(
+                self.probe_feature_inputs
+                    .iter()
+                    .filter(|(_, _, input)| input.checked())
+                    .map(|(_, key, _)| (*key).to_string())
+                    .collect(),
+            ),
             params,
         });
     }
 
     /// Apply saved interactive param values.
     pub(crate) fn apply_saved_params(&self, saved: &UiState) {
+        if let Some(saved_features) = &saved.probe_features {
+            for (_, key, input) in &self.probe_feature_inputs {
+                input.set_checked(saved_features.iter().any(|saved_key| saved_key == key));
+            }
+        }
         for (ctrl, val_span, param_id) in &self.controls {
             if let Some((_, v)) = saved.params.iter().find(|(k, _)| k == param_id.as_str()) {
                 match ctrl {
@@ -772,12 +868,15 @@ struct InteractiveViewParts {
 fn build_top_bar(
     document: &Document,
     current_backend: BackendKind,
+    dirty: &Rc<Cell<bool>>,
 ) -> (
     HtmlElement,
     HtmlElement,
     HtmlElement,
     HtmlElement,
     HtmlElement,
+    HtmlElement,
+    Vec<ProbeFeatureInput>,
     HtmlSelectElement,
     HtmlElement,
     HtmlElement,
@@ -872,6 +971,57 @@ fn build_top_bar(
     class(&diagnostics_actions, "app-diagnostics-actions");
     diagnostics_panel
         .append_child(&diagnostics_actions)
+        .unwrap();
+
+    let probe_features_section: HtmlElement = document
+        .create_element("details")
+        .unwrap()
+        .dyn_into()
+        .unwrap();
+    class(&probe_features_section, "app-probe-features");
+
+    let probe_features_summary = document.create_element("summary").unwrap();
+    probe_features_summary.set_text_content(Some("Probe features"));
+    probe_features_section
+        .append_child(&probe_features_summary)
+        .unwrap();
+
+    let probe_features_grid = div(document);
+    class(&probe_features_grid, "app-probe-features-grid");
+    let mut probe_feature_inputs = Vec::with_capacity(PROBE_FEATURE_OPTIONS.len());
+    for &(feature, key, label) in PROBE_FEATURE_OPTIONS {
+        let option = document.create_element("label").unwrap();
+        class(&option, "app-probe-feature-option");
+
+        let input: HtmlInputElement = document
+            .create_element("input")
+            .unwrap()
+            .dyn_into()
+            .unwrap();
+        input.set_type("checkbox");
+        input.set_checked(true);
+        input.set_value(key);
+        {
+            let dirty = dirty.clone();
+            let cb = Closure::wrap(Box::new(move || dirty.set(true)) as Box<dyn FnMut()>);
+            input
+                .add_event_listener_with_callback("change", cb.as_ref().unchecked_ref())
+                .unwrap();
+            cb.forget();
+        }
+        option.append_child(&input).unwrap();
+
+        let label_text = document.create_element("span").unwrap();
+        label_text.set_text_content(Some(label));
+        option.append_child(&label_text).unwrap();
+        probe_features_grid.append_child(&option).unwrap();
+        probe_feature_inputs.push((feature, key, input));
+    }
+    probe_features_section
+        .append_child(&probe_features_grid)
+        .unwrap();
+    diagnostics_panel
+        .append_child(&probe_features_section)
         .unwrap();
 
     let has_toggle = js_sys::Reflect::get(&js_sys::global(), &"__vello_toggle_simd".into())
@@ -985,6 +1135,8 @@ fn build_top_bar(
         webgl_init_status,
         top_probe_btn,
         top_probe_details,
+        probe_features_section,
+        probe_feature_inputs,
         renderer_select,
         depth_buffer_btn,
         gpu_info_btn,

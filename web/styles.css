@@ -237,6 +237,69 @@ canvas {
   text-align: center;
 }
 
+.app-probe-features {
+  margin-top: 0.75rem;
+  border: 1px solid rgba(203, 213, 225, 0.2);
+  background: rgba(203, 213, 225, 0.06);
+  color: #cbd5e1;
+}
+
+.app-probe-features > summary {
+  position: relative;
+  padding: 0.65rem 2rem 0.65rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 700;
+  list-style: none;
+  user-select: none;
+}
+
+.app-probe-features > summary::-webkit-details-marker {
+  display: none;
+}
+
+.app-probe-features > summary::after {
+  content: "+";
+  position: absolute;
+  top: 50%;
+  right: 0.75rem;
+  color: #67e8f9;
+  font-size: 1rem;
+  transform: translateY(-50%);
+}
+
+.app-probe-features[open] > summary::after {
+  content: "−";
+}
+
+.app-probe-features-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem 0.75rem;
+  padding: 0.65rem 0.75rem 0.75rem;
+  border-top: 1px solid rgba(203, 213, 225, 0.14);
+}
+
+.app-probe-feature-option {
+  display: flex;
+  min-width: 0;
+  min-height: 1.75rem;
+  align-items: center;
+  gap: 0.45rem;
+  color: #cbd5e1;
+  cursor: pointer;
+  font-size: 0.7rem;
+  line-height: 1rem;
+}
+
+.app-probe-feature-option input {
+  width: 0.9rem;
+  height: 0.9rem;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: #67e8f9;
+}
+
 .app-probe-details {
   width: 100%;
   max-height: 24rem;

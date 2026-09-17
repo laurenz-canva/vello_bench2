@@ -11,6 +11,8 @@ pub(crate) struct UiState {
     pub(crate) scene: Option<usize>,
     pub(crate) use_depth_buffer: Option<bool>,
     #[serde(default)]
+    pub(crate) probe_features: Option<Vec<String>>,
+    #[serde(default)]
     pub(crate) params: Vec<(String, f64)>,
 }
 
