@@ -210,6 +210,10 @@ impl Backend for BackendImpl {
         self.ctx.push_clip_path(path);
     }
 
+    fn push_clip_rect(&mut self, rect: &Rect) {
+        self.ctx.push_clip_rect(rect);
+    }
+
     fn push_clip_layer(&mut self, path: &BezPath) {
         self.ctx.push_clip_layer(path);
     }

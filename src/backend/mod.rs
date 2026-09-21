@@ -12,7 +12,7 @@ use glifo::Glyph;
 use skrifa::MetadataProvider;
 use skrifa::raw::FileRef;
 use vello_common::filter_effects::Filter;
-use vello_common::kurbo::{Affine, BezPath, Rect, Stroke};
+use vello_common::kurbo::{Affine, BezPath, Rect, Shape, Stroke};
 pub use vello_common::paint::ImageSource;
 use vello_common::paint::{ImageId, PaintType};
 use vello_common::peniko::{Fill, FontData};
@@ -176,6 +176,9 @@ pub trait Backend {
     fn fill_path(&mut self, path: &BezPath);
     fn stroke_path(&mut self, path: &BezPath);
     fn push_clip_path(&mut self, path: &BezPath);
+    fn push_clip_rect(&mut self, rect: &Rect) {
+        self.push_clip_path(&rect.to_path(0.1));
+    }
     fn push_clip_layer(&mut self, path: &BezPath);
     fn set_filter_effect(&mut self, filter: Filter);
     fn pop_clip_path(&mut self);
