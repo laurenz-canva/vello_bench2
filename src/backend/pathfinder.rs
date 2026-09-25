@@ -19,7 +19,8 @@ use vello_common::filter_effects::Filter;
 use vello_common::kurbo::{Affine, BezPath, PathEl, Rect, Stroke};
 use vello_common::paint::{ImageId, ImageSource, PaintType};
 use vello_common::peniko::{
-    Fill, FontData, Gradient, GradientKind, LinearGradientPosition, RadialGradientPosition,
+    Fill, FontData, Gradient, GradientKind, ImageAlphaType, LinearGradientPosition,
+    RadialGradientPosition,
 };
 use vello_common::pixmap::Pixmap;
 use wasm_bindgen::JsCast;
@@ -497,9 +498,9 @@ impl UploadedImage {
         let width = pixmap.width();
         let height = pixmap.height();
         let data = pixmap
-            .take_unpremultiplied()
-            .into_iter()
-            .map(|rgba| ColorU::new(rgba.r, rgba.g, rgba.b, rgba.a))
+            .take_rgba8(ImageAlphaType::Alpha)
+            .chunks_exact(4)
+            .map(|rgba| ColorU::new(rgba[0], rgba[1], rgba[2], rgba[3]))
             .collect();
         let image = ImageData {
             data,

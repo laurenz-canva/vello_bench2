@@ -119,7 +119,8 @@ impl BackendImpl {
         glyph_caching: bool,
         glyphs: &[Glyph],
     ) {
-        self.ctx
+        let _ = self
+            .ctx
             .glyph_run(&mut self.resources, font)
             .font_size(font_size)
             .hint(hint)
@@ -246,7 +247,7 @@ impl Backend for BackendImpl {
     }
 
     fn pop_clip_path(&mut self) {
-        self.ctx.pop_clip_path();
+        self.ctx.pop_clip();
     }
 
     fn pop_layer(&mut self) {

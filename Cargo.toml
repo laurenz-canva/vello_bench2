@@ -32,11 +32,11 @@ serde_json = { version = "1.0.149" }
 smallvec = {version = "1.15.1" }
 skrifa = { version = "0.42.0" }
 usvg = { version = "0.47.0" }
-vello = { git = "https://github.com/linebender/vello", rev = "cc28e1d2759402a0cc5713a5a4a7befeb01ad3eb", optional = true }
-vello_common = { git = "https://github.com/linebender/vello", rev = "cc28e1d2759402a0cc5713a5a4a7befeb01ad3eb" }
-vello_gpu = { git = "https://github.com/linebender/vello", rev = "cc28e1d2759402a0cc5713a5a4a7befeb01ad3eb", default-features = false, features = ["webgl", "text", "probe"] }
-vello_cpu = { git = "https://github.com/linebender/vello", rev = "cc28e1d2759402a0cc5713a5a4a7befeb01ad3eb", default-features = false, features = ["text", "u8_pipeline", "png", "std"] }
-glifo = { git = "https://github.com/linebender/vello", rev = "cc28e1d2759402a0cc5713a5a4a7befeb01ad3eb" }
+vello = { git = "https://github.com/linebender/vello", rev = "a9f11bbe752c391a2e420657d65cbd1fc97f4fae", optional = true }
+vello_common = { git = "https://github.com/linebender/vello", rev = "a9f11bbe752c391a2e420657d65cbd1fc97f4fae" }
+vello_gpu = { git = "https://github.com/linebender/vello", rev = "a9f11bbe752c391a2e420657d65cbd1fc97f4fae", default-features = false, features = ["webgl", "text", "probe"] }
+vello_cpu = { git = "https://github.com/linebender/vello", rev = "a9f11bbe752c391a2e420657d65cbd1fc97f4fae", default-features = false, features = ["text", "u8_pipeline", "png", "std"] }
+glifo = { git = "https://github.com/linebender/vello", rev = "a9f11bbe752c391a2e420657d65cbd1fc97f4fae" }
 #vello = { path = "../vello_2/research/vello_research", optional = true }
 #vello_common = { path = "../vello_2/vello_common" }
 #vello_gpu = { path = "../vello_2/vello_gpu", default-features = false, features = ["webgl", "text", "probe"] }
