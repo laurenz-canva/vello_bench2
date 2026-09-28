@@ -32,7 +32,9 @@ use wasm_bindgen_futures::{JsFuture, spawn_local};
 use web_sys::HtmlCanvasElement;
 
 type RafClosure = Rc<RefCell<Option<Closure<dyn FnMut()>>>>;
-const PROBE_POLL_TIMEOUT_MS: i32 = 4_000;
+const PROBE_START_DELAY_MS: i32 = 5_000;
+const PROBE_POLL_INTERVAL_MS: i32 = 100;
+const PROBE_MAX_POLLS: u32 = 60;
 
 #[wasm_bindgen]
 extern "C" {
@@ -62,11 +64,14 @@ async fn next_animation_frame() {
     JsFuture::from(promise).await.unwrap();
 }
 
-async fn wait_for_probe_delay() {
+async fn wait_ms(delay_ms: i32) {
     let promise = js_sys::Promise::new(&mut |resolve, _| {
         web_sys::window()
             .unwrap()
-            .set_timeout_with_callback_and_timeout_and_arguments_0(resolve.unchecked_ref(), 5_000)
+            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                resolve.unchecked_ref(),
+                delay_ms,
+            )
             .unwrap();
     });
     JsFuture::from(promise).await.unwrap();
@@ -83,114 +88,52 @@ fn poll_probe_completion<F>(
         .and_then(|window| window.performance())
         .map(|performance| performance.now())
         .unwrap_or(0.0);
-    let callback: RafClosure = Rc::new(RefCell::new(None));
-    let callback_ref = callback.clone();
-    let pending_probe = Rc::new(RefCell::new(Some(pending_probe)));
-    let pending_probe_ref = pending_probe.clone();
-    let on_complete = Rc::new(RefCell::new(Some(on_complete)));
-    let on_complete_ref = on_complete.clone();
-
-    let timeout_pending_probe = pending_probe.clone();
-    let timeout_callback = callback.clone();
-    let timeout_on_complete = on_complete.clone();
-    let timeout_probe_features = probe_features.clone();
-    let finish_timeout = Rc::new(move || {
-        let Some(pending_probe) = timeout_pending_probe.borrow_mut().take() else {
-            return;
-        };
-        timeout_callback.borrow_mut().take();
-        let readback_started_at = web_sys::window()
-            .and_then(|window| window.performance())
-            .map(|performance| performance.now())
-            .unwrap_or(0.0);
-        let (readback_ms, result) = match pending_probe.try_finish() {
-            Ok(vello_gpu::WebGlProbeStatus::Complete(probe)) => (
-                probe_elapsed_ms(readback_started_at),
-                probe_result_to_result(probe, &timeout_probe_features),
-            ),
-            Ok(vello_gpu::WebGlProbeStatus::Pending(_)) => (
-                probe_elapsed_ms(polling_started_at),
-                Err(ProbeFailure {
-                    message: "Probe timed out after 4 seconds without a completion signal"
-                        .to_string(),
-                    actual: None,
-                }),
-            ),
-            Err(error) => (
-                probe_elapsed_ms(readback_started_at),
-                Err(ProbeFailure {
-                    message: error.to_string(),
-                    actual: None,
-                }),
-            ),
-        };
-        if let Some(on_complete) = timeout_on_complete.borrow_mut().take() {
-            on_complete(ProbeCompletion {
-                readback_ms,
-                result,
-            });
-        }
-    });
-    let finish_timeout_ref = finish_timeout.clone();
-
-    *callback.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-        if probe_elapsed_ms(polling_started_at) >= f64::from(PROBE_POLL_TIMEOUT_MS) {
-            finish_timeout_ref();
-            return;
-        }
-        let Some(pending_probe) = pending_probe_ref.borrow_mut().take() else {
-            return;
-        };
-
-        let readback_started_at = web_sys::window()
-            .and_then(|window| window.performance())
-            .map(|performance| performance.now())
-            .unwrap_or(0.0);
-        match pending_probe.try_finish() {
-            Ok(vello_gpu::WebGlProbeStatus::Pending(pending_probe)) => {
-                *pending_probe_ref.borrow_mut() = Some(pending_probe);
-                if let Some(callback) = callback_ref.borrow().as_ref() {
-                    request_animation_frame(callback);
+    spawn_local(async move {
+        let mut pending_probe = pending_probe;
+        let mut poll_count = 0;
+        let completion = loop {
+            wait_ms(PROBE_POLL_INTERVAL_MS).await;
+            poll_count += 1;
+            let readback_started_at = web_sys::window()
+                .and_then(|window| window.performance())
+                .map(|performance| performance.now())
+                .unwrap_or(0.0);
+            match pending_probe.try_finish() {
+                Ok(vello_gpu::WebGlProbeStatus::Pending(next_probe))
+                    if poll_count < PROBE_MAX_POLLS =>
+                {
+                    pending_probe = next_probe;
                 }
-            }
-            Ok(vello_gpu::WebGlProbeStatus::Complete(probe)) => {
-                let readback_ms = probe_elapsed_ms(readback_started_at);
-                callback_ref.borrow_mut().take();
-                if let Some(on_complete) = on_complete_ref.borrow_mut().take() {
-                    on_complete(ProbeCompletion {
-                        readback_ms,
+                Ok(vello_gpu::WebGlProbeStatus::Pending(_)) => {
+                    break ProbeCompletion {
+                        readback_ms: probe_elapsed_ms(polling_started_at),
+                        result: Err(ProbeFailure {
+                            message: format!(
+                                "Probe timed out after {PROBE_MAX_POLLS} polls without a completion signal"
+                            ),
+                            actual: None,
+                        }),
+                    };
+                }
+                Ok(vello_gpu::WebGlProbeStatus::Complete(probe)) => {
+                    break ProbeCompletion {
+                        readback_ms: probe_elapsed_ms(readback_started_at),
                         result: probe_result_to_result(probe, &probe_features),
-                    });
+                    };
                 }
-            }
-            Err(error) => {
-                let readback_ms = probe_elapsed_ms(readback_started_at);
-                callback_ref.borrow_mut().take();
-                if let Some(on_complete) = on_complete_ref.borrow_mut().take() {
-                    on_complete(ProbeCompletion {
-                        readback_ms,
+                Err(error) => {
+                    break ProbeCompletion {
+                        readback_ms: probe_elapsed_ms(readback_started_at),
                         result: Err(ProbeFailure {
                             message: error.to_string(),
                             actual: None,
                         }),
-                    });
+                    };
                 }
             }
-        }
-    }) as Box<dyn FnMut()>));
-
-    let timeout = Closure::once_into_js(move || finish_timeout());
-    web_sys::window()
-        .unwrap()
-        .set_timeout_with_callback_and_timeout_and_arguments_0(
-            timeout.unchecked_ref(),
-            PROBE_POLL_TIMEOUT_MS,
-        )
-        .unwrap();
-
-    if let Some(callback) = callback.borrow().as_ref() {
-        request_animation_frame(callback);
-    }
+        };
+        on_complete(completion);
+    });
 }
 
 fn probe_result_to_result(
@@ -781,7 +724,7 @@ fn wire_events(state: &Rc<RefCell<AppState>>, window: &web_sys::Window) {
 
             let s = s.clone();
             spawn_local(async move {
-                wait_for_probe_delay().await;
+                wait_ms(PROBE_START_DELAY_MS).await;
                 let pending = {
                     let mut st = s.borrow_mut();
                     if !st.probe_delay_pending || st.probe_delay_id != probe_delay_id {
