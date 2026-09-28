@@ -681,6 +681,21 @@ impl Ui {
         }
     }
 
+    pub fn set_probe_waiting(&self) {
+        self.set_probe_running(true);
+        set_probe_button_state(
+            &self.top_probe_btn,
+            TOP_PROBE_BUTTON_NEUTRAL_CLASS,
+            "Probe queued",
+            None,
+        );
+        set_probe_details(
+            &self.top_probe_details,
+            PROBE_DETAILS_NEUTRAL_CLASS,
+            Some("Starting probe in 5 seconds…"),
+        );
+    }
+
     pub fn set_probe_sync_complete(&self, synchronous_ms: f64) {
         set_probe_button_state(
             &self.top_probe_btn,
