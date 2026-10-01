@@ -181,7 +181,7 @@ impl RectScene {
             rotated: false,
             image_filter: 1,
             image_opaque: false,
-            use_external_textures: false,
+            use_external_textures: true,
             opaque: false,
             dynamic_gradient: false,
             gradient_shape: 0,

@@ -561,7 +561,7 @@ impl BenchScene for SvgScene {
                         SceneId::Svg,
                         SVG_IMAGE_EPOCH,
                         image.cache_key,
-                        false,
+                        true,
                         backend,
                         || image.pixmap.clone(),
                     );
