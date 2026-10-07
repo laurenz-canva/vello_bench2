@@ -242,7 +242,9 @@ impl AppState {
         }
         if self.webgl_init_pending {
             self.webgl_init_pending = false;
-            self.ui.hide_webgl_init_status();
+            if let Some(stats) = self.backend.shader_compilation_stats() {
+                self.ui.set_shader_compilation_stats(stats);
+            }
         }
         true
     }
@@ -625,7 +627,9 @@ pub async fn run() {
         while !backend.poll_ready() {
             next_animation_frame().await;
         }
-        ui.hide_webgl_init_status();
+        if let Some(stats) = backend.shader_compilation_stats() {
+            ui.set_shader_compilation_stats(stats);
+        }
     } else {
         ui.hide_webgl_init_status();
     }

@@ -461,9 +461,30 @@ impl Ui {
     pub fn set_webgl_initializing(&self) {
         self.webgl_init_status
             .set_text_content(Some("Initializing WebGL…"));
+        self.webgl_init_status.remove_attribute("title").unwrap();
         class(
             &self.webgl_init_status,
             "webgl-init-status webgl-init-status-pending",
+        );
+    }
+
+    pub fn set_shader_compilation_stats(&self, stats: vello_gpu::ShaderCompilationStats) {
+        self.webgl_init_status.set_text_content(Some(&format!(
+            "Shaders: {:.1}ms",
+            stats.elapsed.as_secs_f64() * 1_000.0
+        )));
+        self.webgl_init_status
+            .set_attribute(
+                "title",
+                &format!(
+                    "{} shaders compiled in {} polls",
+                    stats.shader_count, stats.poll_count
+                ),
+            )
+            .unwrap();
+        class(
+            &self.webgl_init_status,
+            "webgl-init-status webgl-init-status-complete",
         );
     }
 

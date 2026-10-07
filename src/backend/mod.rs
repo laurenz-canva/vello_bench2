@@ -159,6 +159,9 @@ pub trait Backend {
     fn poll_ready(&mut self) -> bool {
         true
     }
+    fn shader_compilation_stats(&self) -> Option<vello_gpu::ShaderCompilationStats> {
+        None
+    }
     fn reset(&mut self);
     fn render_offscreen(&mut self);
     fn blit(&mut self);

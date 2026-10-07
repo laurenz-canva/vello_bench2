@@ -73,6 +73,13 @@ canvas {
   background: rgba(59, 130, 246, 0.14);
 }
 
+.webgl-init-status-complete {
+  display: block;
+  color: #a5f3fc;
+  border-color: rgba(103, 232, 249, 0.4);
+  background: rgba(8, 51, 68, 0.85);
+}
+
 .app-top-bar {
   position: fixed;
   top: 0;

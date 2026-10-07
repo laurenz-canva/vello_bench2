@@ -102,6 +102,12 @@ impl Backend for BackendImpl {
         }
     }
 
+    fn shader_compilation_stats(&self) -> Option<vello_gpu::ShaderCompilationStats> {
+        self.renderer
+            .as_ref()
+            .map(vello_gpu::WebGlRenderer::shader_compilation_stats)
+    }
+
     fn reset(&mut self) {
         self.ctx.reset();
     }
