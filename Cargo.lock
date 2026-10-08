@@ -223,7 +223,7 @@ checksum = "f9abbd1bc6865053c427f7198e6af43bfdedc55ab791faed4fbd361d789575ff"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -437,7 +437,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustc_version",
- "syn",
+ "syn 2.0.117",
  "unicode-xid",
 ]
 
@@ -532,9 +532,20 @@ dependencies = [
 
 [[package]]
 name = "fearless_simd"
-version = "0.7.0"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4beca3cb2444e3304ac30843cc091f44ed58932353cd492ce740067bfce6b12"
+checksum = "3296eb97d869113eaf148a6bdf01884e90b3828ad7ae2340b0f93362fc158611"
+
+[[package]]
+name = "fearless_simd_macros"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e91d94c6885390b81782d7ee60fd6583b33907333a8b340de25ccf468353315"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.6",
+]
 
 [[package]]
 name = "fixedbitset"
@@ -699,8 +710,8 @@ dependencies = [
 
 [[package]]
 name = "glifo"
-version = "0.3.0"
-source = "git+https://github.com/linebender/vello?rev=a9f11bbe752c391a2e420657d65cbd1fc97f4fae#a9f11bbe752c391a2e420657d65cbd1fc97f4fae"
+version = "0.4.0"
+source = "git+https://github.com/linebender/vello?rev=502ea335#502ea3350a5a98822e27040eaf33d8b5ee17f271"
 dependencies = [
  "bytemuck",
  "foldhash",
@@ -922,7 +933,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38c0b942f458fe50cdac086d2f946512305e5631e720728f2a61aabcd47a6264"
 dependencies = [
  "quote",
- "syn",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -1158,7 +1169,7 @@ dependencies = [
  "quote",
  "regex-automata",
  "regex-syntax",
- "syn",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -1884,7 +1895,7 @@ checksum = "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -2042,6 +2053,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn"
+version = "3.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8593e8e72159ed2257d083c7a454a85cbf854f37a0966d8d483aff8c8a3ebcee"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
 name = "term"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2076,7 +2098,7 @@ checksum = "ebc4ee7f67670e9b64d05fa4253e753e016c6c95ff35b89b7941d6b856dec1d5"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -2216,8 +2238,8 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 
 [[package]]
 name = "vello"
-version = "0.10.0"
-source = "git+https://github.com/linebender/vello?rev=a9f11bbe752c391a2e420657d65cbd1fc97f4fae#a9f11bbe752c391a2e420657d65cbd1fc97f4fae"
+version = "0.11.0"
+source = "git+https://github.com/linebender/vello?rev=502ea335#502ea3350a5a98822e27040eaf33d8b5ee17f271"
 dependencies = [
  "bytemuck",
  "futures-intrusive",
@@ -2269,11 +2291,12 @@ dependencies = [
 
 [[package]]
 name = "vello_common"
-version = "0.2.0"
-source = "git+https://github.com/linebender/vello?rev=a9f11bbe752c391a2e420657d65cbd1fc97f4fae#a9f11bbe752c391a2e420657d65cbd1fc97f4fae"
+version = "0.3.0"
+source = "git+https://github.com/linebender/vello?rev=502ea335#502ea3350a5a98822e27040eaf33d8b5ee17f271"
 dependencies = [
  "bytemuck",
  "fearless_simd",
+ "fearless_simd_macros",
  "guillotiere",
  "log",
  "peniko",
@@ -2284,10 +2307,12 @@ dependencies = [
 
 [[package]]
 name = "vello_cpu"
-version = "0.2.0"
-source = "git+https://github.com/linebender/vello?rev=a9f11bbe752c391a2e420657d65cbd1fc97f4fae#a9f11bbe752c391a2e420657d65cbd1fc97f4fae"
+version = "0.3.0"
+source = "git+https://github.com/linebender/vello?rev=502ea335#502ea3350a5a98822e27040eaf33d8b5ee17f271"
 dependencies = [
  "bytemuck",
+ "fearless_simd",
+ "fearless_simd_macros",
  "glifo",
  "hashbrown 0.17.1",
  "png",
@@ -2296,8 +2321,8 @@ dependencies = [
 
 [[package]]
 name = "vello_encoding"
-version = "0.10.0"
-source = "git+https://github.com/linebender/vello?rev=a9f11bbe752c391a2e420657d65cbd1fc97f4fae#a9f11bbe752c391a2e420657d65cbd1fc97f4fae"
+version = "0.11.0"
+source = "git+https://github.com/linebender/vello?rev=502ea335#502ea3350a5a98822e27040eaf33d8b5ee17f271"
 dependencies = [
  "bytemuck",
  "guillotiere",
@@ -2308,8 +2333,8 @@ dependencies = [
 
 [[package]]
 name = "vello_gpu"
-version = "0.2.0"
-source = "git+https://github.com/linebender/vello?rev=a9f11bbe752c391a2e420657d65cbd1fc97f4fae#a9f11bbe752c391a2e420657d65cbd1fc97f4fae"
+version = "0.3.0"
+source = "git+https://github.com/linebender/vello?rev=502ea335#502ea3350a5a98822e27040eaf33d8b5ee17f271"
 dependencies = [
  "bytemuck",
  "glifo",
@@ -2319,13 +2344,14 @@ dependencies = [
  "thiserror",
  "vello_common",
  "vello_gpu_shaders",
+ "wasm-bindgen",
  "web-sys",
 ]
 
 [[package]]
 name = "vello_gpu_shaders"
-version = "0.2.0"
-source = "git+https://github.com/linebender/vello?rev=a9f11bbe752c391a2e420657d65cbd1fc97f4fae#a9f11bbe752c391a2e420657d65cbd1fc97f4fae"
+version = "0.3.0"
+source = "git+https://github.com/linebender/vello?rev=502ea335#502ea3350a5a98822e27040eaf33d8b5ee17f271"
 dependencies = [
  "naga",
  "wesl",
@@ -2336,8 +2362,8 @@ dependencies = [
 
 [[package]]
 name = "vello_shaders"
-version = "0.10.0"
-source = "git+https://github.com/linebender/vello?rev=a9f11bbe752c391a2e420657d65cbd1fc97f4fae#a9f11bbe752c391a2e420657d65cbd1fc97f4fae"
+version = "0.11.0"
+source = "git+https://github.com/linebender/vello?rev=502ea335#502ea3350a5a98822e27040eaf33d8b5ee17f271"
 dependencies = [
  "bytemuck",
  "log",
@@ -2388,7 +2414,7 @@ dependencies = [
  "heck",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -2451,7 +2477,7 @@ dependencies = [
  "bumpalo",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.117",
  "wasm-bindgen-shared",
 ]
 
@@ -2541,7 +2567,7 @@ dependencies = [
  "itertools",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -2807,7 +2833,7 @@ checksum = "053e2e040ab57b9dc951b72c264860db7eb3b0200ba345b4e4c3b14f67855ddf"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -2818,7 +2844,7 @@ checksum = "3f316c4a2570ba26bbec722032c4099d8c8bc095efccdc15688708623367e358"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.117",
 ]
 
 [[package]]
@@ -2902,7 +2928,7 @@ checksum = "70e3cd084b1788766f53af483dd21f93881ff30d7320490ec3ef7526d203bad4"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 2.0.117",
 ]
 
 [[package]]

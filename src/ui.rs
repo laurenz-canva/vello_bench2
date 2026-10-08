@@ -35,7 +35,7 @@ const PROBE_FEATURE_OPTIONS: &[(vello_common::probe::ProbeFeature, &str, &str)] 
         "Alpha blending",
     ),
     (
-        vello_common::probe::ProbeFeature::Gradient,
+        vello_common::probe::ProbeFeature::LinearGradient,
         "gradient",
         "Gradient",
     ),
